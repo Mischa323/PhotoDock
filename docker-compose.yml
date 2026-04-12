@@ -1,17 +1,30 @@
 services:
   image-upload:
     image: ghcr.io/mischa323/terminal-photo-display:latest
-    ports:
-      - "${HOST_PORT:-8080}:${PORT:-8080}"
     environment:
       PORT: ${PORT:-8080}
       DATA_FILE: /data/data.json
       UPLOADS_DIR: /data/uploads
     volumes:
-      # All persistent data (images + data.json) lives here.
-      # Change ./data to any host path you want, or use a named volume.
       - ./data:/data
     restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      PORT: ${PORT:-8080}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    depends_on:
+      - image-upload
 
   watchtower:
     image: containrrr/watchtower
@@ -19,3 +32,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     command: --interval 300 --cleanup
     restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
