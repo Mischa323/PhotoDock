@@ -4,17 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: sans-serif;
-            background: #f0f2f5;
+            font-family: 'Inter', sans-serif;
+            background: #eef1ee;
             min-height: 100vh;
         }
 
         header {
-            background: #1e1e1e;
+            background: #1e4d2c;
             color: #fff;
             height: 56px;
             display: flex;
@@ -24,12 +26,13 @@
             position: sticky;
             top: 0;
             z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.18);
         }
 
-        header h1 { font-size: 18px; }
+        header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
 
         .back-btn {
-            background: rgba(255,255,255,0.12);
+            background: rgba(255,255,255,0.15);
             color: #fff;
             border: none;
             padding: 7px 16px;
@@ -40,9 +43,10 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
+            font-weight: 500;
         }
 
-        .back-btn:hover { background: rgba(255,255,255,0.2); }
+        .back-btn:hover { background: rgba(255,255,255,0.25); }
 
         main {
             max-width: 760px;
@@ -55,20 +59,21 @@
 
         section {
             background: #fff;
-            border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+            border-radius: 10px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.05);
             overflow: hidden;
         }
 
         .section-header {
-            padding: 18px 24px;
-            border-bottom: 1px solid #eee;
+            padding: 16px 24px;
+            border-bottom: 1px solid #eef1ee;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            background: #f9fbf9;
         }
 
-        .section-header h2 { font-size: 16px; color: #222; }
+        .section-header h2 { font-size: 14px; font-weight: 600; color: #1e4d2c; text-transform: uppercase; letter-spacing: 0.05em; }
 
         table {
             width: 100%;
@@ -78,11 +83,12 @@
         thead th {
             text-align: left;
             padding: 10px 24px;
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
-            color: #888;
-            background: #fafafa;
-            border-bottom: 1px solid #eee;
+            letter-spacing: 0.06em;
+            color: #7a8a7a;
+            background: #f6f8f6;
+            border-bottom: 1px solid #eef1ee;
         }
 
         .badge {
@@ -93,8 +99,8 @@
             font-weight: 600;
         }
 
-        .badge-admin    { background: #eaf3ff; color: #2a6db5; }
-        .badge-standard { background: #f0f0f0; color: #666; }
+        .badge-admin    { background: #e6f4ec; color: #1a5c32; }
+        .badge-standard { background: #f0f2f0; color: #5a6a5a; }
 
         select {
             border: 1px solid #ddd;
@@ -106,7 +112,7 @@
             cursor: pointer;
         }
 
-        select:focus { border-color: #4a90e2; }
+        select:focus { border-color: #29c76f; }
 
         .modal select {
             width: 100%;
@@ -186,7 +192,7 @@
             transition: transform 0.2s;
         }
 
-        .toggle input:checked + .toggle-slider { background: #4a90e2; }
+        .toggle input:checked + .toggle-slider { background: #29c76f; }
         .toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
 
         /* ── Display settings ─────────────────────────────────────── */
@@ -225,10 +231,10 @@
             font-family: monospace;
         }
 
-        .tz-input:focus { border-color: #4a90e2; }
+        .tz-input:focus { border-color: #29c76f; }
 
         .btn-save-settings {
-            background: #4a90e2;
+            background: #29c76f;
             color: #fff;
             border: none;
             padding: 9px 22px;
@@ -239,15 +245,16 @@
             align-self: flex-start;
         }
 
-        .btn-save-settings:hover { background: #357abd; }
+        .btn-save-settings:hover { background: #1ea854; }
 
-        tbody tr { border-bottom: 1px solid #f0f0f0; }
+        tbody tr { border-bottom: 1px solid #f0f3f0; }
         tbody tr:last-child { border-bottom: none; }
+        tbody tr:hover { background: #f9fbf9; }
 
         tbody td {
             padding: 12px 24px;
             font-size: 14px;
-            color: #333;
+            color: #2a3a2a;
             vertical-align: middle;
         }
 
@@ -283,12 +290,12 @@
         /* Add form */
         .add-form {
             padding: 16px 24px;
-            border-top: 1px solid #eee;
+            border-top: 1px solid #eef1ee;
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
             align-items: flex-end;
-            background: #fafafa;
+            background: #f6f8f6;
         }
 
         .add-form .field {
@@ -310,10 +317,10 @@
             background: #fff;
         }
 
-        .add-form input:focus { border-color: #4a90e2; }
+        .add-form input:focus { border-color: #29c76f; }
 
         .btn-add {
-            background: #4a90e2;
+            background: #29c76f;
             color: #fff;
             border: none;
             padding: 8px 20px;
@@ -326,11 +333,11 @@
             height: 36px;
         }
 
-        .btn-add:hover { background: #357abd; }
+        .btn-add:hover { background: #1ea854; }
 
         /* Edit inline */
         .edit-input {
-            border: 1px solid #4a90e2;
+            border: 1px solid #29c76f;
             border-radius: 4px;
             padding: 4px 8px;
             font-size: 14px;
@@ -399,7 +406,7 @@
             outline: none;
         }
 
-        .modal input:focus { border-color: #4a90e2; }
+        .modal input:focus { border-color: #29c76f; }
 
         .modal-actions {
             display: flex;
@@ -419,7 +426,7 @@
         }
 
         .btn-save {
-            background: #4a90e2;
+            background: #29c76f;
             color: #fff;
             border: none;
             padding: 8px 18px;
@@ -429,7 +436,7 @@
             font-weight: 600;
         }
 
-        .btn-save:hover { background: #357abd; }
+        .btn-save:hover { background: #1ea854; }
 
         /* ── Changelog ───────────────────────────────────────────── */
         .cl-entry {

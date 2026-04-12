@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Setup</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: sans-serif;
-            background: #111;
+            font-family: 'Inter', sans-serif;
+            background: #0d2218;
             height: 100vh;
             display: flex;
             align-items: center;
@@ -17,60 +19,86 @@
         }
 
         .card {
-            background: #1e1e1e;
-            border-radius: 12px;
+            background: #122b1c;
+            border-radius: 14px;
             padding: 40px 36px;
             width: 100%;
             max-width: 380px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+            border: 1px solid #1e3d28;
         }
 
-        h1 { color: #fff; font-size: 22px; margin-bottom: 6px; text-align: center; }
-        p  { color: #888; font-size: 13px; text-align: center; margin-bottom: 28px; }
+        .logo { text-align: center; margin-bottom: 8px; font-size: 28px; }
+
+        h1 {
+            color: #fff;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            text-align: center;
+        }
+
+        p {
+            color: #6a9e7a;
+            font-size: 13px;
+            text-align: center;
+            margin-bottom: 28px;
+        }
 
         label {
             display: block;
-            color: #aaa;
-            font-size: 13px;
+            color: #8ab898;
+            font-size: 12px;
+            font-weight: 500;
             margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         input {
             width: 100%;
-            background: #2a2a2a;
-            border: 1px solid #333;
-            border-radius: 6px;
+            background: #1a3526;
+            border: 1px solid #265c37;
+            border-radius: 8px;
             color: #fff;
             font-size: 15px;
-            padding: 10px 12px;
+            font-family: 'Inter', sans-serif;
+            padding: 11px 14px;
             outline: none;
             margin-bottom: 18px;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        input:focus { border-color: #4a90e2; }
+        input:focus {
+            border-color: #29c76f;
+            box-shadow: 0 0 0 3px rgba(41,199,111,0.15);
+        }
 
         button {
             width: 100%;
-            background: #4a90e2;
+            background: #29c76f;
             color: #fff;
             border: none;
-            border-radius: 6px;
-            padding: 11px;
+            border-radius: 8px;
+            padding: 12px;
             font-size: 15px;
             font-weight: 600;
+            font-family: 'Inter', sans-serif;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: background 0.2s, box-shadow 0.2s;
         }
 
-        button:hover { background: #357abd; }
+        button:hover {
+            background: #1ea854;
+            box-shadow: 0 4px 16px rgba(41,199,111,0.3);
+        }
 
         .error {
-            background: rgba(192,57,43,0.2);
-            border: 1px solid rgba(192,57,43,0.5);
+            background: rgba(192,57,43,0.15);
+            border: 1px solid rgba(192,57,43,0.4);
             color: #e74c3c;
-            border-radius: 6px;
-            padding: 10px 12px;
+            border-radius: 8px;
+            padding: 10px 14px;
             font-size: 13px;
             margin-bottom: 18px;
             text-align: center;
@@ -80,6 +108,7 @@
 </head>
 <body>
     <div class="card">
+        <div class="logo">🖼</div>
         <h1>Welcome</h1>
         <p>Create your admin account to get started.</p>
 
