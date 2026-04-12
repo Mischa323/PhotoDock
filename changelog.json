@@ -1,0 +1,80 @@
+[
+  {
+    "version": "1.0.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Image upload with drag & drop support",
+      "Gallery view of all uploaded images",
+      "Fullscreen slideshow with configurable interval",
+      "External slideshow API for terminal/server integration",
+      "API key authentication"
+    ]
+  },
+  {
+    "version": "1.1.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Admin panel for user and role management",
+      "Role-based access control (admin and standard roles)",
+      "Custom roles with configurable permissions",
+      "Date and time overlay with timezone support"
+    ]
+  },
+  {
+    "version": "1.2.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Password hashing with scrypt (built-in crypto)",
+      "Brute-force protection with login rate limiting",
+      "First-run setup page when no users exist"
+    ]
+  },
+  {
+    "version": "1.3.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Docker support with docker-compose",
+      "GitHub Actions CI for automatic image builds to ghcr.io",
+      "Watchtower integration for automatic container updates"
+    ]
+  },
+  {
+    "version": "1.4.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Persistent login tokens stored in data.json",
+      "Login sessions survive server and container restarts",
+      "Admin session management (view and revoke sessions)",
+      "Removed express-session dependency"
+    ]
+  },
+  {
+    "version": "1.5.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Two-factor authentication (TOTP) without external libraries",
+      "Compatible with Google Authenticator, Authy, and any TOTP app",
+      "QR code setup flow in the settings panel",
+      "Admin can reset 2FA for any user (e.g. lost device)"
+    ]
+  },
+  {
+    "version": "1.6.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Automatic HTTPS via Caddy reverse proxy",
+      "Free SSL certificates from Let's Encrypt, auto-renewed",
+      "HTTP to HTTPS redirect",
+      "API reference documentation in settings"
+    ]
+  },
+  {
+    "version": "1.7.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Domain name can be changed from the admin portal",
+      "Caddy config updated live via its admin API without restart",
+      "Version history shown in admin portal"
+    ]
+  }
+]
