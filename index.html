@@ -340,6 +340,7 @@
     <header>
         <h1>My Images</h1>
         <div class="header-right">
+            <a href="/admin.html" class="btn btn-ghost" style="text-decoration:none" data-admin>&#9881; Settings</a>
             <form method="POST" action="/logout" style="margin:0">
                 <button class="btn btn-ghost" type="submit">Log out</button>
             </form>
@@ -547,6 +548,7 @@
                 del.className = 'del';
                 del.textContent = '×';
                 del.title = 'Delete';
+                del.dataset.delete = '';
                 del.onclick = async (e) => {
                     e.stopPropagation();
                     if (!confirm('Delete this image?')) return;
@@ -643,7 +645,18 @@
         document.addEventListener('mousemove', resetIdle);
         resetIdle();
 
+        // ── Role-based UI ─────────────────────────────────────────────
+        async function applyRole() {
+            const res  = await fetch('/api/me');
+            const user = await res.json();
+            const p    = user.permissions || {};
+            if (!p.canManage) document.querySelectorAll('[data-admin]').forEach(el => el.style.display = 'none');
+            if (!p.canUpload) document.getElementById('uploadBtn').style.display = 'none';
+            if (!p.canDelete) document.querySelectorAll('[data-delete]').forEach(el => el.style.display = 'none');
+        }
+
         // ── Init ─────────────────────────────────────────────────────
+        applyRole();
         loadImages();
     </script>
 </body>

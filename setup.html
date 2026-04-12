@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
+    <title>Setup</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -21,16 +21,12 @@
             border-radius: 12px;
             padding: 40px 36px;
             width: 100%;
-            max-width: 360px;
+            max-width: 380px;
             box-shadow: 0 8px 32px rgba(0,0,0,0.5);
         }
 
-        h1 {
-            color: #fff;
-            font-size: 22px;
-            margin-bottom: 28px;
-            text-align: center;
-        }
+        h1 { color: #fff; font-size: 22px; margin-bottom: 6px; text-align: center; }
+        p  { color: #888; font-size: 13px; text-align: center; margin-bottom: 28px; }
 
         label {
             display: block;
@@ -39,8 +35,7 @@
             margin-bottom: 6px;
         }
 
-        input[type="text"],
-        input[type="password"] {
+        input {
             width: 100%;
             background: #2a2a2a;
             border: 1px solid #333;
@@ -79,37 +74,56 @@
             font-size: 13px;
             margin-bottom: 18px;
             text-align: center;
+            display: none;
         }
     </style>
 </head>
 <body>
     <div class="card">
-        <h1>My Images</h1>
+        <h1>Welcome</h1>
+        <p>Create your admin account to get started.</p>
 
-        <div id="errorMsg" class="error" style="display:none">
-            Incorrect username or password.
-        </div>
+        <div class="error" id="errorMsg"></div>
 
-        <form method="POST" action="/login">
-            <label for="username">Username</label>
-            <input type="text" id="username" name="username" autofocus autocomplete="username">
+        <label for="username">Username</label>
+        <input type="text" id="username" autofocus autocomplete="username">
 
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" autocomplete="current-password">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="new-password">
 
-            <button type="submit">Log in</button>
-        </form>
+        <button onclick="setup()">Create Account</button>
     </div>
 
     <script>
-        const err = new URLSearchParams(location.search).get('error');
-        if (err === 'locked') {
-            const el = document.getElementById('errorMsg');
-            el.textContent = 'Too many failed attempts. Try again in 15 minutes.';
-            el.style.display = 'block';
-        } else if (err) {
-            document.getElementById('errorMsg').style.display = 'block';
+        async function setup() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const errorEl  = document.getElementById('errorMsg');
+            errorEl.style.display = 'none';
+
+            if (!username || !password) {
+                errorEl.textContent = 'Please fill in both fields.';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            const res  = await fetch('/api/setup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+            const data = await res.json();
+
+            if (!res.ok) {
+                errorEl.textContent = data.error;
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            window.location.href = '/';
         }
+
+        document.addEventListener('keydown', e => { if (e.key === 'Enter') setup(); });
     </script>
 </body>
 </html>
