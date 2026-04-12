@@ -3,10 +3,648 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Test HTML</title>
+    <title>Image Upload</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: sans-serif;
+            background: #000;
+            height: 100vh;
+            overflow: hidden;
+            color: #fff;
+        }
+
+        /* ── Header ───────────────────────────────────────────────────── */
+        header {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 60px;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 20;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+        }
+
+        header h1 {
+            font-size: 20px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+        }
+
+        .header-right {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+
+        .btn-primary { background: #4a90e2; color: #fff; }
+        .btn-primary:hover { background: #357abd; }
+        .btn-primary:disabled { background: #555; cursor: default; }
+
+        .btn-ghost {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            backdrop-filter: blur(4px);
+        }
+        .btn-ghost:hover { background: rgba(255,255,255,0.25); }
+        .btn-ghost.active { background: rgba(255,255,255,0.3); }
+
+        input[type="file"] { display: none; }
+
+        /* ── Interval control ─────────────────────────────────────────── */
+        .interval-control {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255,255,255,0.12);
+            border-radius: 6px;
+            padding: 5px 12px;
+            font-size: 13px;
+            backdrop-filter: blur(4px);
+        }
+
+        .interval-control label { color: #ccc; white-space: nowrap; }
+
+        .interval-control input[type="number"] {
+            width: 52px;
+            background: rgba(255,255,255,0.15);
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 4px;
+            color: #fff;
+            font-size: 13px;
+            padding: 3px 6px;
+            text-align: center;
+            outline: none;
+        }
+
+        .interval-control input[type="number"]:focus {
+            border-color: #4a90e2;
+        }
+
+        .interval-control span { color: #ccc; }
+
+        /* ── Slideshow ────────────────────────────────────────────────── */
+        .slide {
+            position: fixed;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            transition: opacity 1s ease;
+            opacity: 0;
+        }
+
+        .slide.active { opacity: 1; }
+
+        /* ── Bottom bar ───────────────────────────────────────────────── */
+        .bottom-bar {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+            z-index: 20;
+        }
+
+        /* Dots */
+        .dots {
+            display: flex;
+            gap: 7px;
+            flex-wrap: wrap;
+            max-width: 60%;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.4);
+            cursor: pointer;
+            transition: background 0.2s, transform 0.2s;
+        }
+
+        .dot.active {
+            background: #fff;
+            transform: scale(1.3);
+        }
+
+        /* Timer bar */
+        .timer-bar-wrap {
+            position: fixed;
+            bottom: 0; left: 0; right: 0;
+            height: 3px;
+            background: rgba(255,255,255,0.15);
+            z-index: 21;
+        }
+
+        .timer-bar {
+            height: 100%;
+            background: #4a90e2;
+            width: 0%;
+            transition: width linear;
+        }
+
+        /* Prev / Next arrows */
+        .arrow {
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.35);
+            border: none;
+            color: #fff;
+            font-size: 28px;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+            opacity: 0;
+        }
+
+        .arrow:hover { background: rgba(0,0,0,0.6); }
+        .arrow-left  { left:  16px; }
+        .arrow-right { right: 16px; }
+
+        /* ── Hide all UI when idle (no mouse movement) ────────────────── */
+        header,
+        .bottom-bar,
+        .timer-bar-wrap,
+        .arrow {
+            transition: opacity 0.4s;
+        }
+
+        body.idle header,
+        body.idle .bottom-bar,
+        body.idle .timer-bar-wrap,
+        body.idle .arrow {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        body.idle { cursor: none; }
+
+        /* Empty state */
+        .empty-state {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            color: #888;
+            font-size: 18px;
+        }
+
+        .empty-state svg { width: 56px; height: 56px; fill: #555; }
+
+        /* ── Drop overlay ─────────────────────────────────────────────── */
+        .drop-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(74,144,226,0.2);
+            border: 3px dashed #4a90e2;
+            z-index: 50;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: 600;
+            color: #4a90e2;
+        }
+
+        .drop-overlay.active { display: flex; }
+
+        /* ── Toast ────────────────────────────────────────────────────── */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%) translateY(60px);
+            background: #222;
+            color: #fff;
+            padding: 10px 22px;
+            border-radius: 6px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.25s, transform 0.25s;
+            pointer-events: none;
+            z-index: 200;
+            white-space: nowrap;
+        }
+
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.error { background: #c0392b; }
+
+        /* ── Gallery overlay ──────────────────────────────────────────── */
+        .gallery-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.92);
+            z-index: 80;
+            overflow-y: auto;
+            padding: 80px 24px 40px;
+        }
+
+        .gallery-overlay.open { display: block; }
+
+        .gallery-overlay h2 {
+            text-align: center;
+            margin-bottom: 24px;
+            font-size: 18px;
+            color: #ccc;
+        }
+
+        .gallery-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+            gap: 14px;
+            max-width: 960px;
+            margin: 0 auto;
+        }
+
+        .gallery-grid .thumb {
+            position: relative;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .gallery-grid .thumb.current { border-color: #4a90e2; }
+
+        .gallery-grid .thumb img {
+            width: 100%;
+            height: 130px;
+            object-fit: cover;
+            display: block;
+        }
+
+        .gallery-grid .thumb .del {
+            position: absolute;
+            top: 5px; right: 5px;
+            background: rgba(0,0,0,0.55);
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 24px; height: 24px;
+            cursor: pointer;
+            font-size: 15px;
+            line-height: 24px;
+            text-align: center;
+            display: none;
+        }
+
+        .gallery-grid .thumb:hover .del { display: block; }
+        .gallery-grid .thumb .del:hover { background: rgba(192,57,43,0.85); }
+
+        .gallery-close {
+            position: fixed;
+            top: 16px; right: 24px;
+            font-size: 36px;
+            cursor: pointer;
+            z-index: 81;
+            color: #fff;
+            line-height: 1;
+            user-select: none;
+        }
+    </style>
 </head>
 <body>
-    <h1>Test HTML</h1>
-    <p>This is a test HTML page.</p>
+
+    <!-- Header -->
+    <header>
+        <h1>My Images</h1>
+        <div class="header-right">
+            <form method="POST" action="/logout" style="margin:0">
+                <button class="btn btn-ghost" type="submit">Log out</button>
+            </form>
+            <div class="interval-control">
+                <label for="intervalInput">Interval</label>
+                <input type="number" id="intervalInput" min="1" max="3600" value="30">
+                <span>sec</span>
+            </div>
+            <button class="btn btn-ghost" id="galleryBtn">All Images</button>
+            <button class="btn btn-primary" id="uploadBtn" onclick="document.getElementById('fileInput').click()">
+                &#8679; Upload
+            </button>
+            <input type="file" id="fileInput" accept="image/*" multiple>
+        </div>
+    </header>
+
+    <!-- Slides rendered here -->
+    <div id="slides"></div>
+
+    <!-- Empty state -->
+    <div class="empty-state" id="emptyState">
+        <svg viewBox="0 0 24 24"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zm-9-2l-3-4-2 2.5L5 19h14l-4-5.5-3 3.5z"/></svg>
+        No images yet — click Upload to add some.
+    </div>
+
+    <!-- Prev / Next -->
+    <button class="arrow arrow-left"  id="arrowLeft">&#8249;</button>
+    <button class="arrow arrow-right" id="arrowRight">&#8250;</button>
+
+    <!-- Bottom bar -->
+    <div class="bottom-bar">
+        <div class="dots" id="dots"></div>
+        <button class="btn btn-ghost" id="pauseBtn">&#9646;&#9646; Pause</button>
+    </div>
+
+    <!-- Timer bar -->
+    <div class="timer-bar-wrap"><div class="timer-bar" id="timerBar"></div></div>
+
+    <!-- Gallery overlay -->
+    <div class="gallery-overlay" id="galleryOverlay">
+        <span class="gallery-close" id="galleryClose">&times;</span>
+        <h2>All Images</h2>
+        <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+
+    <!-- Drop overlay -->
+    <div class="drop-overlay" id="dropOverlay">Drop images to upload</div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const intervalInput = document.getElementById('intervalInput');
+
+        function getInterval() {
+            const val = parseInt(intervalInput.value, 10);
+            return (isNaN(val) || val < 1 ? 5 : val) * 1000;
+        }
+
+        // Persist interval across page reloads
+        const savedInterval = localStorage.getItem('slideInterval');
+        if (savedInterval) intervalInput.value = savedInterval;
+
+        intervalInput.addEventListener('change', () => {
+            let val = parseInt(intervalInput.value, 10);
+            if (isNaN(val) || val < 1) { val = 5; intervalInput.value = 5; }
+            localStorage.setItem('slideInterval', val);
+            if (!paused) startTimer();
+        });
+
+        let images = [];
+        let current = 0;
+        let paused = false;
+        let timer = null;
+        let timerStart = null;
+        let timerBarAnim = null;
+
+        const slidesEl   = document.getElementById('slides');
+        const dotsEl     = document.getElementById('dots');
+        const emptyState = document.getElementById('emptyState');
+        const timerBar   = document.getElementById('timerBar');
+        const pauseBtn   = document.getElementById('pauseBtn');
+        const uploadBtn  = document.getElementById('uploadBtn');
+        const fileInput  = document.getElementById('fileInput');
+        const galleryOverlay = document.getElementById('galleryOverlay');
+        const galleryGrid    = document.getElementById('galleryGrid');
+        const toastEl        = document.getElementById('toast');
+
+        // ── Toast ────────────────────────────────────────────────────
+        let toastTimer;
+        function showToast(msg, type = '') {
+            clearTimeout(toastTimer);
+            toastEl.textContent = msg;
+            toastEl.className = 'toast show ' + type;
+            toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3000);
+        }
+
+        // ── Go to slide ──────────────────────────────────────────────
+        function goTo(index, resetTimer = true) {
+            if (images.length === 0) return;
+            const slides = slidesEl.querySelectorAll('.slide');
+            slides[current]?.classList.remove('active');
+            dotsEl.querySelectorAll('.dot')[current]?.classList.remove('active');
+
+            current = (index + images.length) % images.length;
+
+            slides[current]?.classList.add('active');
+            dotsEl.querySelectorAll('.dot')[current]?.classList.add('active');
+
+            // Highlight current in gallery overlay
+            galleryGrid.querySelectorAll('.thumb').forEach((t, i) =>
+                t.classList.toggle('current', i === current));
+
+            if (resetTimer && !paused) startTimer();
+        }
+
+        // ── Timer bar ────────────────────────────────────────────────
+        function startTimer() {
+            clearTimeout(timer);
+            cancelAnimationFrame(timerBarAnim);
+
+            timerBar.style.transition = 'none';
+            timerBar.style.width = '0%';
+
+            const interval = getInterval();
+            timerStart = performance.now();
+
+            function animBar(now) {
+                const elapsed = now - timerStart;
+                const pct = Math.min((elapsed / interval) * 100, 100);
+                timerBar.style.transition = 'none';
+                timerBar.style.width = pct + '%';
+                if (pct < 100) timerBarAnim = requestAnimationFrame(animBar);
+            }
+            timerBarAnim = requestAnimationFrame(animBar);
+
+            timer = setTimeout(() => {
+                goTo(current + 1);
+            }, interval);
+        }
+
+        // ── Pause / Resume ───────────────────────────────────────────
+        pauseBtn.onclick = () => {
+            paused = !paused;
+            if (paused) {
+                clearTimeout(timer);
+                cancelAnimationFrame(timerBarAnim);
+                pauseBtn.innerHTML = '&#9654; Play';
+            } else {
+                pauseBtn.innerHTML = '&#9646;&#9646; Pause';
+                startTimer();
+            }
+        };
+
+        // ── Arrows ───────────────────────────────────────────────────
+        document.getElementById('arrowLeft').onclick  = () => goTo(current - 1);
+        document.getElementById('arrowRight').onclick = () => goTo(current + 1);
+
+        // ── Keyboard ─────────────────────────────────────────────────
+        document.addEventListener('keydown', e => {
+            if (galleryOverlay.classList.contains('open')) return;
+            if (e.key === 'ArrowLeft')  goTo(current - 1);
+            if (e.key === 'ArrowRight') goTo(current + 1);
+            if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
+        });
+
+        // ── Render slides & dots ─────────────────────────────────────
+        function renderSlides() {
+            slidesEl.innerHTML = '';
+            dotsEl.innerHTML = '';
+
+            if (images.length === 0) {
+                emptyState.style.display = 'flex';
+                timerBar.style.width = '0%';
+                return;
+            }
+            emptyState.style.display = 'none';
+
+            images.forEach((img, i) => {
+                const slide = document.createElement('div');
+                slide.className = 'slide' + (i === current ? ' active' : '');
+                slide.style.backgroundImage = `url('${img.url}')`;
+                slidesEl.appendChild(slide);
+
+                const dot = document.createElement('div');
+                dot.className = 'dot' + (i === current ? ' active' : '');
+                dot.onclick = () => goTo(i);
+                dotsEl.appendChild(dot);
+            });
+        }
+
+        // ── Render gallery overlay ───────────────────────────────────
+        function renderGallery() {
+            galleryGrid.innerHTML = '';
+            images.forEach((img, i) => {
+                const thumb = document.createElement('div');
+                thumb.className = 'thumb' + (i === current ? ' current' : '');
+                thumb.onclick = () => { goTo(i); galleryOverlay.classList.remove('open'); };
+
+                const image = document.createElement('img');
+                image.src = img.url;
+                image.alt = img.filename;
+
+                const del = document.createElement('button');
+                del.className = 'del';
+                del.textContent = '×';
+                del.title = 'Delete';
+                del.onclick = async (e) => {
+                    e.stopPropagation();
+                    if (!confirm('Delete this image?')) return;
+                    try {
+                        const res = await fetch(`/api/images/${encodeURIComponent(img.filename)}`, { method: 'DELETE' });
+                        if (!res.ok) throw new Error();
+                        showToast('Image deleted.');
+                        await loadImages();
+                    } catch {
+                        showToast('Could not delete image.', 'error');
+                    }
+                };
+
+                thumb.appendChild(image);
+                thumb.appendChild(del);
+                galleryGrid.appendChild(thumb);
+            });
+        }
+
+        // ── Load from server ─────────────────────────────────────────
+        async function loadImages() {
+            try {
+                const res = await fetch('/api/images');
+                images = await res.json();
+                if (current >= images.length) current = 0;
+                renderSlides();
+                renderGallery();
+                if (images.length > 0 && !paused) startTimer();
+            } catch {
+                showToast('Could not connect to server.', 'error');
+            }
+        }
+
+        // ── Upload ───────────────────────────────────────────────────
+        async function uploadFiles(files) {
+            const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+            if (imageFiles.length === 0) return;
+
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading…';
+
+            const formData = new FormData();
+            imageFiles.forEach(f => formData.append('images', f));
+
+            try {
+                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Upload failed');
+                showToast(`${data.uploaded.length} image(s) uploaded.`);
+                await loadImages();
+            } catch (err) {
+                showToast('Upload failed: ' + err.message, 'error');
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.innerHTML = '&#8679; Upload';
+                fileInput.value = '';
+            }
+        }
+
+        fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+
+        // ── Gallery overlay ──────────────────────────────────────────
+        document.getElementById('galleryBtn').onclick   = () => galleryOverlay.classList.add('open');
+        document.getElementById('galleryClose').onclick = () => galleryOverlay.classList.remove('open');
+
+        // ── Drag & drop ──────────────────────────────────────────────
+        let dragCounter = 0;
+        const dropOverlay = document.getElementById('dropOverlay');
+
+        document.addEventListener('dragenter', e => {
+            if ([...e.dataTransfer.items].some(i => i.kind === 'file')) {
+                dragCounter++;
+                dropOverlay.classList.add('active');
+            }
+        });
+        document.addEventListener('dragleave', () => {
+            if (--dragCounter === 0) dropOverlay.classList.remove('active');
+        });
+        document.addEventListener('dragover', e => e.preventDefault());
+        document.addEventListener('drop', e => {
+            e.preventDefault();
+            dragCounter = 0;
+            dropOverlay.classList.remove('active');
+            uploadFiles(e.dataTransfer.files);
+        });
+
+        // ── Hide UI when mouse is idle ───────────────────────────────
+        let idleTimer;
+        function resetIdle() {
+            document.body.classList.remove('idle');
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000);
+        }
+        document.addEventListener('mousemove', resetIdle);
+        resetIdle();
+
+        // ── Init ─────────────────────────────────────────────────────
+        loadImages();
+    </script>
 </body>
 </html>
