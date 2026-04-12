@@ -430,6 +430,50 @@
         }
 
         .btn-save:hover { background: #357abd; }
+
+        /* ── API Reference ────────────────────────────────────────── */
+        .api-block {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #f6f8fa;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            padding: 8px 14px;
+            font-family: monospace;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .api-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #888;
+            min-width: 48px;
+        }
+
+        .method-badge {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .method-badge.get { background: #e6f4ea; color: #2e7d32; }
+
+        .api-response {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 8px;
+            padding: 14px 18px;
+            font-size: 12px;
+            font-family: monospace;
+            overflow-x: auto;
+            line-height: 1.6;
+            white-space: pre;
+        }
     </style>
 </head>
 <body>
@@ -565,6 +609,75 @@
                 <input type="text" id="newRoleName" placeholder="e.g. viewer">
             </div>
             <button class="btn-add" onclick="createRole()">Create Role</button>
+        </div>
+    </section>
+
+    <!-- API Info -->
+    <section>
+        <div class="section-header"><h2>API Reference</h2></div>
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:24px">
+
+            <!-- Authentication -->
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Authentication</p>
+                <p style="font-size:14px;color:#444;margin-bottom:10px">All API endpoints require an API key. Pass it in one of two ways:</p>
+                <div style="display:flex;flex-direction:column;gap:8px">
+                    <div class="api-block">
+                        <span class="api-label">Header</span>
+                        <code>x-api-key: YOUR_KEY</code>
+                    </div>
+                    <div class="api-block">
+                        <span class="api-label">Query</span>
+                        <code id="exampleQuery">https://your-server/api/slideshow/current?key=YOUR_KEY</code>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Endpoints -->
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Endpoints</p>
+                <div style="display:flex;flex-direction:column;gap:16px">
+
+                    <div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                            <span class="method-badge get">GET</span>
+                            <code id="urlCurrent" style="font-size:14px;color:#333"></code>
+                            <button class="icon-btn" title="Copy" onclick="copyText(document.getElementById('urlCurrent').textContent)">&#128203;</button>
+                        </div>
+                        <p style="font-size:14px;color:#555;margin-bottom:8px">Returns the current image based on the key's rotation interval.</p>
+                        <pre class="api-response">{
+  "index": 2,
+  "total": 10,
+  "filename": "photo-1712345678.jpg",
+  "url": "https://your-server/uploads/photo-1712345678.jpg",
+  "interval_minutes": 5,
+  "next_at": "2026-04-12T11:05:00.000Z",
+  "next_in_ms": 42000
+}</pre>
+                    </div>
+
+                    <div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                            <span class="method-badge get">GET</span>
+                            <code id="urlAll" style="font-size:14px;color:#333"></code>
+                            <button class="icon-btn" title="Copy" onclick="copyText(document.getElementById('urlAll').textContent)">&#128203;</button>
+                        </div>
+                        <p style="font-size:14px;color:#555;margin-bottom:8px">Returns all uploaded images as an array.</p>
+                        <pre class="api-response">[
+  { "index": 0, "filename": "cat-1712345678.jpg", "url": "https://your-server/uploads/cat-1712345678.jpg" },
+  { "index": 1, "filename": "dog-1712345679.jpg", "url": "https://your-server/uploads/dog-1712345679.jpg" }
+]</pre>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Example -->
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Example (curl)</p>
+                <pre class="api-response" id="curlExample">curl -H "x-api-key: YOUR_KEY" https://your-server/api/slideshow/current</pre>
+            </div>
+
         </div>
     </section>
 
@@ -958,10 +1071,25 @@
         else showToast('Display settings saved.');
     }
 
+    // ── API Reference URLs ─────────────────────────────────────────────────
+    function initApiDocs() {
+        const base = window.location.origin;
+        document.getElementById('urlCurrent').textContent  = `${base}/api/slideshow/current`;
+        document.getElementById('urlAll').textContent      = `${base}/api/slideshow/all`;
+        document.getElementById('exampleQuery').textContent = `${base}/api/slideshow/current?key=YOUR_KEY`;
+        document.getElementById('curlExample').textContent  = `curl -H "x-api-key: YOUR_KEY" ${base}/api/slideshow/current`;
+    }
+
+    async function copyText(text) {
+        await navigator.clipboard.writeText(text);
+        showToast('Copied to clipboard.');
+    }
+
     // ── Init ───────────────────────────────────────────────────────────────
     loadDisplaySettings();
     loadRoles().then(() => loadUsers());
     loadApiKeys();
+    initApiDocs();
 </script>
 </body>
 </html>
