@@ -485,6 +485,53 @@
 
 <main>
 
+    <!-- My Security -->
+    <section>
+        <div class="section-header"><h2>My Security</h2></div>
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px" id="twoFaSection">
+
+            <!-- Status row -->
+            <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px">
+                <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px">
+                    Two-Factor Authentication
+                    <small style="font-size:12px;color:#999">Use an authenticator app for extra login security</small>
+                </label>
+                <span id="twoFaBadge" style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px"></span>
+            </div>
+
+            <!-- Setup panel (shown when enabling) -->
+            <div id="twoFaSetupPanel" style="display:none;flex-direction:column;gap:14px;max-width:480px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:10px;padding:18px">
+                <p style="font-size:14px;color:#444">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
+                <img id="twoFaQr" src="" alt="QR code" style="width:180px;height:180px;border-radius:8px;border:1px solid #ddd;background:#fff">
+                <div style="font-size:12px;color:#888">Or enter the secret manually: <code id="twoFaSecret" style="font-family:monospace;color:#333;word-break:break-all"></code></div>
+                <div style="display:flex;gap:10px;align-items:center">
+                    <input type="number" id="twoFaEnableCode" placeholder="000000"
+                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
+                        onkeydown="if(event.key==='Enter') confirm2FAEnable()">
+                    <button class="btn-add" onclick="confirm2FAEnable()">Activate</button>
+                    <button class="btn-cancel" onclick="cancel2FASetup()">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Disable panel (shown when disabling) -->
+            <div id="twoFaDisablePanel" style="display:none;flex-direction:column;gap:10px;max-width:480px;background:#fff5f5;border:1px solid #fcd;border-radius:10px;padding:18px">
+                <p style="font-size:14px;color:#444">Enter your current authenticator code to disable 2FA.</p>
+                <div style="display:flex;gap:10px;align-items:center">
+                    <input type="number" id="twoFaDisableCode" placeholder="000000"
+                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
+                        onkeydown="if(event.key==='Enter') confirm2FADisable()">
+                    <button style="background:#c0392b;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600" onclick="confirm2FADisable()">Disable 2FA</button>
+                    <button class="btn-cancel" onclick="cancel2FADisable()">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Action button -->
+            <div>
+                <button class="btn-add" id="twoFaToggleBtn" onclick="toggle2FA()" style="display:none"></button>
+            </div>
+        </div>
+    </section>
+
     <!-- Display Settings -->
     <section>
         <div class="section-header"><h2>Display Settings</h2></div>
@@ -568,6 +615,7 @@
                 <tr>
                     <th>Username</th>
                     <th>Role</th>
+                    <th>2FA</th>
                     <th style="width:120px">Actions</th>
                 </tr>
             </thead>
@@ -771,8 +819,14 @@
                 <td>${escHtml(u.username)}</td>
                 <td><span class="badge badge-${u.role}">${u.role === 'admin' ? 'Admin' : 'Standard'}</span></td>
                 <td>
+                    ${u.twoFactorEnabled
+                        ? `<span style="font-size:12px;font-weight:700;color:#2e7d32;background:#e6f4ea;padding:2px 10px;border-radius:20px">On</span>`
+                        : `<span style="font-size:12px;color:#999">Off</span>`}
+                </td>
+                <td>
                     <div class="actions">
                         <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}', '${escHtml(u.username)}', '${u.role}')">&#9998;</button>
+                        ${u.twoFactorEnabled ? `<button class="icon-btn danger" title="Reset 2FA" onclick="adminReset2FA('${u.id}', '${escHtml(u.username)}')">&#128274;</button>` : ''}
                         <button class="icon-btn danger" title="Delete" onclick="deleteUser('${u.id}', '${escHtml(u.username)}')">&#128465;</button>
                     </div>
                 </td>
@@ -1085,11 +1139,105 @@
         showToast('Copied to clipboard.');
     }
 
+    // ── 2FA ────────────────────────────────────────────────────────────────
+    let twoFaEnabled = false;
+
+    async function load2FAStatus() {
+        const res  = await fetch('/api/2fa/status');
+        const data = await res.json();
+        twoFaEnabled = data.enabled;
+        render2FAStatus();
+    }
+
+    function render2FAStatus() {
+        const badge  = document.getElementById('twoFaBadge');
+        const btn    = document.getElementById('twoFaToggleBtn');
+        if (twoFaEnabled) {
+            badge.textContent = 'Enabled';
+            badge.style.cssText = 'font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:#e6f4ea;color:#2e7d32';
+            btn.textContent = 'Disable 2FA';
+            btn.style.background = '#c0392b';
+        } else {
+            badge.textContent = 'Disabled';
+            badge.style.cssText = 'font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:#f0f0f0;color:#888';
+            btn.textContent = 'Enable 2FA';
+            btn.style.background = '';
+        }
+        btn.style.display = '';
+        document.getElementById('twoFaSetupPanel').style.display  = 'none';
+        document.getElementById('twoFaDisablePanel').style.display = 'none';
+    }
+
+    function toggle2FA() {
+        if (twoFaEnabled) {
+            document.getElementById('twoFaDisablePanel').style.display = 'flex';
+            document.getElementById('twoFaToggleBtn').style.display    = 'none';
+            document.getElementById('twoFaDisableCode').value = '';
+            document.getElementById('twoFaDisableCode').focus();
+        } else {
+            start2FASetup();
+        }
+    }
+
+    async function start2FASetup() {
+        document.getElementById('twoFaToggleBtn').style.display = 'none';
+        const res  = await fetch('/api/2fa/setup');
+        const data = await res.json();
+        document.getElementById('twoFaQr').src       = data.qrcode;
+        document.getElementById('twoFaSecret').textContent = data.secret;
+        document.getElementById('twoFaSetupPanel').style.display = 'flex';
+        document.getElementById('twoFaEnableCode').value = '';
+        document.getElementById('twoFaEnableCode').focus();
+    }
+
+    async function confirm2FAEnable() {
+        const code = document.getElementById('twoFaEnableCode').value.trim();
+        const res  = await fetch('/api/2fa/enable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        twoFaEnabled = true;
+        render2FAStatus();
+        showToast('2FA enabled successfully.');
+        loadUsers();
+    }
+
+    function cancel2FASetup() { render2FAStatus(); }
+
+    async function confirm2FADisable() {
+        const code = document.getElementById('twoFaDisableCode').value.trim();
+        const res  = await fetch('/api/2fa/disable', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        twoFaEnabled = false;
+        render2FAStatus();
+        showToast('2FA disabled.');
+        loadUsers();
+    }
+
+    function cancel2FADisable() { render2FAStatus(); }
+
+    async function adminReset2FA(id, username) {
+        if (!confirm(`Reset 2FA for "${username}"? They will be able to log in without a code.`)) return;
+        const res = await fetch(`/api/admin/users/${id}/2fa`, { method: 'DELETE' });
+        if (!res.ok) return showToast('Could not reset 2FA', 'error');
+        showToast(`2FA reset for "${username}".`);
+        loadUsers();
+    }
+
     // ── Init ───────────────────────────────────────────────────────────────
     loadDisplaySettings();
     loadRoles().then(() => loadUsers());
     loadApiKeys();
     initApiDocs();
+    load2FAStatus();
 </script>
 </body>
 </html>

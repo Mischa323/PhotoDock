@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Two-Factor Authentication</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: sans-serif;
+            background: #1a1a2e;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background: #16213e;
+            border-radius: 16px;
+            padding: 40px 36px;
+            width: 100%;
+            max-width: 360px;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+        }
+
+        .icon {
+            font-size: 36px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        h1 {
+            color: #fff;
+            font-size: 22px;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        p.sub {
+            color: #8892a4;
+            font-size: 14px;
+            text-align: center;
+            margin-bottom: 28px;
+            line-height: 1.5;
+        }
+
+        .code-input {
+            width: 100%;
+            background: #0f3460;
+            border: 2px solid #1a4a8a;
+            border-radius: 10px;
+            color: #fff;
+            font-size: 28px;
+            font-family: monospace;
+            letter-spacing: 8px;
+            text-align: center;
+            padding: 14px 10px;
+            outline: none;
+            transition: border-color 0.2s;
+            -moz-appearance: textfield;
+        }
+
+        .code-input::-webkit-outer-spin-button,
+        .code-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+
+        .code-input:focus { border-color: #4a90e2; }
+
+        .btn {
+            width: 100%;
+            background: #4a90e2;
+            color: #fff;
+            border: none;
+            padding: 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            margin-top: 16px;
+            transition: background 0.2s;
+        }
+
+        .btn:hover { background: #357abd; }
+        .btn:disabled { background: #2a4a6a; cursor: default; }
+
+        .error {
+            color: #e74c3c;
+            font-size: 13px;
+            text-align: center;
+            margin-top: 12px;
+            min-height: 18px;
+        }
+
+        .back {
+            display: block;
+            text-align: center;
+            color: #8892a4;
+            font-size: 13px;
+            margin-top: 20px;
+            text-decoration: none;
+        }
+
+        .back:hover { color: #fff; }
+    </style>
+</head>
+<body>
+<div class="card">
+    <div class="icon">&#128274;</div>
+    <h1>Two-Factor Auth</h1>
+    <p class="sub">Enter the 6-digit code from your authenticator app.</p>
+
+    <input type="number" class="code-input" id="codeInput"
+           placeholder="000000" maxlength="6" autofocus
+           oninput="onInput()" onkeydown="onKey(event)">
+
+    <button class="btn" id="submitBtn" onclick="submit()">Verify</button>
+    <p class="error" id="errorMsg"></p>
+    <a href="/login" class="back">&#8592; Back to login</a>
+</div>
+
+<script>
+    const params       = new URLSearchParams(location.search);
+    const pendingToken = params.get('t');
+
+    if (!pendingToken) location.href = '/login';
+
+    function onInput() {
+        const v = document.getElementById('codeInput').value;
+        if (v.length > 6) document.getElementById('codeInput').value = v.slice(0, 6);
+        document.getElementById('errorMsg').textContent = '';
+    }
+
+    function onKey(e) {
+        if (e.key === 'Enter') submit();
+    }
+
+    async function submit() {
+        const code = document.getElementById('codeInput').value.trim();
+        if (code.length !== 6) {
+            document.getElementById('errorMsg').textContent = 'Enter a 6-digit code.';
+            return;
+        }
+
+        const btn = document.getElementById('submitBtn');
+        btn.disabled = true;
+        btn.textContent = 'Verifying…';
+
+        const res  = await fetch('/api/2fa/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pendingToken, code })
+        });
+        const data = await res.json();
+
+        if (res.ok) {
+            location.href = '/';
+        } else {
+            document.getElementById('errorMsg').textContent = data.error || 'Verification failed.';
+            document.getElementById('codeInput').value = '';
+            btn.disabled = false;
+            btn.textContent = 'Verify';
+        }
+    }
+</script>
+</body>
+</html>

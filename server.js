@@ -3,6 +3,7 @@ const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 const crypto  = require('crypto');
+const QRCode  = require('qrcode');
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
@@ -30,6 +31,65 @@ async function verifyPassword(plain, stored) {
     );
     return crypto.timingSafeEqual(Buffer.from(attempt, 'hex'), Buffer.from(hash, 'hex'));
 }
+
+// ── TOTP (2FA) ─────────────────────────────────────────────────────────────
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function b32Decode(str) {
+    str = str.replace(/=+$/, '').toUpperCase();
+    let bits = 0, val = 0;
+    const out = [];
+    for (const ch of str) {
+        const idx = B32.indexOf(ch);
+        if (idx < 0) continue;
+        val = (val << 5) | idx; bits += 5;
+        if (bits >= 8) { out.push((val >> (bits - 8)) & 0xff); bits -= 8; }
+    }
+    return Buffer.from(out);
+}
+
+function b32Encode(buf) {
+    let bits = 0, val = 0, out = '';
+    for (const byte of buf) {
+        val = (val << 8) | byte; bits += 8;
+        while (bits >= 5) { out += B32[(val >> (bits - 5)) & 0x1f]; bits -= 5; }
+    }
+    if (bits > 0) out += B32[(val << (5 - bits)) & 0x1f];
+    return out;
+}
+
+function generateTotpSecret() { return b32Encode(crypto.randomBytes(20)); }
+
+function totpCode(secret, window = 0) {
+    const counter = Math.floor(Date.now() / 30000) + window;
+    const buf = Buffer.alloc(8);
+    buf.writeBigInt64BE(BigInt(counter));
+    const digest = crypto.createHmac('sha1', b32Decode(secret)).update(buf).digest();
+    const offset = digest[digest.length - 1] & 0xf;
+    return String((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).padStart(6, '0');
+}
+
+function verifyTotp(secret, token) {
+    return [-1, 0, 1].some(w => totpCode(secret, w) === token);
+}
+
+// Pending 2FA login sessions (in-memory, 5-min TTL)
+const pending2FA = new Map();
+
+function createPending2FA(userId) {
+    const token = crypto.randomBytes(16).toString('hex');
+    pending2FA.set(token, { userId, expiresAt: Date.now() + 5 * 60 * 1000 });
+    return token;
+}
+
+function resolvePending2FA(token) {
+    const rec = pending2FA.get(token);
+    if (!rec || Date.now() > rec.expiresAt) { pending2FA.delete(token); return null; }
+    return rec;
+}
+
+// Pending 2FA setup secrets (in-memory, 10-min TTL)
+const pending2FASetup = new Map();
 
 // ── Login rate limiter ─────────────────────────────────────────────────────
 const loginAttempts = new Map();
@@ -157,6 +217,8 @@ function requireAuth(req, res, next) {
     }
     if (req.currentUser) return next();
     if (req.path === '/login' || req.path === '/logout') return next();
+    if (req.path === '/2fa') return next();
+    if (req.path === '/api/2fa/complete') return next();
     if (req.path.startsWith('/api/slideshow/')) return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
@@ -215,6 +277,10 @@ app.post('/login', async (req, res) => {
     const user = appData.users.find(u => u.username === username);
     if (user && await verifyPassword(password, user.password)) {
         resetRateLimit(ip);
+        if (user.twoFactorEnabled) {
+            const pendingToken = createPending2FA(user.id);
+            return res.redirect(`/2fa?t=${pendingToken}`);
+        }
         const { token, expiresAt } = createToken(user.id);
         setCookie(res, token, expiresAt);
         res.redirect('/');
@@ -230,11 +296,81 @@ app.post('/logout', (req, res) => {
     res.redirect('/login');
 });
 
+// ── 2FA — login completion (unauthenticated) ───────────────────────────────
+app.get('/2fa', (_req, res) => res.sendFile(path.join(__dirname, '2fa.html')));
+
+app.post('/api/2fa/complete', express.json(), (req, res) => {
+    const { pendingToken, code } = req.body;
+    const rec = resolvePending2FA(pendingToken);
+    if (!rec) return res.status(400).json({ error: 'Session expired. Please log in again.' });
+    const user = appData.users.find(u => u.id === rec.userId);
+    if (!user?.twoFactorSecret) return res.status(400).json({ error: 'Invalid session' });
+    if (!verifyTotp(user.twoFactorSecret, String(code).trim())) {
+        return res.status(400).json({ error: 'Invalid code. Try again.' });
+    }
+    pending2FA.delete(pendingToken);
+    const { token, expiresAt } = createToken(user.id);
+    setCookie(res, token, expiresAt);
+    res.json({ ok: true });
+});
+
+// ── 2FA — setup & manage (authenticated) ──────────────────────────────────
+app.get('/api/2fa/status', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    res.json({ enabled: !!u.twoFactorEnabled });
+});
+
+app.get('/api/2fa/setup', async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const secret = generateTotpSecret();
+    pending2FASetup.set(req.currentUser.id, { secret, expiresAt: Date.now() + 10 * 60 * 1000 });
+    const uri = `otpauth://totp/Terminal%20Photo%20Display:${encodeURIComponent(req.currentUser.username)}?secret=${secret}&issuer=Terminal%20Photo%20Display`;
+    const qrcode = await QRCode.toDataURL(uri);
+    res.json({ secret, qrcode });
+});
+
+app.post('/api/2fa/enable', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const setup = pending2FASetup.get(req.currentUser.id);
+    if (!setup || Date.now() > setup.expiresAt) return res.status(400).json({ error: 'Setup expired. Start again.' });
+    const { code } = req.body;
+    if (!verifyTotp(setup.secret, String(code).trim())) return res.status(400).json({ error: 'Invalid code' });
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    u.twoFactorSecret  = setup.secret;
+    u.twoFactorEnabled = true;
+    pending2FASetup.delete(req.currentUser.id);
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+app.post('/api/2fa/disable', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    if (!u.twoFactorEnabled) return res.status(400).json({ error: '2FA is not enabled' });
+    const { code } = req.body;
+    if (!verifyTotp(u.twoFactorSecret, String(code).trim())) return res.status(400).json({ error: 'Invalid code' });
+    delete u.twoFactorSecret;
+    u.twoFactorEnabled = false;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// Admin: reset another user's 2FA
+app.delete('/api/admin/users/:id/2fa', requireAdmin, (req, res) => {
+    const u = appData.users.find(u => u.id === req.params.id);
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    delete u.twoFactorSecret;
+    u.twoFactorEnabled = false;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
 // ── Current user info ──────────────────────────────────────────────────────
 app.get('/api/me', (req, res) => {
     const user = req.currentUser;
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
-    res.json({ id: user.id, username: user.username, role: user.role, permissions: getPermissions(user.role) });
+    res.json({ id: user.id, username: user.username, role: user.role, permissions: getPermissions(user.role), twoFactorEnabled: !!user.twoFactorEnabled });
 });
 
 // ── Admin API — sessions (admin only) ─────────────────────────────────────
@@ -257,7 +393,7 @@ app.delete('/api/admin/sessions/:userId', requireAdmin, (req, res) => {
 
 // ── Admin API — users ──────────────────────────────────────────────────────
 app.get('/api/admin/users', requireAdmin, (_req, res) => {
-    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role })));
+    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role, twoFactorEnabled: !!u.twoFactorEnabled })));
 });
 
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
