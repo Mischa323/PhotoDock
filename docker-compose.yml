@@ -1,6 +1,6 @@
 services:
   image-upload:
-    build: .
+    image: ghcr.io/mischa323/test:latest
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
     environment:
@@ -11,4 +11,15 @@ services:
       # All persistent data (images + data.json) lives here.
       # Change ./data to any host path you want, or use a named volume.
       - ./data:/data
+    restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Passes your Docker login credentials so Watchtower can pull from ghcr.io
+      - ${HOME}/.docker/config.json:/config.json:ro
+    environment:
+      DOCKER_CONFIG: /
+    command: --interval 300 --cleanup
     restart: unless-stopped
