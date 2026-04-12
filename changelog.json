@@ -89,6 +89,15 @@
     ]
   },
   {
+    "version": "1.10.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Slideshow interval moved from header to admin settings page",
+      "Date overlay toggle removed from header — controlled via display settings",
+      "Interval persists server-side and applies to all connected clients"
+    ]
+  },
+  {
     "version": "1.9.0",
     "date": "2026-04-12",
     "changes": [
