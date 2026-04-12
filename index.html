@@ -68,38 +68,6 @@
 
         input[type="file"] { display: none; }
 
-        /* ── Interval control ─────────────────────────────────────────── */
-        .interval-control {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            background: rgba(255,255,255,0.12);
-            border-radius: 6px;
-            padding: 5px 12px;
-            font-size: 13px;
-            backdrop-filter: blur(4px);
-        }
-
-        .interval-control label { color: #ccc; white-space: nowrap; }
-
-        .interval-control input[type="number"] {
-            width: 52px;
-            background: rgba(255,255,255,0.15);
-            border: 1px solid rgba(255,255,255,0.25);
-            border-radius: 4px;
-            color: #fff;
-            font-size: 13px;
-            padding: 3px 6px;
-            text-align: center;
-            outline: none;
-        }
-
-        .interval-control input[type="number"]:focus {
-            border-color: #29c76f;
-        }
-
-        .interval-control span { color: #ccc; }
-
         /* ── Slideshow ────────────────────────────────────────────────── */
         .slide {
             position: fixed;
@@ -377,12 +345,6 @@
             <form method="POST" action="/logout" style="margin:0">
                 <button class="btn btn-ghost" type="submit">Log out</button>
             </form>
-            <div class="interval-control">
-                <label for="intervalInput">Interval</label>
-                <input type="number" id="intervalInput" min="1" max="3600" value="30">
-                <span>sec</span>
-            </div>
-            <button class="btn btn-ghost" id="dateToggleBtn" onclick="toggleDate()">&#128197; Date</button>
             <button class="btn btn-ghost" id="galleryBtn">All Images</button>
             <button class="btn btn-primary" id="uploadBtn" onclick="document.getElementById('fileInput').click()">
                 &#8679; Upload
@@ -433,23 +395,9 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        const intervalInput = document.getElementById('intervalInput');
+        let slideshowInterval = 30000; // ms, updated from /api/settings
 
-        function getInterval() {
-            const val = parseInt(intervalInput.value, 10);
-            return (isNaN(val) || val < 1 ? 5 : val) * 1000;
-        }
-
-        // Persist interval across page reloads
-        const savedInterval = localStorage.getItem('slideInterval');
-        if (savedInterval) intervalInput.value = savedInterval;
-
-        intervalInput.addEventListener('change', () => {
-            let val = parseInt(intervalInput.value, 10);
-            if (isNaN(val) || val < 1) { val = 5; intervalInput.value = 5; }
-            localStorage.setItem('slideInterval', val);
-            if (!paused) startTimer();
-        });
+        function getInterval() { return slideshowInterval; }
 
         let images = [];
         let current = 0;
@@ -676,18 +624,18 @@
         });
 
         // ── Date overlay ─────────────────────────────────────────────
-        const dateOverlay   = document.getElementById('dateOverlay');
-        const dateDayEl     = document.getElementById('dateDay');
-        const dateTimeEl    = document.getElementById('dateTime');
-        const dateToggleBtn = document.getElementById('dateToggleBtn');
+        const dateOverlay = document.getElementById('dateOverlay');
+        const dateDayEl   = document.getElementById('dateDay');
+        const dateTimeEl  = document.getElementById('dateTime');
 
-        let dateEnabled  = localStorage.getItem('showDate') !== 'false';
         let displaySettings = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false };
 
         async function loadDisplaySettings() {
             try {
                 const res = await fetch('/api/settings');
                 displaySettings = await res.json();
+                slideshowInterval = Math.max(1, displaySettings.slideshowInterval || 30) * 1000;
+                if (!paused) startTimer();
             } catch { /* use defaults */ }
             updateDate();
         }
@@ -721,19 +669,8 @@
             dateOverlay.style.display = hasContent ? '' : 'none';
         }
 
-        function applyDateState() {
-            dateOverlay.classList.toggle('hidden', !dateEnabled);
-            dateToggleBtn.classList.toggle('active', dateEnabled);
-        }
-
-        function toggleDate() {
-            dateEnabled = !dateEnabled;
-            localStorage.setItem('showDate', dateEnabled);
-            applyDateState();
-        }
-
         loadDisplaySettings();
-        applyDateState();
+        dateOverlay.classList.remove('hidden');
         setInterval(updateDate, 1000); // refresh every second (for seconds display)
 
         // ── Hide UI when mouse is idle ───────────────────────────────
