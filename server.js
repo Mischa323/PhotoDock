@@ -350,7 +350,7 @@ app.get('/api/2fa/setup', async (req, res) => {
     if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
     const secret = generateTotpSecret();
     pending2FASetup.set(req.currentUser.id, { secret, expiresAt: Date.now() + 10 * 60 * 1000 });
-    const uri = `otpauth://totp/Terminal%20Photo%20Display:${encodeURIComponent(req.currentUser.username)}?secret=${secret}&issuer=Terminal%20Photo%20Display`;
+    const uri = `otpauth://totp/Photo%20Display%20for%20TNMLS:${encodeURIComponent(req.currentUser.username)}?secret=${secret}&issuer=Photo%20Display%20for%20TNMLS`;
     const qrcode = await QRCode.toDataURL(uri);
     res.json({ secret, qrcode });
 });
@@ -538,14 +538,15 @@ app.put('/api/admin/domain', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4' };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds };
+    if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor };
     saveData(appData);
     res.json(appData.settings);
 });

@@ -87,5 +87,15 @@
       "Login, setup, and 2FA pages styled with dark green theme",
       "Improved section headers, table row hover, and card shadows"
     ]
+  },
+  {
+    "version": "1.9.0",
+    "date": "2026-04-12",
+    "changes": [
+      "User-configurable accent colour with live preview in settings",
+      "Cyan default colour scheme replacing green",
+      "CSS variables used throughout — changing one setting updates every page",
+      "Renamed app to Photo Display for TNMLS"
+    ]
   }
 ]

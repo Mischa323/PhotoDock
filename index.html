@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Image Upload</title>
+    <title>Photo Display for TNMLS</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -53,8 +53,9 @@
             transition: background 0.2s;
         }
 
-        .btn-primary { background: #29c76f; color: #fff; }
-        .btn-primary:hover { background: #1ea854; }
+        :root { --accent: #06b6d4; --accent-hover: #0891b2; }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: var(--accent-hover); }
         .btn-primary:disabled { background: #555; cursor: default; }
 
         .btn-ghost {
