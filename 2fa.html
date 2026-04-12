@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Two-Factor Authentication</title>
+    <title>Two-Factor Auth — Photo Display for TNMLS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        :root { --accent: #06b6d4; --accent-hover: #0891b2; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
@@ -70,13 +71,13 @@
         .code-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
         .code-input:focus {
-            border-color: #29c76f;
+            border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(41,199,111,0.15);
         }
 
         .btn {
             width: 100%;
-            background: #29c76f;
+            background: var(--accent);
             color: #fff;
             border: none;
             padding: 14px;
@@ -90,7 +91,7 @@
         }
 
         .btn:hover {
-            background: #1ea854;
+            background: var(--accent-hover);
             box-shadow: 0 4px 16px rgba(41,199,111,0.3);
         }
         .btn:disabled { background: #1a4a2a; cursor: default; box-shadow: none; }
@@ -131,6 +132,15 @@
 </div>
 
 <script>
+    fetch('/api/settings').then(r=>r.json()).then(s=>{
+        if(!s.accentColor) return;
+        const c=s.accentColor, n=parseInt(c.replace('#',''),16);
+        const cl=v=>Math.min(255,Math.max(0,v));
+        const shade=p=>'#'+[cl((n>>16)+Math.round(255*p/100)),cl(((n>>8)&255)+Math.round(255*p/100)),cl((n&255)+Math.round(255*p/100))].map(v=>v.toString(16).padStart(2,'0')).join('');
+        document.documentElement.style.setProperty('--accent',c);
+        document.documentElement.style.setProperty('--accent-hover',shade(-15));
+    }).catch(()=>{});
+
     const params       = new URLSearchParams(location.search);
     const pendingToken = params.get('t');
 

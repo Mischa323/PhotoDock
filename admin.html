@@ -3,20 +3,27 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings</title>
+    <title>Settings — Photo Display for TNMLS</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --accent:        #06b6d4;
+            --accent-hover:  #0891b2;
+            --accent-header: #0e7490;
+            --accent-light:  rgba(6,182,212,0.14);
+        }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: 'Inter', sans-serif;
-            background: #eef1ee;
+            background: #ecfeff;
             min-height: 100vh;
         }
 
         header {
-            background: #1e4d2c;
+            background: var(--accent-header);
             color: #fff;
             height: 56px;
             display: flex;
@@ -73,7 +80,7 @@
             background: #f9fbf9;
         }
 
-        .section-header h2 { font-size: 14px; font-weight: 600; color: #1e4d2c; text-transform: uppercase; letter-spacing: 0.05em; }
+        .section-header h2 { font-size: 14px; font-weight: 600; color: var(--accent-header); text-transform: uppercase; letter-spacing: 0.05em; }
 
         table {
             width: 100%;
@@ -112,7 +119,7 @@
             cursor: pointer;
         }
 
-        select:focus { border-color: #29c76f; }
+        select:focus { border-color: var(--accent); }
 
         .modal select {
             width: 100%;
@@ -192,7 +199,7 @@
             transition: transform 0.2s;
         }
 
-        .toggle input:checked + .toggle-slider { background: #29c76f; }
+        .toggle input:checked + .toggle-slider { background: var(--accent); }
         .toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
 
         /* ── Display settings ─────────────────────────────────────── */
@@ -231,10 +238,10 @@
             font-family: monospace;
         }
 
-        .tz-input:focus { border-color: #29c76f; }
+        .tz-input:focus { border-color: var(--accent); }
 
         .btn-save-settings {
-            background: #29c76f;
+            background: var(--accent);
             color: #fff;
             border: none;
             padding: 9px 22px;
@@ -245,7 +252,7 @@
             align-self: flex-start;
         }
 
-        .btn-save-settings:hover { background: #1ea854; }
+        .btn-save-settings:hover { background: var(--accent-hover); }
 
         tbody tr { border-bottom: 1px solid #f0f3f0; }
         tbody tr:last-child { border-bottom: none; }
@@ -317,10 +324,10 @@
             background: #fff;
         }
 
-        .add-form input:focus { border-color: #29c76f; }
+        .add-form input:focus { border-color: var(--accent); }
 
         .btn-add {
-            background: #29c76f;
+            background: var(--accent);
             color: #fff;
             border: none;
             padding: 8px 20px;
@@ -333,11 +340,11 @@
             height: 36px;
         }
 
-        .btn-add:hover { background: #1ea854; }
+        .btn-add:hover { background: var(--accent-hover); }
 
         /* Edit inline */
         .edit-input {
-            border: 1px solid #29c76f;
+            border: 1px solid var(--accent);
             border-radius: 4px;
             padding: 4px 8px;
             font-size: 14px;
@@ -406,7 +413,7 @@
             outline: none;
         }
 
-        .modal input:focus { border-color: #29c76f; }
+        .modal input:focus { border-color: var(--accent); }
 
         .modal-actions {
             display: flex;
@@ -426,7 +433,7 @@
         }
 
         .btn-save {
-            background: #29c76f;
+            background: var(--accent);
             color: #fff;
             border: none;
             padding: 8px 18px;
@@ -436,7 +443,7 @@
             font-weight: 600;
         }
 
-        .btn-save:hover { background: #1ea854; }
+        .btn-save:hover { background: var(--accent-hover); }
 
         /* ── Changelog ───────────────────────────────────────────── */
         .cl-entry {
@@ -672,6 +679,13 @@
                     <input type="checkbox" id="showSeconds">
                     <span class="toggle-slider"></span>
                 </label>
+            </div>
+
+            <div class="settings-row">
+                <label>Accent colour <small>Theme colour for buttons and header</small></label>
+                <input type="color" id="accentColor" value="#06b6d4"
+                    style="width:44px;height:36px;border:1px solid #ddd;border-radius:6px;cursor:pointer;padding:2px"
+                    oninput="applyTheme(this.value)">
             </div>
 
             <button class="btn-save-settings" onclick="saveDisplaySettings()">Save</button>
@@ -1204,6 +1218,25 @@
         showToast('Domain updated.');
     }
 
+    // ── Theme ──────────────────────────────────────────────────────────────
+    function shadeColor(hex, pct) {
+        const num = parseInt(hex.replace('#',''), 16);
+        const clamp = v => Math.min(255, Math.max(0, v));
+        const r = clamp((num >> 16) + Math.round(255 * pct / 100));
+        const g = clamp(((num >> 8) & 0xFF) + Math.round(255 * pct / 100));
+        const b = clamp((num & 0xFF) + Math.round(255 * pct / 100));
+        return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+    }
+
+    function applyTheme(color) {
+        const root = document.documentElement;
+        root.style.setProperty('--accent',        color);
+        root.style.setProperty('--accent-hover',  shadeColor(color, -15));
+        root.style.setProperty('--accent-header', shadeColor(color, -35));
+        const n = parseInt(color.replace('#',''), 16);
+        root.style.setProperty('--accent-light',  `rgba(${n>>16},${(n>>8)&255},${n&255},0.14)`);
+    }
+
     // ── Display settings ───────────────────────────────────────────────────
     async function loadDisplaySettings() {
         const res  = await fetch('/api/settings');
@@ -1213,6 +1246,9 @@
         document.getElementById('showDate').checked    = !!s.showDate;
         document.getElementById('showTime').checked    = !!s.showTime;
         document.getElementById('showSeconds').checked = !!s.showSeconds;
+        const color = s.accentColor || '#06b6d4';
+        document.getElementById('accentColor').value = color;
+        applyTheme(color);
     }
 
     async function saveDisplaySettings() {
@@ -1222,6 +1258,7 @@
             showDate:    document.getElementById('showDate').checked,
             showTime:    document.getElementById('showTime').checked,
             showSeconds: document.getElementById('showSeconds').checked,
+            accentColor: document.getElementById('accentColor').value,
         };
         const res  = await fetch('/api/settings', {
             method: 'PUT',
@@ -1262,14 +1299,14 @@
         const btn    = document.getElementById('twoFaToggleBtn');
         if (twoFaEnabled) {
             badge.textContent = 'Enabled';
-            badge.style.cssText = 'font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:#e6f4ea;color:#2e7d32';
+            badge.style.cssText = 'font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:var(--accent-light);color:var(--accent-header)';
             btn.textContent = 'Disable 2FA';
-            btn.style.background = '#c0392b';
+            btn.style.cssText = 'background:#c0392b';
         } else {
             badge.textContent = 'Disabled';
             badge.style.cssText = 'font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:#f0f0f0;color:#888';
             btn.textContent = 'Enable 2FA';
-            btn.style.background = '';
+            btn.style.cssText = 'background:var(--accent)';
         }
         btn.style.display = '';
         document.getElementById('twoFaSetupPanel').style.display  = 'none';
