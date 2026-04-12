@@ -532,6 +532,23 @@
         </div>
     </section>
 
+    <!-- Domain / HTTPS -->
+    <section>
+        <div class="section-header"><h2>Domain &amp; HTTPS</h2></div>
+        <div class="settings-grid">
+            <div class="settings-row">
+                <label for="domainInput">
+                    Domain name
+                    <small>Must point to this server. Caddy gets an SSL certificate automatically.</small>
+                </label>
+                <input type="text" id="domainInput" class="tz-input" style="width:240px;font-family:sans-serif"
+                       placeholder="photos.example.com">
+            </div>
+            <button class="btn-save-settings" onclick="saveDomain()">Apply</button>
+            <p id="domainStatus" style="font-size:13px;color:#888;margin-top:-8px"></p>
+        </div>
+    </section>
+
     <!-- Display Settings -->
     <section>
         <div class="section-header"><h2>Display Settings</h2></div>
@@ -1096,6 +1113,32 @@
         loadRoles();
     }
 
+    // ── Domain ────────────────────────────────────────────────────────────
+    async function loadDomain() {
+        const res  = await fetch('/api/admin/domain');
+        const data = await res.json();
+        document.getElementById('domainInput').value = data.domain || '';
+    }
+
+    async function saveDomain() {
+        const domain = document.getElementById('domainInput').value.trim();
+        if (!domain) return showToast('Enter a domain name', 'error');
+        const statusEl = document.getElementById('domainStatus');
+        statusEl.textContent = 'Applying…';
+        const res  = await fetch('/api/admin/domain', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ domain })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            statusEl.textContent = '';
+            return showToast(data.error, 'error');
+        }
+        statusEl.textContent = 'Certificate will be requested automatically. This may take a moment.';
+        showToast('Domain updated.');
+    }
+
     // ── Display settings ───────────────────────────────────────────────────
     async function loadDisplaySettings() {
         const res  = await fetch('/api/settings');
@@ -1233,6 +1276,7 @@
     }
 
     // ── Init ───────────────────────────────────────────────────────────────
+    loadDomain();
     loadDisplaySettings();
     loadRoles().then(() => loadUsers());
     loadApiKeys();
