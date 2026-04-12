@@ -76,5 +76,16 @@
       "Caddy config updated live via its admin API without restart",
       "Version history shown in admin portal"
     ]
+  },
+  {
+    "version": "1.8.0",
+    "date": "2026-04-12",
+    "changes": [
+      "Full UI redesign with dark green colour scheme",
+      "Inter font for modern typography",
+      "Green header, buttons, and focus rings across all pages",
+      "Login, setup, and 2FA pages styled with dark green theme",
+      "Improved section headers, table row hover, and card shadows"
+    ]
   }
 ]

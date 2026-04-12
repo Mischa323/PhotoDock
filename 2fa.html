@@ -4,12 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Two-Factor Authentication</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
-            font-family: sans-serif;
-            background: #1a1a2e;
+            font-family: 'Inter', sans-serif;
+            background: #0d2218;
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -17,12 +19,13 @@
         }
 
         .card {
-            background: #16213e;
-            border-radius: 16px;
+            background: #122b1c;
+            border-radius: 14px;
             padding: 40px 36px;
             width: 100%;
             max-width: 360px;
             box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+            border: 1px solid #1e3d28;
         }
 
         .icon {
@@ -49,8 +52,8 @@
 
         .code-input {
             width: 100%;
-            background: #0f3460;
-            border: 2px solid #1a4a8a;
+            background: #1a3526;
+            border: 2px solid #265c37;
             border-radius: 10px;
             color: #fff;
             font-size: 28px;
@@ -59,31 +62,38 @@
             text-align: center;
             padding: 14px 10px;
             outline: none;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, box-shadow 0.2s;
             -moz-appearance: textfield;
         }
 
         .code-input::-webkit-outer-spin-button,
         .code-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
-        .code-input:focus { border-color: #4a90e2; }
+        .code-input:focus {
+            border-color: #29c76f;
+            box-shadow: 0 0 0 3px rgba(41,199,111,0.15);
+        }
 
         .btn {
             width: 100%;
-            background: #4a90e2;
+            background: #29c76f;
             color: #fff;
             border: none;
             padding: 14px;
             border-radius: 10px;
             font-size: 15px;
             font-weight: 700;
+            font-family: 'Inter', sans-serif;
             cursor: pointer;
             margin-top: 16px;
-            transition: background 0.2s;
+            transition: background 0.2s, box-shadow 0.2s;
         }
 
-        .btn:hover { background: #357abd; }
-        .btn:disabled { background: #2a4a6a; cursor: default; }
+        .btn:hover {
+            background: #1ea854;
+            box-shadow: 0 4px 16px rgba(41,199,111,0.3);
+        }
+        .btn:disabled { background: #1a4a2a; cursor: default; box-shadow: none; }
 
         .error {
             color: #e74c3c;
