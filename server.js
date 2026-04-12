@@ -57,7 +57,7 @@ function loadData() {
     if (fs.existsSync(DATA_FILE)) {
         return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     }
-    const initial = { users: [], apiKeys: [] };
+    const initial = { users: [], apiKeys: [], settings: { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false } };
     fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2));
     return initial;
 }
@@ -286,10 +286,21 @@ app.get('/api/admin/apikeys', requireAdmin, (_req, res) => {
 });
 
 app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
-    const { name } = req.body;
+    const { name, interval } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
-    const apiKey = { id: crypto.randomUUID(), name, key: crypto.randomBytes(24).toString('base64url'), createdAt: new Date().toISOString() };
+    const mins = Math.max(1, parseInt(interval) || 5);
+    const apiKey = { id: crypto.randomUUID(), name, key: crypto.randomBytes(24).toString('base64url'), intervalMinutes: mins, createdAt: new Date().toISOString() };
     appData.apiKeys.push(apiKey);
+    saveData(appData);
+    res.json(apiKey);
+});
+
+app.put('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
+    const apiKey = appData.apiKeys.find(k => k.id === req.params.id);
+    if (!apiKey) return res.status(404).json({ error: 'Key not found' });
+    const { name, interval } = req.body;
+    if (name) apiKey.name = name;
+    if (interval !== undefined) apiKey.intervalMinutes = Math.max(1, parseInt(interval) || 5);
     saveData(appData);
     res.json(apiKey);
 });
@@ -300,18 +311,35 @@ app.delete('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
     res.json({ ok: true });
 });
 
-// ── Slideshow API (external) ───────────────────────────────────────────────
-const SLIDESHOW_INTERVAL_MS = 5 * 60 * 1000;
+// ── Display settings ───────────────────────────────────────────────────────
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false };
 
+app.get('/api/settings', (_req, res) => {
+    res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {}));
+});
+
+app.put('/api/settings', requireAdmin, (req, res) => {
+    const { timezone, showDayName, showDate, showTime, showSeconds } = req.body;
+    // Validate timezone
+    try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds };
+    saveData(appData);
+    res.json(appData.settings);
+});
+
+// ── Slideshow API (external) ───────────────────────────────────────────────
 app.get('/api/slideshow/current', requireApiKey, (req, res) => {
+    const keyRecord = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
+    const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
+
     const files = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
-    const slot = Math.floor(Date.now() / SLIDESHOW_INTERVAL_MS);
+    const slot = Math.floor(Date.now() / intervalMs);
     const index = slot % files.length;
     const filename = files[index];
-    const nextSlot = (slot + 1) * SLIDESHOW_INTERVAL_MS;
+    const nextSlot = (slot + 1) * intervalMs;
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    res.json({ index, total: files.length, filename, url: `${baseUrl}/uploads/${filename}`, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now() });
+    res.json({ index, total: files.length, filename, url: `${baseUrl}/uploads/${filename}`, interval_minutes: keyRecord?.intervalMinutes || 5, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now() });
 });
 
 app.get('/api/slideshow/all', requireApiKey, (req, res) => {

@@ -205,6 +205,38 @@
 
         body.idle { cursor: none; }
 
+        /* ── Date overlay ─────────────────────────────────────────────── */
+        .date-overlay {
+            position: fixed;
+            top: 68px;
+            right: 24px;
+            z-index: 30;
+            text-align: right;
+            pointer-events: none;
+            transition: opacity 0.4s, top 0.4s;
+        }
+
+        /* When UI is hidden (idle), float up to top corner */
+        body.idle .date-overlay {
+            top: 20px;
+        }
+
+        .date-overlay.hidden { opacity: 0; }
+
+        .date-overlay .date-day {
+            font-size: 15px;
+            font-weight: 600;
+            color: #fff;
+            text-shadow: 0 1px 6px rgba(0,0,0,0.7);
+            letter-spacing: 0.03em;
+        }
+
+        .date-overlay .date-time {
+            font-size: 13px;
+            color: rgba(255,255,255,0.75);
+            text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+        }
+
         /* Empty state */
         .empty-state {
             position: fixed;
@@ -349,6 +381,7 @@
                 <input type="number" id="intervalInput" min="1" max="3600" value="30">
                 <span>sec</span>
             </div>
+            <button class="btn btn-ghost" id="dateToggleBtn" onclick="toggleDate()">&#128197; Date</button>
             <button class="btn btn-ghost" id="galleryBtn">All Images</button>
             <button class="btn btn-primary" id="uploadBtn" onclick="document.getElementById('fileInput').click()">
                 &#8679; Upload
@@ -378,6 +411,12 @@
 
     <!-- Timer bar -->
     <div class="timer-bar-wrap"><div class="timer-bar" id="timerBar"></div></div>
+
+    <!-- Date overlay -->
+    <div class="date-overlay hidden" id="dateOverlay">
+        <div class="date-day" id="dateDay"></div>
+        <div class="date-time" id="dateTime"></div>
+    </div>
 
     <!-- Gallery overlay -->
     <div class="gallery-overlay" id="galleryOverlay">
@@ -634,6 +673,67 @@
             dropOverlay.classList.remove('active');
             uploadFiles(e.dataTransfer.files);
         });
+
+        // ── Date overlay ─────────────────────────────────────────────
+        const dateOverlay   = document.getElementById('dateOverlay');
+        const dateDayEl     = document.getElementById('dateDay');
+        const dateTimeEl    = document.getElementById('dateTime');
+        const dateToggleBtn = document.getElementById('dateToggleBtn');
+
+        let dateEnabled  = localStorage.getItem('showDate') !== 'false';
+        let displaySettings = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false };
+
+        async function loadDisplaySettings() {
+            try {
+                const res = await fetch('/api/settings');
+                displaySettings = await res.json();
+            } catch { /* use defaults */ }
+            updateDate();
+        }
+
+        function updateDate() {
+            const s   = displaySettings;
+            const tz  = s.timezone || 'Europe/Amsterdam';
+            const now = new Date();
+            const parts = [];
+
+            if (s.showDayName) {
+                parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, weekday: 'long' }));
+            }
+            if (s.showDate) {
+                parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric', month: 'long', year: 'numeric' }));
+            }
+            dateDayEl.textContent = parts.join(' ');
+
+            if (s.showTime) {
+                dateTimeEl.textContent = now.toLocaleTimeString('en-GB', {
+                    timeZone: tz,
+                    hour: '2-digit', minute: '2-digit',
+                    second: s.showSeconds ? '2-digit' : undefined
+                });
+            } else {
+                dateTimeEl.textContent = '';
+            }
+
+            // Hide overlay completely if nothing is configured to show
+            const hasContent = s.showDayName || s.showDate || s.showTime;
+            dateOverlay.style.display = hasContent ? '' : 'none';
+        }
+
+        function applyDateState() {
+            dateOverlay.classList.toggle('hidden', !dateEnabled);
+            dateToggleBtn.classList.toggle('active', dateEnabled);
+        }
+
+        function toggleDate() {
+            dateEnabled = !dateEnabled;
+            localStorage.setItem('showDate', dateEnabled);
+            applyDateState();
+        }
+
+        loadDisplaySettings();
+        applyDateState();
+        setInterval(updateDate, 1000); // refresh every second (for seconds display)
 
         // ── Hide UI when mouse is idle ───────────────────────────────
         let idleTimer;
