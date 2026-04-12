@@ -1,0 +1,30 @@
+{
+  "users": [
+    {
+      "id": "4be21734-00b2-4a50-837d-10a89e29bdd7",
+      "username": "admin",
+      "password": "Welkom01!",
+      "role": "admin"
+    }
+  ],
+  "apiKeys": [
+    {
+      "id": "cee2eb09-ff07-4340-b4d9-09a277aa018d",
+      "name": "dit is een test key",
+      "key": "8zKXPQOm7ZN13rk0Z-etlUV77Lm2x75c",
+      "createdAt": "2026-04-12T17:41:45.543Z"
+    }
+  ],
+  "roles": {
+    "admin": {
+      "canUpload": true,
+      "canDelete": true,
+      "canManage": true
+    },
+    "standard": {
+      "canUpload": true,
+      "canDelete": false,
+      "canManage": false
+    }
+  }
+}

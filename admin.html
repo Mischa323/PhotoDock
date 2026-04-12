@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: sans-serif;
+            background: #f0f2f5;
+            min-height: 100vh;
+        }
+
+        header {
+            background: #1e1e1e;
+            color: #fff;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        header h1 { font-size: 18px; }
+
+        .back-btn {
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            border: none;
+            padding: 7px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .back-btn:hover { background: rgba(255,255,255,0.2); }
+
+        main {
+            max-width: 760px;
+            margin: 36px auto;
+            padding: 0 20px 60px;
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        section {
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+            overflow: hidden;
+        }
+
+        .section-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .section-header h2 { font-size: 16px; color: #222; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        thead th {
+            text-align: left;
+            padding: 10px 24px;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: #888;
+            background: #fafafa;
+            border-bottom: 1px solid #eee;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-admin    { background: #eaf3ff; color: #2a6db5; }
+        .badge-standard { background: #f0f0f0; color: #666; }
+
+        select {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 14px;
+            outline: none;
+            background: #fff;
+            cursor: pointer;
+        }
+
+        select:focus { border-color: #4a90e2; }
+
+        .modal select {
+            width: 100%;
+            margin-bottom: 0;
+        }
+
+        /* ── Role permissions ─────────────────────────────────────── */
+        .role-block {
+            padding: 16px 24px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .role-block:last-child { border-bottom: none; }
+
+        .role-block h3 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .perm-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .perm-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 420px;
+        }
+
+        .perm-row label {
+            font-size: 14px;
+            color: #444;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .perm-row label small { font-size: 12px; color: #999; font-weight: 400; }
+
+        /* Toggle switch */
+        .toggle {
+            position: relative;
+            width: 42px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .toggle input { opacity: 0; width: 0; height: 0; }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: #ccc;
+            border-radius: 24px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle-slider:before {
+            content: '';
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            left: 3px;
+            top: 3px;
+            background: #fff;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+
+        .toggle input:checked + .toggle-slider { background: #4a90e2; }
+        .toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
+
+        tbody tr { border-bottom: 1px solid #f0f0f0; }
+        tbody tr:last-child { border-bottom: none; }
+
+        tbody td {
+            padding: 12px 24px;
+            font-size: 14px;
+            color: #333;
+            vertical-align: middle;
+        }
+
+        .key-cell {
+            font-family: monospace;
+            font-size: 13px;
+            color: #555;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .key-masked { letter-spacing: 2px; }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #888;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .icon-btn:hover { background: #f0f0f0; color: #333; }
+        .icon-btn.danger:hover { background: #fdecea; color: #c0392b; }
+
+        .actions { display: flex; gap: 4px; }
+
+        .empty-row td { color: #bbb; text-align: center; padding: 24px; }
+
+        /* Add form */
+        .add-form {
+            padding: 16px 24px;
+            border-top: 1px solid #eee;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            background: #fafafa;
+        }
+
+        .add-form .field {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            flex: 1;
+            min-width: 140px;
+        }
+
+        .add-form label { font-size: 12px; color: #888; }
+
+        .add-form input {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 14px;
+            outline: none;
+            background: #fff;
+        }
+
+        .add-form input:focus { border-color: #4a90e2; }
+
+        .btn-add {
+            background: #4a90e2;
+            color: #fff;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            align-self: flex-end;
+            height: 36px;
+        }
+
+        .btn-add:hover { background: #357abd; }
+
+        /* Edit inline */
+        .edit-input {
+            border: 1px solid #4a90e2;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 14px;
+            outline: none;
+            width: 140px;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(60px);
+            background: #222;
+            color: #fff;
+            padding: 10px 22px;
+            border-radius: 6px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.25s, transform 0.25s;
+            pointer-events: none;
+            z-index: 200;
+            white-space: nowrap;
+        }
+
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.error { background: #c0392b; }
+
+        /* Modal */
+        .modal-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 100;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-backdrop.open { display: flex; }
+
+        .modal {
+            background: #fff;
+            border-radius: 12px;
+            padding: 28px;
+            width: 340px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+        }
+
+        .modal h3 { font-size: 16px; margin-bottom: 20px; }
+
+        .modal .field {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin-bottom: 14px;
+        }
+
+        .modal label { font-size: 12px; color: #888; }
+
+        .modal input {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 8px 10px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .modal input:focus { border-color: #4a90e2; }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .btn-cancel {
+            background: #f0f0f0;
+            color: #333;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-save {
+            background: #4a90e2;
+            color: #fff;
+            border: none;
+            padding: 8px 18px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .btn-save:hover { background: #357abd; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Settings</h1>
+    <a href="/" class="back-btn">&#8592; Back</a>
+</header>
+
+<main>
+
+    <!-- Users -->
+    <section>
+        <div class="section-header">
+            <h2>Users</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th style="width:120px">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="userTableBody">
+                <tr class="empty-row"><td colspan="2">Loading…</td></tr>
+            </tbody>
+        </table>
+        <div class="add-form">
+            <div class="field">
+                <label>Username</label>
+                <input type="text" id="newUsername" placeholder="john">
+            </div>
+            <div class="field">
+                <label>Password</label>
+                <input type="password" id="newPassword" placeholder="••••••••">
+            </div>
+            <div class="field" style="max-width:130px">
+                <label>Role</label>
+                <select id="newRole">
+                    <option value="standard">Standard</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <button class="btn-add" onclick="createUser()">Add User</button>
+        </div>
+    </section>
+
+    <!-- Roles -->
+    <section>
+        <div class="section-header">
+            <h2>Roles &amp; Permissions</h2>
+        </div>
+        <div id="rolesContainer">
+            <p style="color:#bbb; text-align:center; padding:20px">Loading…</p>
+        </div>
+        <div class="add-form">
+            <div class="field">
+                <label>New role name</label>
+                <input type="text" id="newRoleName" placeholder="e.g. viewer">
+            </div>
+            <button class="btn-add" onclick="createRole()">Create Role</button>
+        </div>
+    </section>
+
+    <!-- API Keys -->
+    <section>
+        <div class="section-header">
+            <h2>API Keys</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Key</th>
+                    <th>Created</th>
+                    <th style="width:80px">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="keyTableBody">
+                <tr class="empty-row"><td colspan="4">Loading…</td></tr>
+            </tbody>
+        </table>
+        <div class="add-form">
+            <div class="field">
+                <label>Key name</label>
+                <input type="text" id="newKeyName" placeholder="My Server">
+            </div>
+            <button class="btn-add" onclick="createApiKey()">Generate Key</button>
+        </div>
+    </section>
+
+</main>
+
+<!-- Edit password modal -->
+<div class="modal-backdrop" id="editModal">
+    <div class="modal">
+        <h3>Edit User</h3>
+        <div class="field">
+            <label>Username</label>
+            <input type="text" id="editUsername" placeholder="new username (optional)">
+        </div>
+        <div class="field">
+            <label>New Password</label>
+            <input type="password" id="editPassword" placeholder="leave blank to keep current">
+        </div>
+        <div class="field">
+            <label>Role</label>
+            <select id="editRole">
+                <option value="standard">Standard</option>
+                <option value="admin">Admin</option>
+            </select>
+        </div>
+        <div class="modal-actions">
+            <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+            <button class="btn-save" onclick="saveUser()">Save</button>
+        </div>
+    </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    let editingUserId = null;
+    let toastTimer;
+
+    function showToast(msg, type = '') {
+        clearTimeout(toastTimer);
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = 'toast show ' + type;
+        toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // ── Users ──────────────────────────────────────────────────────────────
+    async function loadUsers() {
+        const res = await fetch('/api/admin/users');
+        const users = await res.json();
+        const tbody = document.getElementById('userTableBody');
+
+        if (users.length === 0) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="2">No users</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = users.map(u => `
+            <tr>
+                <td>${escHtml(u.username)}</td>
+                <td><span class="badge badge-${u.role}">${u.role === 'admin' ? 'Admin' : 'Standard'}</span></td>
+                <td>
+                    <div class="actions">
+                        <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}', '${escHtml(u.username)}', '${u.role}')">&#9998;</button>
+                        <button class="icon-btn danger" title="Delete" onclick="deleteUser('${u.id}', '${escHtml(u.username)}')">&#128465;</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function createUser() {
+        const username = document.getElementById('newUsername').value.trim();
+        const password = document.getElementById('newPassword').value;
+        const role     = document.getElementById('newRole').value;
+        if (!username || !password) return showToast('Fill in username and password', 'error');
+
+        const res = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, role })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+
+        document.getElementById('newUsername').value = '';
+        document.getElementById('newPassword').value = '';
+        showToast(`User "${username}" created.`);
+        loadUsers();
+    }
+
+    async function deleteUser(id, username) {
+        if (!confirm(`Delete user "${username}"?`)) return;
+        const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        showToast(`User "${username}" deleted.`);
+        loadUsers();
+    }
+
+    function openEditModal(id, username, role) {
+        editingUserId = id;
+        document.getElementById('editUsername').value = username;
+        document.getElementById('editPassword').value = '';
+        document.getElementById('editRole').value = role;
+        document.getElementById('editModal').classList.add('open');
+    }
+
+    function closeModal() {
+        document.getElementById('editModal').classList.remove('open');
+        editingUserId = null;
+    }
+
+    async function saveUser() {
+        const username = document.getElementById('editUsername').value.trim();
+        const password = document.getElementById('editPassword').value;
+        if (!username) return showToast('Username cannot be empty', 'error');
+
+        const role = document.getElementById('editRole').value;
+        const body = { username, role };
+        if (password) body.password = password;
+
+        const res = await fetch(`/api/admin/users/${editingUserId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+
+        closeModal();
+        showToast('User updated.');
+        loadUsers();
+    }
+
+    // ── API Keys ───────────────────────────────────────────────────────────
+    async function loadApiKeys() {
+        const res  = await fetch('/api/admin/apikeys');
+        const keys = await res.json();
+        const tbody = document.getElementById('keyTableBody');
+
+        if (keys.length === 0) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No API keys</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = keys.map(k => `
+            <tr>
+                <td>${escHtml(k.name)}</td>
+                <td>
+                    <div class="key-cell">
+                        <span class="key-masked" id="keyval-${k.id}">••••••••••••</span>
+                        <button class="icon-btn" title="Show/hide" onclick="toggleKey('${k.id}', '${escHtml(k.key)}')">&#128065;</button>
+                        <button class="icon-btn" title="Copy" onclick="copyKey('${escHtml(k.key)}')">&#128203;</button>
+                    </div>
+                </td>
+                <td>${new Date(k.createdAt).toLocaleDateString()}</td>
+                <td>
+                    <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(k.name)}')">&#128465;</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function createApiKey() {
+        const name = document.getElementById('newKeyName').value.trim();
+        if (!name) return showToast('Enter a key name', 'error');
+
+        const res  = await fetch('/api/admin/apikeys', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+
+        document.getElementById('newKeyName').value = '';
+        showToast(`Key "${name}" created.`);
+        loadApiKeys();
+    }
+
+    async function deleteApiKey(id, name) {
+        if (!confirm(`Delete API key "${name}"?`)) return;
+        const res = await fetch(`/api/admin/apikeys/${id}`, { method: 'DELETE' });
+        if (!res.ok) return showToast('Could not delete key', 'error');
+        showToast(`Key "${name}" deleted.`);
+        loadApiKeys();
+    }
+
+    const visibleKeys = {};
+    function toggleKey(id, key) {
+        const el = document.getElementById(`keyval-${id}`);
+        if (visibleKeys[id]) {
+            el.textContent = '••••••••••••';
+            el.classList.add('key-masked');
+            delete visibleKeys[id];
+        } else {
+            el.textContent = key;
+            el.classList.remove('key-masked');
+            visibleKeys[id] = true;
+        }
+    }
+
+    async function copyKey(key) {
+        await navigator.clipboard.writeText(key);
+        showToast('Key copied to clipboard.');
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function escHtml(str) {
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    document.getElementById('editModal').addEventListener('click', e => {
+        if (e.target === document.getElementById('editModal')) closeModal();
+    });
+
+    // ── Roles ──────────────────────────────────────────────────────────────
+    const PERMS = [
+        { key: 'canUpload', label: 'Upload images',   desc: 'Can upload new images' },
+        { key: 'canDelete', label: 'Delete images',   desc: 'Can permanently delete images' },
+        { key: 'canManage', label: 'Manage settings', desc: 'Can manage users, roles, and API keys' },
+    ];
+
+    function roleLabel(role) {
+        return role.charAt(0).toUpperCase() + role.slice(1);
+    }
+
+    async function loadRoles() {
+        const res   = await fetch('/api/admin/roles');
+        const roles = await res.json();
+        const container = document.getElementById('rolesContainer');
+
+        if (Object.keys(roles).length === 0) {
+            container.innerHTML = '<p style="color:#bbb;text-align:center;padding:20px">No roles defined.</p>';
+        } else {
+            container.innerHTML = Object.entries(roles).map(([role, perms]) => `
+                <div class="role-block">
+                    <h3>
+                        <span class="badge badge-${role === 'admin' ? 'admin' : 'standard'}">${roleLabel(role)}</span>
+                        ${role !== 'admin' ? `<button class="icon-btn danger" style="margin-left:auto" title="Delete role" onclick="deleteRole('${role}')">&#128465;</button>` : ''}
+                    </h3>
+                    <div class="perm-list">
+                        ${PERMS.map(p => `
+                            <div class="perm-row">
+                                <label for="perm-${role}-${p.key}">
+                                    ${p.label}
+                                    <small>${p.desc}</small>
+                                </label>
+                                <label class="toggle">
+                                    <input type="checkbox" id="perm-${role}-${p.key}"
+                                        ${perms[p.key] ? 'checked' : ''}
+                                        onchange="saveRolePermission('${role}')">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Refresh role dropdowns in user forms
+        updateRoleDropdowns(roles);
+        return roles;
+    }
+
+    function updateRoleDropdowns(roles) {
+        const options = Object.keys(roles).map(r =>
+            `<option value="${r}">${roleLabel(r)}</option>`
+        ).join('');
+        document.getElementById('newRole').innerHTML = options;
+        const editRole = document.getElementById('editRole');
+        editRole.innerHTML = options;
+    }
+
+    async function saveRolePermission(role) {
+        const perms = {};
+        PERMS.forEach(p => { perms[p.key] = document.getElementById(`perm-${role}-${p.key}`).checked; });
+        const res = await fetch(`/api/admin/roles/${role}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(perms)
+        });
+        if (!res.ok) { showToast('Could not save permissions', 'error'); loadRoles(); }
+        else showToast(`"${roleLabel(role)}" permissions saved.`);
+    }
+
+    async function createRole() {
+        const name = document.getElementById('newRoleName').value.trim();
+        if (!name) return showToast('Enter a role name', 'error');
+        const res  = await fetch('/api/admin/roles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        document.getElementById('newRoleName').value = '';
+        showToast(`Role "${roleLabel(data.role)}" created.`);
+        loadRoles();
+    }
+
+    async function deleteRole(role) {
+        if (!confirm(`Delete role "${roleLabel(role)}"? Users with this role must be reassigned first.`)) return;
+        const res  = await fetch(`/api/admin/roles/${role}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        showToast(`Role "${roleLabel(role)}" deleted.`);
+        loadRoles();
+    }
+
+    // ── Init ───────────────────────────────────────────────────────────────
+    loadRoles().then(() => loadUsers());
+    loadApiKeys();
+</script>
+</body>
+</html>
