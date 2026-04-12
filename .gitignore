@@ -3,3 +3,4 @@ uploads/
 data/*
 !data/.gitkeep
 data.json
+.env
