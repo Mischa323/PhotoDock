@@ -4,3 +4,4 @@ uploads
 data.json
 .git
 .gitignore
+.env
