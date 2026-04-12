@@ -6,9 +6,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const app = express();
-const PORT = process.env.PORT || 8080;
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-const DATA_FILE   = path.join(__dirname, 'data.json');
+const PORT        = process.env.PORT        || 8080;
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data.json');
 
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
 
@@ -57,7 +57,21 @@ function loadData() {
     if (fs.existsSync(DATA_FILE)) {
         return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     }
-    const initial = { users: [], apiKeys: [], settings: { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false } };
+    const initial = {
+        users: [],
+        apiKeys: [],
+        roles: {
+            admin:    { canUpload: true,  canDelete: true,  canManage: true  },
+            standard: { canUpload: true,  canDelete: false, canManage: false }
+        },
+        settings: {
+            timezone: 'Europe/Amsterdam',
+            showDayName: true,
+            showDate: true,
+            showTime: true,
+            showSeconds: false
+        }
+    };
     fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2));
     return initial;
 }
