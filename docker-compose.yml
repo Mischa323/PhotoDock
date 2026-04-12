@@ -17,9 +17,5 @@ services:
     image: containrrr/watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # Passes your Docker login credentials so Watchtower can pull from ghcr.io
-      - ${HOME}/.docker/config.json:/config.json:ro
-    environment:
-      DOCKER_CONFIG: /
     command: --interval 300 --cleanup
     restart: unless-stopped
