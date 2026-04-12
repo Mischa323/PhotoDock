@@ -1,18 +1,19 @@
 const express = require('express');
-const multer = require('multer');
-const session = require('express-session');
-const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
+const multer  = require('multer');
+const path    = require('path');
+const fs      = require('fs');
+const crypto  = require('crypto');
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data.json');
+const TOKEN_DAYS  = 30; // login cookie lifetime
+const COOKIE_NAME = 'auth_token';
 
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
-// ── Password hashing (scrypt, no extra deps) ───────────────────────────────
+// ── Password hashing ───────────────────────────────────────────────────────
 async function hashPassword(plain) {
     const salt = crypto.randomBytes(16).toString('hex');
     const hash = await new Promise((res, rej) =>
@@ -22,8 +23,7 @@ async function hashPassword(plain) {
 }
 
 async function verifyPassword(plain, stored) {
-    // Plain-text passwords (legacy, before hashing was added)
-    if (!stored.startsWith('scrypt:')) return plain === stored;
+    if (!stored.startsWith('scrypt:')) return plain === stored; // legacy plain-text
     const [, salt, hash] = stored.split(':');
     const attempt = await new Promise((res, rej) =>
         crypto.scrypt(plain, salt, 64, (e, d) => e ? rej(e) : res(d.toString('hex')))
@@ -32,55 +32,87 @@ async function verifyPassword(plain, stored) {
 }
 
 // ── Login rate limiter ─────────────────────────────────────────────────────
-const loginAttempts = new Map(); // ip -> { count, resetAt }
-const MAX_ATTEMPTS  = 10;
-const WINDOW_MS     = 15 * 60 * 1000; // 15 minutes
+const loginAttempts = new Map();
 
 function checkRateLimit(ip) {
     const now = Date.now();
     const rec = loginAttempts.get(ip);
     if (!rec || now > rec.resetAt) {
-        loginAttempts.set(ip, { count: 1, resetAt: now + WINDOW_MS });
+        loginAttempts.set(ip, { count: 1, resetAt: now + 15 * 60 * 1000 });
         return true;
     }
-    if (rec.count >= MAX_ATTEMPTS) return false;
+    if (rec.count >= 10) return false;
     rec.count++;
     return true;
 }
 
-function resetRateLimit(ip) {
-    loginAttempts.delete(ip);
-}
+function resetRateLimit(ip) { loginAttempts.delete(ip); }
 
 // ── Persistent data ────────────────────────────────────────────────────────
 function loadData() {
-    if (fs.existsSync(DATA_FILE)) {
-        return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-    }
+    if (fs.existsSync(DATA_FILE)) return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
     const initial = {
-        users: [],
-        apiKeys: [],
+        users: [], apiKeys: [], tokens: [],
         roles: {
             admin:    { canUpload: true,  canDelete: true,  canManage: true  },
             standard: { canUpload: true,  canDelete: false, canManage: false }
         },
-        settings: {
-            timezone: 'Europe/Amsterdam',
-            showDayName: true,
-            showDate: true,
-            showTime: true,
-            showSeconds: false
-        }
+        settings: { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false }
     };
     fs.writeFileSync(DATA_FILE, JSON.stringify(initial, null, 2));
     return initial;
 }
 
-function saveData(data) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
+function saveData(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
 
 let appData = loadData();
+if (!appData.tokens) { appData.tokens = []; saveData(appData); }
+
+// ── Cookie token helpers ───────────────────────────────────────────────────
+function parseCookies(req) {
+    const out = {};
+    const header = req.headers.cookie;
+    if (!header) return out;
+    header.split(';').forEach(pair => {
+        const idx = pair.indexOf('=');
+        if (idx < 0) return;
+        out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+    });
+    return out;
+}
+
+function createToken(userId) {
+    const now = Date.now();
+    // Purge expired tokens
+    appData.tokens = (appData.tokens || []).filter(t => new Date(t.expiresAt).getTime() > now);
+    const token     = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(now + TOKEN_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    appData.tokens.push({ token, userId, expiresAt });
+    saveData(appData);
+    return { token, expiresAt };
+}
+
+function resolveToken(token) {
+    if (!token) return null;
+    const now = Date.now();
+    const rec = (appData.tokens || []).find(t => t.token === token && new Date(t.expiresAt).getTime() > now);
+    return rec ? appData.users.find(u => u.id === rec.userId) || null : null;
+}
+
+function deleteToken(token) {
+    appData.tokens = (appData.tokens || []).filter(t => t.token !== token);
+    saveData(appData);
+}
+
+function setCookie(res, token, expiresAt) {
+    res.setHeader('Set-Cookie',
+        `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Expires=${new Date(expiresAt).toUTCString()}`
+    );
+}
+
+function clearCookie(res) {
+    res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+}
 
 // ── Multer ─────────────────────────────────────────────────────────────────
 const storage = multer.diskStorage({
@@ -102,21 +134,17 @@ const upload = multer({
 });
 
 // ── Middleware ─────────────────────────────────────────────────────────────
-app.use(session({
-    secret: 'image-upload-secret-key',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { maxAge: 7 * 24 * 60 * 60 * 1000 }
-}));
-
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// ── Auth & role helpers ────────────────────────────────────────────────────
-function currentUser(req) {
-    return appData.users.find(u => u.id === req.session.userId);
-}
+// Attach current user to every request
+app.use((req, _res, next) => {
+    const cookies = parseCookies(req);
+    req.currentUser = resolveToken(cookies[COOKIE_NAME]) || null;
+    next();
+});
 
+// ── Auth & role helpers ────────────────────────────────────────────────────
 function getPermissions(role) {
     const defaults = { canUpload: false, canDelete: false, canManage: false };
     return Object.assign({}, defaults, (appData.roles || {})[role] || {});
@@ -127,7 +155,7 @@ function requireAuth(req, res, next) {
         if (req.path === '/setup' || req.path.startsWith('/api/setup')) return next();
         return res.redirect('/setup');
     }
-    if (req.session.loggedIn) return next();
+    if (req.currentUser) return next();
     if (req.path === '/login' || req.path === '/logout') return next();
     if (req.path.startsWith('/api/slideshow/')) return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
@@ -138,14 +166,12 @@ function requireAuth(req, res, next) {
 
 function requirePermission(perm) {
     return (req, res, next) => {
-        const user = currentUser(req);
-        if (user && getPermissions(user.role)[perm]) return next();
+        if (req.currentUser && getPermissions(req.currentUser.role)[perm]) return next();
         if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'Permission denied' });
         res.redirect('/');
     };
 }
 
-// Shorthand guards
 const requireAdmin  = requirePermission('canManage');
 const requireUpload = requirePermission('canUpload');
 const requireDelete = requirePermission('canDelete');
@@ -171,30 +197,26 @@ app.post('/api/setup', async (req, res) => {
     const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role: 'admin' };
     appData.users.push(user);
     saveData(appData);
-    req.session.loggedIn = true;
-    req.session.username = user.username;
-    req.session.userId   = user.id;
+    const { token, expiresAt } = createToken(user.id);
+    setCookie(res, token, expiresAt);
     res.json({ ok: true });
 });
 
 // ── Auth routes ────────────────────────────────────────────────────────────
 app.get('/login', (req, res) => {
-    if (req.session.loggedIn) return res.redirect('/');
+    if (req.currentUser) return res.redirect('/');
     res.sendFile(path.join(__dirname, 'login.html'));
 });
 
 app.post('/login', async (req, res) => {
     const ip = req.ip;
-    if (!checkRateLimit(ip)) {
-        return res.redirect('/login?error=locked');
-    }
+    if (!checkRateLimit(ip)) return res.redirect('/login?error=locked');
     const { username, password } = req.body;
     const user = appData.users.find(u => u.username === username);
     if (user && await verifyPassword(password, user.password)) {
         resetRateLimit(ip);
-        req.session.loggedIn = true;
-        req.session.username = user.username;
-        req.session.userId   = user.id;
+        const { token, expiresAt } = createToken(user.id);
+        setCookie(res, token, expiresAt);
         res.redirect('/');
     } else {
         res.redirect('/login?error=1');
@@ -202,17 +224,38 @@ app.post('/login', async (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
-    req.session.destroy(() => res.redirect('/login'));
+    const cookies = parseCookies(req);
+    if (cookies[COOKIE_NAME]) deleteToken(cookies[COOKIE_NAME]);
+    clearCookie(res);
+    res.redirect('/login');
 });
 
 // ── Current user info ──────────────────────────────────────────────────────
 app.get('/api/me', (req, res) => {
-    const user = currentUser(req);
+    const user = req.currentUser;
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
     res.json({ id: user.id, username: user.username, role: user.role, permissions: getPermissions(user.role) });
 });
 
-// ── Admin API — users (admin only) ────────────────────────────────────────
+// ── Admin API — sessions (admin only) ─────────────────────────────────────
+app.get('/api/admin/sessions', requireAdmin, (_req, res) => {
+    const now = Date.now();
+    const active = (appData.tokens || [])
+        .filter(t => new Date(t.expiresAt).getTime() > now)
+        .map(t => {
+            const user = appData.users.find(u => u.id === t.userId);
+            return { userId: t.userId, username: user?.username || '(deleted)', expiresAt: t.expiresAt };
+        });
+    res.json(active);
+});
+
+app.delete('/api/admin/sessions/:userId', requireAdmin, (req, res) => {
+    appData.tokens = (appData.tokens || []).filter(t => t.userId !== req.params.userId);
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// ── Admin API — users ──────────────────────────────────────────────────────
 app.get('/api/admin/users', requireAdmin, (_req, res) => {
     res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role })));
 });
@@ -220,7 +263,7 @@ app.get('/api/admin/users', requireAdmin, (_req, res) => {
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
     const { username, password, role } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-    if (!appData.roles || !appData.roles[role]) return res.status(400).json({ error: 'Unknown role' });
+    if (!appData.roles?.[role]) return res.status(400).json({ error: 'Unknown role' });
     if (appData.users.some(u => u.username === username)) return res.status(400).json({ error: 'Username already exists' });
     const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role };
     appData.users.push(user);
@@ -233,17 +276,14 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
     if (!user) return res.status(404).json({ error: 'User not found' });
     const { username, password, role } = req.body;
     if (username) {
-        if (appData.users.some(u => u.username === username && u.id !== user.id)) {
+        if (appData.users.some(u => u.username === username && u.id !== user.id))
             return res.status(400).json({ error: 'Username already exists' });
-        }
         user.username = username;
     }
     if (password) user.password = await hashPassword(password);
-    if (role && appData.roles && appData.roles[role]) {
-        // Prevent removing admin role from yourself
-        if (user.id === req.session.userId && role !== 'admin') {
+    if (role && appData.roles?.[role]) {
+        if (user.id === req.currentUser?.id && role !== 'admin')
             return res.status(400).json({ error: 'Cannot remove your own admin role' });
-        }
         user.role = role;
     }
     saveData(appData);
@@ -252,20 +292,19 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
 
 app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
     if (appData.users.length <= 1) return res.status(400).json({ error: 'Cannot delete the last user' });
-    if (req.params.id === req.session.userId) return res.status(400).json({ error: 'Cannot delete your own account' });
-    appData.users = appData.users.filter(u => u.id !== req.params.id);
+    if (req.params.id === req.currentUser?.id) return res.status(400).json({ error: 'Cannot delete your own account' });
+    appData.users  = appData.users.filter(u => u.id !== req.params.id);
+    appData.tokens = (appData.tokens || []).filter(t => t.userId !== req.params.id);
     saveData(appData);
     res.json({ ok: true });
 });
 
-// ── Admin API — roles (admin only) ────────────────────────────────────────
-app.get('/api/admin/roles', requireAdmin, (_req, res) => {
-    res.json(appData.roles || {});
-});
+// ── Admin API — roles ──────────────────────────────────────────────────────
+app.get('/api/admin/roles', requireAdmin, (_req, res) => res.json(appData.roles || {}));
 
 app.post('/api/admin/roles', requireAdmin, (req, res) => {
     const { name } = req.body;
-    if (!name || !name.trim()) return res.status(400).json({ error: 'Role name required' });
+    if (!name?.trim()) return res.status(400).json({ error: 'Role name required' });
     const key = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
     if (!appData.roles) appData.roles = {};
     if (appData.roles[key]) return res.status(400).json({ error: 'Role already exists' });
@@ -276,7 +315,7 @@ app.post('/api/admin/roles', requireAdmin, (req, res) => {
 
 app.put('/api/admin/roles/:role', requireAdmin, (req, res) => {
     const { role } = req.params;
-    if (!appData.roles || !appData.roles[role]) return res.status(404).json({ error: 'Role not found' });
+    if (!appData.roles?.[role]) return res.status(404).json({ error: 'Role not found' });
     const { canUpload, canDelete, canManage } = req.body;
     appData.roles[role] = { canUpload: !!canUpload, canDelete: !!canDelete, canManage: !!canManage };
     saveData(appData);
@@ -286,24 +325,21 @@ app.put('/api/admin/roles/:role', requireAdmin, (req, res) => {
 app.delete('/api/admin/roles/:role', requireAdmin, (req, res) => {
     const { role } = req.params;
     if (role === 'admin') return res.status(400).json({ error: 'Cannot delete the admin role' });
-    if (!appData.roles || !appData.roles[role]) return res.status(404).json({ error: 'Role not found' });
-    const usersWithRole = appData.users.filter(u => u.role === role);
-    if (usersWithRole.length > 0) return res.status(400).json({ error: `Cannot delete: ${usersWithRole.length} user(s) still have this role` });
+    if (!appData.roles?.[role]) return res.status(404).json({ error: 'Role not found' });
+    const inUse = appData.users.filter(u => u.role === role).length;
+    if (inUse > 0) return res.status(400).json({ error: `Cannot delete: ${inUse} user(s) still have this role` });
     delete appData.roles[role];
     saveData(appData);
     res.json({ ok: true });
 });
 
-// ── Admin API — API keys (admin only) ─────────────────────────────────────
-app.get('/api/admin/apikeys', requireAdmin, (_req, res) => {
-    res.json(appData.apiKeys);
-});
+// ── Admin API — API keys ───────────────────────────────────────────────────
+app.get('/api/admin/apikeys', requireAdmin, (_req, res) => res.json(appData.apiKeys));
 
 app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
     const { name, interval } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
-    const mins = Math.max(1, parseInt(interval) || 5);
-    const apiKey = { id: crypto.randomUUID(), name, key: crypto.randomBytes(24).toString('base64url'), intervalMinutes: mins, createdAt: new Date().toISOString() };
+    const apiKey = { id: crypto.randomUUID(), name, key: crypto.randomBytes(24).toString('base64url'), intervalMinutes: Math.max(1, parseInt(interval) || 5), createdAt: new Date().toISOString() };
     appData.apiKeys.push(apiKey);
     saveData(appData);
     res.json(apiKey);
@@ -328,13 +364,10 @@ app.delete('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
 // ── Display settings ───────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false };
 
-app.get('/api/settings', (_req, res) => {
-    res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {}));
-});
+app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
     const { timezone, showDayName, showDate, showTime, showSeconds } = req.body;
-    // Validate timezone
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds };
     saveData(appData);
@@ -343,21 +376,20 @@ app.put('/api/settings', requireAdmin, (req, res) => {
 
 // ── Slideshow API (external) ───────────────────────────────────────────────
 app.get('/api/slideshow/current', requireApiKey, (req, res) => {
-    const keyRecord = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
+    const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
-
-    const files = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
+    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
-    const slot = Math.floor(Date.now() / intervalMs);
-    const index = slot % files.length;
+    const slot     = Math.floor(Date.now() / intervalMs);
+    const index    = slot % files.length;
     const filename = files[index];
     const nextSlot = (slot + 1) * intervalMs;
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const baseUrl  = `${req.protocol}://${req.get('host')}`;
     res.json({ index, total: files.length, filename, url: `${baseUrl}/uploads/${filename}`, interval_minutes: keyRecord?.intervalMinutes || 5, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now() });
 });
 
 app.get('/api/slideshow/all', requireApiKey, (req, res) => {
-    const files = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
+    const files   = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
 });
@@ -377,7 +409,7 @@ app.get('/api/images', (_req, res) => {
 });
 
 app.post('/api/upload', requireUpload, upload.array('images', 50), (req, res) => {
-    if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No files uploaded' });
+    if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' });
     res.json({ uploaded: req.files.map(f => ({ filename: f.filename, url: `/uploads/${f.filename}` })) });
 });
 
@@ -392,7 +424,7 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
 // ── Start ──────────────────────────────────────────────────────────────────
 function startServer(port) {
     const server = app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
-    server.on('error', (err) => {
+    server.on('error', err => {
         if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
             console.log(`Port ${port} unavailable, trying ${port + 1}...`);
             startServer(port + 1);
