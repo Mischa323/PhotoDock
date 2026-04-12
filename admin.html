@@ -189,6 +189,58 @@
         .toggle input:checked + .toggle-slider { background: #4a90e2; }
         .toggle input:checked + .toggle-slider:before { transform: translateX(18px); }
 
+        /* ── Display settings ─────────────────────────────────────── */
+        .settings-grid {
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+
+        .settings-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 480px;
+            gap: 16px;
+        }
+
+        .settings-row label {
+            font-size: 14px;
+            color: #444;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .settings-row label small { font-size: 12px; color: #999; }
+
+        .tz-input {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 7px 10px;
+            font-size: 14px;
+            outline: none;
+            width: 220px;
+            font-family: monospace;
+        }
+
+        .tz-input:focus { border-color: #4a90e2; }
+
+        .btn-save-settings {
+            background: #4a90e2;
+            color: #fff;
+            border: none;
+            padding: 9px 22px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            align-self: flex-start;
+        }
+
+        .btn-save-settings:hover { background: #357abd; }
+
         tbody tr { border-bottom: 1px solid #f0f0f0; }
         tbody tr:last-child { border-bottom: none; }
 
@@ -389,6 +441,79 @@
 
 <main>
 
+    <!-- Display Settings -->
+    <section>
+        <div class="section-header"><h2>Display Settings</h2></div>
+        <div class="settings-grid">
+
+            <div class="settings-row">
+                <label for="tzInput">
+                    Timezone
+                    <small>IANA name, e.g. Europe/Amsterdam</small>
+                </label>
+                <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+                    <input type="text" id="tzInput" class="tz-input" list="tzList" placeholder="Europe/Amsterdam">
+                    <datalist id="tzList">
+                        <option value="UTC">
+                        <option value="Europe/Amsterdam">
+                        <option value="Europe/London">
+                        <option value="Europe/Paris">
+                        <option value="Europe/Berlin">
+                        <option value="Europe/Stockholm">
+                        <option value="Europe/Rome">
+                        <option value="Europe/Madrid">
+                        <option value="America/New_York">
+                        <option value="America/Chicago">
+                        <option value="America/Denver">
+                        <option value="America/Los_Angeles">
+                        <option value="America/Sao_Paulo">
+                        <option value="Asia/Dubai">
+                        <option value="Asia/Kolkata">
+                        <option value="Asia/Shanghai">
+                        <option value="Asia/Tokyo">
+                        <option value="Asia/Singapore">
+                        <option value="Australia/Sydney">
+                        <option value="Pacific/Auckland">
+                    </datalist>
+                </div>
+            </div>
+
+            <div class="settings-row">
+                <label>Show day name <small>e.g. Saturday</small></label>
+                <label class="toggle">
+                    <input type="checkbox" id="showDayName">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-row">
+                <label>Show date <small>e.g. 12 April 2026</small></label>
+                <label class="toggle">
+                    <input type="checkbox" id="showDate">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-row">
+                <label>Show time <small>e.g. 10:35</small></label>
+                <label class="toggle">
+                    <input type="checkbox" id="showTime">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="settings-row">
+                <label>Show seconds <small>e.g. 10:35:22</small></label>
+                <label class="toggle">
+                    <input type="checkbox" id="showSeconds">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>
+
+            <button class="btn-save-settings" onclick="saveDisplaySettings()">Save</button>
+        </div>
+    </section>
+
     <!-- Users -->
     <section>
         <div class="section-header">
@@ -453,6 +578,7 @@
                 <tr>
                     <th>Name</th>
                     <th>Key</th>
+                    <th>Interval</th>
                     <th>Created</th>
                     <th style="width:80px">Actions</th>
                 </tr>
@@ -465,6 +591,10 @@
             <div class="field">
                 <label>Key name</label>
                 <input type="text" id="newKeyName" placeholder="My Server">
+            </div>
+            <div class="field" style="max-width:110px">
+                <label>Interval (min)</label>
+                <input type="number" id="newKeyInterval" min="1" value="5">
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
         </div>
@@ -622,6 +752,15 @@
                         <button class="icon-btn" title="Copy" onclick="copyKey('${escHtml(k.key)}')">&#128203;</button>
                     </div>
                 </td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:6px">
+                        <input type="number" min="1" value="${k.intervalMinutes || 5}"
+                            id="interval-${k.id}"
+                            style="width:60px;border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
+                            onchange="saveKeyInterval('${k.id}')">
+                        <span style="font-size:12px;color:#888">min</span>
+                    </div>
+                </td>
                 <td>${new Date(k.createdAt).toLocaleDateString()}</td>
                 <td>
                     <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(k.name)}')">&#128465;</button>
@@ -630,14 +769,26 @@
         `).join('');
     }
 
+    async function saveKeyInterval(id) {
+        const interval = parseInt(document.getElementById(`interval-${id}`).value) || 5;
+        const res = await fetch(`/api/admin/apikeys/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ interval })
+        });
+        if (!res.ok) showToast('Could not save interval', 'error');
+        else showToast('Interval updated.');
+    }
+
     async function createApiKey() {
-        const name = document.getElementById('newKeyName').value.trim();
+        const name     = document.getElementById('newKeyName').value.trim();
+        const interval = parseInt(document.getElementById('newKeyInterval').value) || 5;
         if (!name) return showToast('Enter a key name', 'error');
 
         const res  = await fetch('/api/admin/apikeys', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name })
+            body: JSON.stringify({ name, interval })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
@@ -778,7 +929,37 @@
         loadRoles();
     }
 
+    // ── Display settings ───────────────────────────────────────────────────
+    async function loadDisplaySettings() {
+        const res  = await fetch('/api/settings');
+        const s    = await res.json();
+        document.getElementById('tzInput').value       = s.timezone    || 'Europe/Amsterdam';
+        document.getElementById('showDayName').checked = !!s.showDayName;
+        document.getElementById('showDate').checked    = !!s.showDate;
+        document.getElementById('showTime').checked    = !!s.showTime;
+        document.getElementById('showSeconds').checked = !!s.showSeconds;
+    }
+
+    async function saveDisplaySettings() {
+        const body = {
+            timezone:    document.getElementById('tzInput').value.trim(),
+            showDayName: document.getElementById('showDayName').checked,
+            showDate:    document.getElementById('showDate').checked,
+            showTime:    document.getElementById('showTime').checked,
+            showSeconds: document.getElementById('showSeconds').checked,
+        };
+        const res  = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) showToast(data.error || 'Could not save settings', 'error');
+        else showToast('Display settings saved.');
+    }
+
     // ── Init ───────────────────────────────────────────────────────────────
+    loadDisplaySettings();
     loadRoles().then(() => loadUsers());
     loadApiKeys();
 </script>

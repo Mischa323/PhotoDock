@@ -15,6 +15,13 @@
       "createdAt": "2026-04-12T17:41:45.543Z"
     }
   ],
+  "settings": {
+    "timezone": "Europe/Amsterdam",
+    "showDayName": true,
+    "showDate": true,
+    "showTime": false,
+    "showSeconds": false
+  },
   "roles": {
     "admin": {
       "canUpload": true,
