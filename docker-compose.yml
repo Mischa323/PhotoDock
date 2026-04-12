@@ -5,9 +5,12 @@ services:
       PORT: ${PORT:-8080}
       DATA_FILE: /data/data.json
       UPLOADS_DIR: /data/uploads
+      CADDY_ADMIN: http://caddy:2019
     volumes:
       - ./data:/data
     restart: unless-stopped
+    depends_on:
+      - caddy
 
   caddy:
     image: caddy:2-alpine
@@ -22,9 +25,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    command: caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile
     restart: unless-stopped
-    depends_on:
-      - image-upload
 
   watchtower:
     image: containrrr/watchtower
