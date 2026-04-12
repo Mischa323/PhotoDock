@@ -1,0 +1,14 @@
+services:
+  image-upload:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+      DATA_FILE: /data/data.json
+      UPLOADS_DIR: /data/uploads
+    volumes:
+      # All persistent data (images + data.json) lives here.
+      # Change ./data to any host path you want, or use a named volume.
+      - ./data:/data
+    restart: unless-stopped
