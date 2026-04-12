@@ -1,6 +1,6 @@
 services:
   image-upload:
-    image: ghcr.io/mischa323/test:latest
+    image: ghcr.io/mischa323/terminal-photo-display:latest
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
     environment:
