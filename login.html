@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: sans-serif;
+            background: #111;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .card {
+            background: #1e1e1e;
+            border-radius: 12px;
+            padding: 40px 36px;
+            width: 100%;
+            max-width: 360px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        }
+
+        h1 {
+            color: #fff;
+            font-size: 22px;
+            margin-bottom: 28px;
+            text-align: center;
+        }
+
+        label {
+            display: block;
+            color: #aaa;
+            font-size: 13px;
+            margin-bottom: 6px;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            background: #2a2a2a;
+            border: 1px solid #333;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 15px;
+            padding: 10px 12px;
+            outline: none;
+            margin-bottom: 18px;
+            transition: border-color 0.2s;
+        }
+
+        input:focus { border-color: #4a90e2; }
+
+        button {
+            width: 100%;
+            background: #4a90e2;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 11px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover { background: #357abd; }
+
+        .error {
+            background: rgba(192,57,43,0.2);
+            border: 1px solid rgba(192,57,43,0.5);
+            color: #e74c3c;
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-size: 13px;
+            margin-bottom: 18px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>My Images</h1>
+
+        <div id="errorMsg" class="error" style="display:none">
+            Incorrect username or password.
+        </div>
+
+        <form method="POST" action="/login">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" autofocus autocomplete="username">
+
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" autocomplete="current-password">
+
+            <button type="submit">Log in</button>
+        </form>
+    </div>
+
+    <script>
+        if (new URLSearchParams(location.search).get('error')) {
+            document.getElementById('errorMsg').style.display = 'block';
+        }
+    </script>
+</body>
+</html>
