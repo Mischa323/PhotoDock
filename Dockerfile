@@ -18,4 +18,8 @@ ENV PORT=8080 \
     DATA_FILE=/data/data.json \
     UPLOADS_DIR=/data/uploads
 
+# Version injected at build time by GitHub Actions (tag name or short commit SHA)
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 CMD ["node", "server.js"]

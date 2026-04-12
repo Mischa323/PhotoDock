@@ -4,6 +4,9 @@ const path    = require('path');
 const fs      = require('fs');
 const crypto  = require('crypto');
 const QRCode  = require('qrcode');
+const { version: pkgVersion } = require('./package.json');
+const changelog    = require('./changelog.json');
+const appVersion   = process.env.APP_VERSION || pkgVersion;
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
@@ -215,6 +218,7 @@ const upload = multer({
 });
 
 // ── Middleware ─────────────────────────────────────────────────────────────
+app.set('trust proxy', 1); // trust X-Forwarded-Proto from Caddy so req.protocol = 'https'
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
@@ -565,6 +569,9 @@ app.get('/api/slideshow/all', requireApiKey, (req, res) => {
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
 });
+
+// ── Version ────────────────────────────────────────────────────────────────
+app.get('/api/version', (_req, res) => res.json({ version: appVersion, changelog }));
 
 // ── Static files ───────────────────────────────────────────────────────────
 app.use(express.static(__dirname));

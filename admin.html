@@ -431,6 +431,55 @@
 
         .btn-save:hover { background: #357abd; }
 
+        /* ── Changelog ───────────────────────────────────────────── */
+        .cl-entry {
+            padding: 14px 24px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            gap: 16px;
+        }
+
+        .cl-entry:last-child { border-bottom: none; }
+
+        .cl-version {
+            font-size: 13px;
+            font-weight: 700;
+            color: #2a6db5;
+            min-width: 52px;
+            padding-top: 1px;
+        }
+
+        .cl-current .cl-version { color: #2e7d32; }
+
+        .cl-right { flex: 1; }
+
+        .cl-date {
+            font-size: 12px;
+            color: #bbb;
+            margin-bottom: 6px;
+        }
+
+        .cl-changes {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .cl-changes li {
+            font-size: 13px;
+            color: #444;
+            padding-left: 14px;
+            position: relative;
+        }
+
+        .cl-changes li::before {
+            content: '·';
+            position: absolute;
+            left: 4px;
+            color: #aaa;
+        }
+
         /* ── API Reference ────────────────────────────────────────── */
         .api-block {
             display: flex;
@@ -776,6 +825,15 @@
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
         </div>
+    </section>
+
+    <!-- Version / Changelog -->
+    <section>
+        <div class="section-header">
+            <h2>Version</h2>
+            <span id="versionBadge" style="font-size:13px;font-weight:700;background:#eaf3ff;color:#2a6db5;padding:3px 12px;border-radius:20px"></span>
+        </div>
+        <div id="changelogContainer" style="padding:8px 0"></div>
     </section>
 
 </main>
@@ -1276,12 +1334,32 @@
     }
 
     // ── Init ───────────────────────────────────────────────────────────────
+    // ── Version / Changelog ────────────────────────────────────────────────
+    async function loadVersion() {
+        const res  = await fetch('/api/version');
+        const data = await res.json();
+        document.getElementById('versionBadge').textContent = `v${data.version}`;
+        const entries = [...data.changelog].reverse(); // newest first
+        document.getElementById('changelogContainer').innerHTML = entries.map((entry, i) => `
+            <div class="cl-entry ${i === 0 ? 'cl-current' : ''}">
+                <div class="cl-version">v${entry.version}</div>
+                <div class="cl-right">
+                    <div class="cl-date">${entry.date}</div>
+                    <ul class="cl-changes">
+                        ${entry.changes.map(c => `<li>${escHtml(c)}</li>`).join('')}
+                    </ul>
+                </div>
+            </div>
+        `).join('');
+    }
+
     loadDomain();
     loadDisplaySettings();
     loadRoles().then(() => loadUsers());
     loadApiKeys();
     initApiDocs();
     load2FAStatus();
+    loadVersion();
 </script>
 </body>
 </html>
