@@ -1164,21 +1164,23 @@
         <div class="section-header">
             <h2>API Keys <span class="help" data-tip="API keys let external devices or scripts fetch the current slideshow image without logging in. Each key has its own interval that controls how often the image changes.">?</span></h2>
         </div>
-        <table>
+        <div style="overflow-x:auto">
+        <table style="min-width:540px">
             <thead>
                 <tr>
-                    <th>Name</th>
+                    <th style="width:18%">Name</th>
                     <th>Key</th>
-                    <th>Interval</th>
-                    <th>Image size <span class="help" data-tip="Override the rendered image size for this key's /api/slideshow/image requests. Leave blank to use the global size set in Display Settings.">?</span></th>
-                    <th>Created</th>
-                    <th style="width:80px">Actions</th>
+                    <th style="white-space:nowrap;width:90px">Interval</th>
+                    <th style="white-space:nowrap;width:110px">Image size <span class="help" data-tip="Override the rendered image size for this key's /api/slideshow/image requests. Leave blank to use the global size set in Display Settings.">?</span></th>
+                    <th style="white-space:nowrap;width:80px">Created</th>
+                    <th style="width:44px">Actions</th>
                 </tr>
             </thead>
             <tbody id="keyTableBody">
-                <tr class="empty-row"><td colspan="4">Loading…</td></tr>
+                <tr class="empty-row"><td colspan="6">Loading…</td></tr>
             </tbody>
         </table>
+        </div>
         <div class="add-form">
             <div class="field">
                 <label>Key name</label>
@@ -1391,7 +1393,7 @@
 
         tbody.innerHTML = keys.map(k => `
             <tr>
-                <td>${escHtml(k.name)}</td>
+                <td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(k.name)}">${escHtml(k.name)}</td>
                 <td>
                     <div class="key-cell">
                         <span class="key-masked" id="keyval-${k.id}">••••••••••••</span>
@@ -1409,16 +1411,21 @@
                     </div>
                 </td>
                 <td>
-                    <div style="display:flex;align-items:center;gap:4px">
-                        <input type="number" min="1" max="7680" value="${k.imageWidth || ''}" placeholder="default"
-                            id="imgw-${k.id}"
-                            style="width:68px;border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
-                            onchange="saveKeySettings('${k.id}')">
-                        <span style="font-size:12px;color:#888">×</span>
-                        <input type="number" min="1" max="4320" value="${k.imageHeight || ''}" placeholder="default"
-                            id="imgh-${k.id}"
-                            style="width:68px;border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
-                            onchange="saveKeySettings('${k.id}')">
+                    <div style="display:flex;flex-direction:column;gap:3px">
+                        <div style="display:flex;align-items:center;gap:3px">
+                            <span style="font-size:10px;color:#888;width:8px">W</span>
+                            <input type="number" min="1" max="7680" value="${k.imageWidth || ''}" placeholder="—"
+                                id="imgw-${k.id}"
+                                style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
+                                onchange="saveKeySettings('${k.id}')">
+                        </div>
+                        <div style="display:flex;align-items:center;gap:3px">
+                            <span style="font-size:10px;color:#888;width:8px">H</span>
+                            <input type="number" min="1" max="4320" value="${k.imageHeight || ''}" placeholder="—"
+                                id="imgh-${k.id}"
+                                style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
+                                onchange="saveKeySettings('${k.id}')">
+                        </div>
                     </div>
                 </td>
                 <td>${new Date(k.createdAt).toLocaleDateString()}</td>

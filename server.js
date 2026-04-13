@@ -770,6 +770,42 @@ app.get('/api/slideshow/all', requireApiKey, (req, res) => {
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
 });
 
+function buildDateOverlaySvg(w, h, settings) {
+    const now  = new Date();
+    const tz   = settings.timezone || 'UTC';
+    const fmt  = opts => now.toLocaleString('en-GB', { ...opts, timeZone: tz });
+    const esc  = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    const lines = [];
+    if (settings.showDayName || settings.showDate) {
+        lines.push(fmt({
+            ...(settings.showDayName ? { weekday: 'long' }                              : {}),
+            ...(settings.showDate    ? { day: 'numeric', month: 'long', year: 'numeric'} : {})
+        }));
+    }
+    if (settings.showTime) {
+        lines.push(fmt({ hour: '2-digit', minute: '2-digit', ...(settings.showSeconds ? { second: '2-digit' } : {}) }));
+    }
+    if (!lines.length) return null;
+
+    const fs  = Math.max(16, Math.round(h * 0.036));
+    const pad = Math.round(fs * 0.8);
+    const lh  = Math.round(fs * 1.55);
+    const bh  = lines.length * lh + pad;
+    const by  = h - bh - Math.round(h * 0.02);
+
+    const texts = lines.map((t, i) =>
+        `<text x="${pad}" y="${by + pad * 0.7 + fs + i * lh}" font-family="sans-serif" font-size="${fs}" fill="white">${esc(t)}</text>`
+    ).join('');
+
+    return Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+        `<rect x="0" y="${by}" width="${w}" height="${bh + pad * 0.5}" fill="rgba(0,0,0,0.48)"/>` +
+        texts +
+        `</svg>`
+    );
+}
+
 app.get('/api/slideshow/image', requireApiKey, async (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
@@ -782,10 +818,13 @@ app.get('/api/slideshow/image', requireApiKey, async (req, res) => {
     const imgW = keyRecord?.imageWidth  || settings.imageWidth;
     const imgH = keyRecord?.imageHeight || settings.imageHeight;
     try {
-        const buf = await sharp(filepath)
-            .resize(imgW, imgH, { fit: 'contain', background: { r: 0, g: 0, b: 0 } })
-            .jpeg({ quality: 90 })
-            .toBuffer();
+        const pipeline = sharp(filepath)
+            .resize(imgW, imgH, { fit: 'contain', background: { r: 0, g: 0, b: 0 } });
+
+        const overlay = buildDateOverlaySvg(imgW, imgH, settings);
+        if (overlay) pipeline.composite([{ input: overlay, top: 0, left: 0 }]);
+
+        const buf = await pipeline.jpeg({ quality: 90 }).toBuffer();
         res.set('Content-Type', 'image/jpeg');
         res.set('Cache-Control', 'no-cache');
         res.send(buf);
