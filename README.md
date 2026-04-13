@@ -62,7 +62,9 @@ Container restarted with new image automatically
 - A domain name pointing to your server (for HTTPS)
 - Ports **80** and **443** open on your server/firewall
 
-### Steps
+---
+
+### Option A — Command line
 
 **1. Install Docker**
 ```bash
@@ -97,6 +99,56 @@ Caddy will automatically request an SSL certificate on first start. This takes a
 **5. Open your browser**
 
 Go to `https://photos.yourdomain.com` — you will be redirected to the first-run setup page to create your admin account.
+
+---
+
+### Option B — Portainer
+
+If you manage your server with [Portainer](https://www.portainer.io/), you can deploy the stack directly through its web UI without using a terminal.
+
+**1. Install Portainer** (skip if already installed)
+```bash
+docker volume create portainer_data
+docker run -d -p 8000:8000 -p 9443:9443 --name portainer --restart=always \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v portainer_data:/data \
+  portainer/portainer-ce:latest
+```
+Open `https://your-server-ip:9443` and create your Portainer admin account.
+
+**2. Download the project files**
+
+On your server, clone the repository so the `Caddyfile` and `data/` folder are available:
+```bash
+git clone https://github.com/Mischa323/Terminal-Photo-Display.git
+cd Terminal-Photo-Display
+cp .env.example .env
+```
+
+Edit `.env` and set your domain:
+```
+DOMAIN=photos.yourdomain.com
+PORT=8080
+```
+
+**3. Deploy the stack in Portainer**
+
+1. In Portainer, go to **Stacks → Add stack**
+2. Give it a name (e.g. `photo-display`)
+3. Select **Upload** and upload the `docker-compose.yml` file from the cloned folder  
+   — or select **Repository** and point it at `https://github.com/Mischa323/Terminal-Photo-Display`
+4. Under **Environment variables**, add:
+   - `DOMAIN` = `photos.yourdomain.com`
+   - `PORT` = `8080`
+5. Click **Deploy the stack**
+
+Portainer will pull all three images (app, Caddy, Watchtower) and start the containers. Caddy will request an SSL certificate automatically.
+
+**4. Open your browser**
+
+Go to `https://photos.yourdomain.com` — you will see the first-run setup page to create your admin account.
+
+> **Note:** Make sure ports 80 and 443 on your server point to the host machine running Portainer, not to Portainer itself. Portainer listens on port 9443; Caddy listens on 80/443.
 
 ---
 
@@ -155,9 +207,11 @@ Enable or disable **two-factor authentication (2FA)** for your account. Scans a 
 Change the domain name without editing any files. The server pushes the new config to Caddy live — no restart needed. Caddy then requests a new SSL certificate automatically.
 
 ### Display Settings
-Configure what is shown in the date/time overlay on the slideshow:
+Configure the slideshow behaviour and date/time overlay:
+- **Slideshow interval** — seconds between each image (applies to all viewers)
 - Timezone (any IANA timezone, e.g. `Europe/Amsterdam`)
 - Show/hide day name, date, time, seconds
+- Accent colour — theme colour applied across all pages
 
 ### Users
 Create, edit, and delete user accounts. Assign roles. Password changes take effect immediately.
