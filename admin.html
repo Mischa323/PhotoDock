@@ -331,6 +331,25 @@
 
         .empty-row td { color: #bbb; text-align: center; padding: 24px; }
 
+        /* ── Endpoint access toggles ─────────────────────────────────── */
+        .ep-toggle {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            color: #555;
+            white-space: nowrap;
+        }
+        .ep-toggle input[type="checkbox"] {
+            width: 13px;
+            height: 13px;
+            accent-color: var(--accent);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
         /* Add form */
         .add-form {
             padding: 16px 24px;
@@ -1273,6 +1292,7 @@
                     <th>Key</th>
                     <th style="white-space:nowrap;width:90px">Interval</th>
                     <th style="white-space:nowrap;width:110px">Image size <span class="help" data-tip="The pixel dimensions used when rendering the /api/slideshow/image response for this key. Leave blank to use the default 1920×1080.">?</span></th>
+                    <th style="white-space:nowrap;width:100px">Endpoints <span class="help" data-tip="Which API endpoints this key is allowed to call. Uncheck an endpoint to block access to it.">?</span></th>
                     <th style="white-space:nowrap">Last used</th>
                     <th style="white-space:nowrap;width:80px">Created</th>
                     <th style="width:44px">Actions</th>
@@ -1298,6 +1318,14 @@
                     <input type="number" id="newKeyImageWidth"  min="1" max="7680" placeholder="1920" style="width:68px">
                     <span style="font-size:12px;color:#888">×</span>
                     <input type="number" id="newKeyImageHeight" min="1" max="4320" placeholder="1080" style="width:68px">
+                </div>
+            </div>
+            <div class="field">
+                <label>Endpoints</label>
+                <div style="display:flex;flex-direction:column;gap:4px">
+                    <label class="ep-toggle"><input type="checkbox" id="newKeyEpCurrent" checked> current</label>
+                    <label class="ep-toggle"><input type="checkbox" id="newKeyEpAll"     checked> all</label>
+                    <label class="ep-toggle"><input type="checkbox" id="newKeyEpImage"   checked> image</label>
                 </div>
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
@@ -1507,6 +1535,9 @@
             return;
         }
 
+        // null/undefined allowedEndpoints means all endpoints allowed (backward compat)
+        const hasEp = (k, name) => !k.allowedEndpoints || k.allowedEndpoints.includes(name);
+
         tbody.innerHTML = keys.map(k => `
             <tr>
                 <td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(k.name)}">${escHtml(k.name)}</td>
@@ -1544,6 +1575,22 @@
                         </div>
                     </div>
                 </td>
+                <td>
+                    <div style="display:flex;flex-direction:column;gap:4px">
+                        <label class="ep-toggle">
+                            <input type="checkbox" id="ep-current-${k.id}" ${hasEp(k,'current') ? 'checked' : ''}
+                                onchange="saveKeySettings('${k.id}')"> current
+                        </label>
+                        <label class="ep-toggle">
+                            <input type="checkbox" id="ep-all-${k.id}" ${hasEp(k,'all') ? 'checked' : ''}
+                                onchange="saveKeySettings('${k.id}')"> all
+                        </label>
+                        <label class="ep-toggle">
+                            <input type="checkbox" id="ep-image-${k.id}" ${hasEp(k,'image') ? 'checked' : ''}
+                                onchange="saveKeySettings('${k.id}')"> image
+                        </label>
+                    </div>
+                </td>
                 <td style="font-size:13px;white-space:nowrap">${relTimeAgo(k.lastUsed)}</td>
                 <td style="font-size:13px;white-space:nowrap">${new Date(k.createdAt).toLocaleDateString()}</td>
                 <td>
@@ -1554,13 +1601,16 @@
     }
 
     async function saveKeySettings(id) {
-        const interval    = parseInt(document.getElementById(`interval-${id}`).value) || 5;
-        const imageWidth  = parseInt(document.getElementById(`imgw-${id}`).value)  || 0;
-        const imageHeight = parseInt(document.getElementById(`imgh-${id}`).value) || 0;
+        const interval        = parseInt(document.getElementById(`interval-${id}`).value) || 5;
+        const imageWidth      = parseInt(document.getElementById(`imgw-${id}`).value)  || 0;
+        const imageHeight     = parseInt(document.getElementById(`imgh-${id}`).value) || 0;
+        const allowedEndpoints = ['current', 'all', 'image'].filter(ep =>
+            document.getElementById(`ep-${ep}-${id}`)?.checked
+        );
         const res = await fetch(`/api/admin/apikeys/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ interval, imageWidth, imageHeight })
+            body: JSON.stringify({ interval, imageWidth, imageHeight, allowedEndpoints })
         });
         if (!res.ok) showToast('Could not save key settings', 'error');
         else showToast('Key updated.');
@@ -1571,12 +1621,15 @@
         const interval    = parseInt(document.getElementById('newKeyInterval').value) || 5;
         const imageWidth  = parseInt(document.getElementById('newKeyImageWidth').value)  || 0;
         const imageHeight = parseInt(document.getElementById('newKeyImageHeight').value) || 0;
+        const allowedEndpoints = ['current', 'all', 'image'].filter(ep =>
+            document.getElementById(`newKeyEp${ep.charAt(0).toUpperCase() + ep.slice(1)}`)?.checked
+        );
         if (!name) return showToast('Enter a key name', 'error');
 
         const res  = await fetch('/api/admin/apikeys', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, interval, imageWidth, imageHeight })
+            body: JSON.stringify({ name, interval, imageWidth, imageHeight, allowedEndpoints })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');

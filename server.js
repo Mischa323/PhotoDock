@@ -330,6 +330,16 @@ function requireApiKey(req, res, next) {
     next();
 }
 
+// Returns middleware that checks whether req.apiKey has access to a named endpoint.
+// Keys with no allowedEndpoints restriction (null/undefined) pass through (backward compatible).
+function requireEndpoint(name) {
+    return (req, res, next) => {
+        const allowed = req.apiKey?.allowedEndpoints;
+        if (!allowed || allowed.includes(name)) return next();
+        res.status(403).json({ error: 'This API key does not have access to this endpoint' });
+    };
+}
+
 app.use(requireAuth);
 
 // ── First-run setup ────────────────────────────────────────────────────────
@@ -667,12 +677,15 @@ app.get('/api/admin/logs', requireAdmin, (_req, res) => res.json(appData.logs ||
 // ── Admin API — API keys ───────────────────────────────────────────────────
 app.get('/api/admin/apikeys', requireAdmin, (_req, res) => res.json(appData.apiKeys));
 
+const VALID_ENDPOINTS = ['current', 'all', 'image'];
+
 app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
-    const { name, interval, imageWidth, imageHeight } = req.body;
+    const { name, interval, imageWidth, imageHeight, allowedEndpoints } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
     const apiKey = { id: crypto.randomUUID(), name, key: crypto.randomBytes(24).toString('base64url'), intervalMinutes: Math.max(1, parseInt(interval) || 5), createdAt: new Date().toISOString() };
     const w = parseInt(imageWidth);  if (w > 0) apiKey.imageWidth  = Math.min(7680, w);
     const h = parseInt(imageHeight); if (h > 0) apiKey.imageHeight = Math.min(4320, h);
+    if (Array.isArray(allowedEndpoints)) apiKey.allowedEndpoints = allowedEndpoints.filter(e => VALID_ENDPOINTS.includes(e));
     appData.apiKeys.push(apiKey);
     saveData(appData);
     res.json(apiKey);
@@ -681,7 +694,7 @@ app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
 app.put('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
     const apiKey = appData.apiKeys.find(k => k.id === req.params.id);
     if (!apiKey) return res.status(404).json({ error: 'Key not found' });
-    const { name, interval, imageWidth, imageHeight } = req.body;
+    const { name, interval, imageWidth, imageHeight, allowedEndpoints } = req.body;
     if (name) apiKey.name = name;
     if (interval !== undefined) apiKey.intervalMinutes = Math.max(1, parseInt(interval) || 5);
     // imageWidth/imageHeight: positive number = override, 0/null/'' = use global default
@@ -693,6 +706,7 @@ app.put('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
         const h = parseInt(imageHeight);
         if (h > 0) apiKey.imageHeight = Math.min(4320, h); else delete apiKey.imageHeight;
     }
+    if (Array.isArray(allowedEndpoints)) apiKey.allowedEndpoints = allowedEndpoints.filter(e => VALID_ENDPOINTS.includes(e));
     saveData(appData);
     res.json(apiKey);
 });
@@ -780,7 +794,7 @@ app.put('/api/settings', requireAdmin, (req, res) => {
 });
 
 // ── Slideshow API (external) ───────────────────────────────────────────────
-app.get('/api/slideshow/current', requireApiKey, (req, res) => {
+app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
     const files      = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
@@ -793,7 +807,7 @@ app.get('/api/slideshow/current', requireApiKey, (req, res) => {
     res.json({ index, total: files.length, filename, url: `${baseUrl}/uploads/${filename}`, interval_minutes: keyRecord?.intervalMinutes || 5, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now() });
 });
 
-app.get('/api/slideshow/all', requireApiKey, (req, res) => {
+app.get('/api/slideshow/all', requireApiKey, requireEndpoint('all'), (req, res) => {
     const files   = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
@@ -849,7 +863,7 @@ function buildDateOverlaySvg(w, h, settings) {
     return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${svg}</svg>`);
 }
 
-app.get('/api/slideshow/image', requireApiKey, async (req, res) => {
+app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
     const files      = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(f)).sort();
