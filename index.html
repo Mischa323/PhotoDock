@@ -177,17 +177,9 @@
         /* ── Date overlay ─────────────────────────────────────────────── */
         .date-overlay {
             position: fixed;
-            top: 68px;
-            right: 24px;
             z-index: 30;
-            text-align: right;
             pointer-events: none;
-            transition: opacity 0.4s, top 0.4s;
-        }
-
-        /* When UI is hidden (idle), float up to top corner */
-        body.idle .date-overlay {
-            top: 20px;
+            transition: opacity 0.4s;
         }
 
         .date-overlay.hidden { opacity: 0; }
@@ -637,7 +629,26 @@
                 slideshowInterval = Math.max(1, displaySettings.slideshowInterval || 30) * 1000;
                 if (!paused) startTimer();
             } catch { /* use defaults */ }
+            applyDatePosition();
             updateDate();
+        }
+
+        function applyDatePosition() {
+            const pos      = displaySettings.datePosition || 'top-right';
+            const isRight  = pos.includes('right');
+            const isBottom = pos.includes('bottom');
+            const isIdle   = document.body.classList.contains('idle');
+            const el = document.getElementById('dateOverlay');
+            if (isBottom) {
+                el.style.top    = 'auto';
+                el.style.bottom = '24px';
+            } else {
+                el.style.bottom = 'auto';
+                el.style.top    = isIdle ? '20px' : '68px';
+            }
+            el.style.left  = isRight ? 'auto' : '24px';
+            el.style.right = isRight ? '24px' : 'auto';
+            el.style.textAlign = isRight ? 'right' : 'left';
         }
 
         function updateDate() {
@@ -677,8 +688,9 @@
         let idleTimer;
         function resetIdle() {
             document.body.classList.remove('idle');
+            applyDatePosition();
             clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => document.body.classList.add('idle'), 3000);
+            idleTimer = setTimeout(() => { document.body.classList.add('idle'); applyDatePosition(); }, 3000);
         }
         document.addEventListener('mousemove', resetIdle);
         resetIdle();
