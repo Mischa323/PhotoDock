@@ -3,7 +3,8 @@ const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 const crypto  = require('crypto');
-const QRCode  = require('qrcode');
+const QRCode      = require('qrcode');
+const nodemailer  = require('nodemailer');
 const { version: pkgVersion } = require('./package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
@@ -100,9 +101,9 @@ function verifyTotp(secret, token) {
 // Pending 2FA login sessions (in-memory, 5-min TTL)
 const pending2FA = new Map();
 
-function createPending2FA(userId) {
+function createPending2FA(userId, emailOtp = null) {
     const token = crypto.randomBytes(16).toString('hex');
-    pending2FA.set(token, { userId, expiresAt: Date.now() + 5 * 60 * 1000 });
+    pending2FA.set(token, { userId, expiresAt: Date.now() + 5 * 60 * 1000, emailOtp });
     return token;
 }
 
@@ -114,6 +115,64 @@ function resolvePending2FA(token) {
 
 // Pending 2FA setup secrets (in-memory, 10-min TTL)
 const pending2FASetup = new Map();
+
+// Email OTP codes for 2FA setup/disable (5-min TTL)
+const emailVerifyOtps = new Map(); // userId → { otp, expiresAt, purpose }
+
+function generateOtp() {
+    return String(crypto.randomInt(100000, 1000000)).padStart(6, '0');
+}
+
+function maskEmail(email) {
+    if (!email) return null;
+    const [local, domain] = email.split('@');
+    return local.slice(0, 2) + '***@' + domain;
+}
+
+function otpEmailHtml(code) {
+    return `<div style="font-family:sans-serif;max-width:420px;margin:0 auto;padding:32px 24px">
+        <h2 style="color:#0e7490;margin:0 0 8px">Photo Display for TNMLS</h2>
+        <p style="color:#444;margin:0 0 24px">Your verification code is:</p>
+        <div style="font-size:40px;font-weight:700;letter-spacing:12px;color:#0e7490;padding:16px 0;font-family:monospace">${code}</div>
+        <p style="color:#888;font-size:13px;margin-top:24px">This code expires in 5 minutes.<br>If you did not request this, you can safely ignore this email.</p>
+    </div>`;
+}
+
+async function sendEmail(to, subject, html) {
+    const cfg = appData.settings?.email;
+    if (!cfg?.method) throw new Error('Email is not configured');
+    if (cfg.method === 'smtp') {
+        const s = cfg.smtp || {};
+        if (!s.host || !s.from) throw new Error('SMTP host and From address are required');
+        const opts = { host: s.host, port: parseInt(s.port) || 587, secure: !!s.secure };
+        if (s.user && s.password) opts.auth = { user: s.user, pass: s.password };
+        const transporter = nodemailer.createTransport(opts);
+        await transporter.sendMail({ from: s.from, to, subject, html });
+    } else if (cfg.method === 'graph') {
+        const g = cfg.graph || {};
+        if (!g.tenantId || !g.clientId || !g.clientSecret || !g.from)
+            throw new Error('Microsoft Graph configuration is incomplete');
+        const tokenRes = await fetch(
+            `https://login.microsoftonline.com/${encodeURIComponent(g.tenantId)}/oauth2/v2.0/token`,
+            { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({ grant_type: 'client_credentials', client_id: g.clientId,
+                  client_secret: g.clientSecret, scope: 'https://graph.microsoft.com/.default' }) }
+        );
+        if (!tokenRes.ok) throw new Error('Could not get Microsoft access token');
+        const { access_token } = await tokenRes.json();
+        const mailRes = await fetch(
+            `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(g.from)}/sendMail`,
+            { method: 'POST',
+              headers: { 'Authorization': `Bearer ${access_token}`, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: { subject,
+                  body: { contentType: 'HTML', content: html },
+                  toRecipients: [{ emailAddress: { address: to } }] } }) }
+        );
+        if (!mailRes.ok) throw new Error('Graph API error: ' + await mailRes.text());
+    } else {
+        throw new Error('Unknown email method');
+    }
+}
 
 // ── Login rate limiter ─────────────────────────────────────────────────────
 const loginAttempts = new Map();
@@ -244,6 +303,7 @@ function requireAuth(req, res, next) {
     if (req.path === '/login' || req.path === '/logout') return next();
     if (req.path === '/2fa') return next();
     if (req.path === '/api/2fa/complete') return next();
+    if (req.path === '/api/2fa/email/resend') return next();
     if (req.path.startsWith('/api/slideshow/')) return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
@@ -300,9 +360,22 @@ app.post('/login', async (req, res) => {
     if (!checkRateLimit(ip)) return res.redirect('/login?error=locked');
     const { username, password } = req.body;
     const user = appData.users.find(u => u.username === username);
-    if (user && await verifyPassword(password, user.password)) {
+    if (user && (await verifyPassword(password, user.password))) {
         resetRateLimit(ip);
         if (user.twoFactorEnabled) {
+            if (user.twoFactorMethod === 'email') {
+                if (!user.email) return res.redirect('/login?error=1');
+                const otp = generateOtp();
+                const pendingToken = createPending2FA(user.id, otp);
+                try {
+                    await sendEmail(user.email, 'Your login code — Photo Display for TNMLS', otpEmailHtml(otp));
+                } catch (e) {
+                    console.error('Failed to send 2FA email:', e.message);
+                    pending2FA.delete(pendingToken);
+                    return res.redirect('/login?error=email');
+                }
+                return res.redirect(`/2fa?t=${pendingToken}&method=email`);
+            }
             const pendingToken = createPending2FA(user.id);
             return res.redirect(`/2fa?t=${pendingToken}`);
         }
@@ -329,9 +402,16 @@ app.post('/api/2fa/complete', express.json(), (req, res) => {
     const rec = resolvePending2FA(pendingToken);
     if (!rec) return res.status(400).json({ error: 'Session expired. Please log in again.' });
     const user = appData.users.find(u => u.id === rec.userId);
-    if (!user?.twoFactorSecret) return res.status(400).json({ error: 'Invalid session' });
-    if (!verifyTotp(user.twoFactorSecret, String(code).trim())) {
-        return res.status(400).json({ error: 'Invalid code. Try again.' });
+    if (!user) return res.status(400).json({ error: 'Invalid session' });
+    if (rec.emailOtp !== null) {
+        // Email OTP verification
+        if (String(code).trim() !== String(rec.emailOtp))
+            return res.status(400).json({ error: 'Invalid code. Try again.' });
+    } else {
+        // TOTP verification
+        if (!user.twoFactorSecret) return res.status(400).json({ error: 'Invalid session' });
+        if (!verifyTotp(user.twoFactorSecret, String(code).trim()))
+            return res.status(400).json({ error: 'Invalid code. Try again.' });
     }
     pending2FA.delete(pendingToken);
     const { token, expiresAt } = createToken(user.id);
@@ -343,7 +423,7 @@ app.post('/api/2fa/complete', express.json(), (req, res) => {
 app.get('/api/2fa/status', (req, res) => {
     if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
     const u = appData.users.find(u => u.id === req.currentUser.id);
-    res.json({ enabled: !!u.twoFactorEnabled });
+    res.json({ enabled: !!u.twoFactorEnabled, method: u.twoFactorMethod || 'totp', email: maskEmail(u.email) });
 });
 
 app.get('/api/2fa/setup', async (req, res) => {
@@ -357,13 +437,29 @@ app.get('/api/2fa/setup', async (req, res) => {
 
 app.post('/api/2fa/enable', (req, res) => {
     if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const { code, method } = req.body;
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    if (method === 'email') {
+        if (!u.email) return res.status(400).json({ error: 'No email address on your account. Add one first.' });
+        const rec = emailVerifyOtps.get(u.id);
+        if (!rec || Date.now() > rec.expiresAt || rec.purpose !== 'enable')
+            return res.status(400).json({ error: 'Code expired. Request a new one.' });
+        if (String(code).trim() !== String(rec.otp))
+            return res.status(400).json({ error: 'Invalid code' });
+        emailVerifyOtps.delete(u.id);
+        u.twoFactorEnabled = true;
+        u.twoFactorMethod  = 'email';
+        delete u.twoFactorSecret;
+        saveData(appData);
+        return res.json({ ok: true });
+    }
+    // TOTP
     const setup = pending2FASetup.get(req.currentUser.id);
     if (!setup || Date.now() > setup.expiresAt) return res.status(400).json({ error: 'Setup expired. Start again.' });
-    const { code } = req.body;
     if (!verifyTotp(setup.secret, String(code).trim())) return res.status(400).json({ error: 'Invalid code' });
-    const u = appData.users.find(u => u.id === req.currentUser.id);
     u.twoFactorSecret  = setup.secret;
     u.twoFactorEnabled = true;
+    u.twoFactorMethod  = 'totp';
     pending2FASetup.delete(req.currentUser.id);
     saveData(appData);
     res.json({ ok: true });
@@ -374,9 +470,74 @@ app.post('/api/2fa/disable', (req, res) => {
     const u = appData.users.find(u => u.id === req.currentUser.id);
     if (!u.twoFactorEnabled) return res.status(400).json({ error: '2FA is not enabled' });
     const { code } = req.body;
-    if (!verifyTotp(u.twoFactorSecret, String(code).trim())) return res.status(400).json({ error: 'Invalid code' });
+    if (u.twoFactorMethod === 'email') {
+        const rec = emailVerifyOtps.get(u.id);
+        if (!rec || Date.now() > rec.expiresAt || rec.purpose !== 'disable')
+            return res.status(400).json({ error: 'Code expired. Request a new one.' });
+        if (String(code).trim() !== String(rec.otp))
+            return res.status(400).json({ error: 'Invalid code' });
+        emailVerifyOtps.delete(u.id);
+    } else {
+        if (!verifyTotp(u.twoFactorSecret, String(code).trim()))
+            return res.status(400).json({ error: 'Invalid code' });
+    }
     delete u.twoFactorSecret;
+    delete u.twoFactorMethod;
     u.twoFactorEnabled = false;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// Send email OTP for 2FA enable/disable (authenticated)
+app.post('/api/2fa/email/send-code', async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const { purpose } = req.body; // 'enable' or 'disable'
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    if (!u?.email) return res.status(400).json({ error: 'No email address on your account. Add one in My Security first.' });
+    const otp = generateOtp();
+    emailVerifyOtps.set(u.id, { otp, expiresAt: Date.now() + 5 * 60 * 1000, purpose });
+    try {
+        await sendEmail(u.email, 'Your verification code — Photo Display for TNMLS', otpEmailHtml(otp));
+        res.json({ ok: true, email: maskEmail(u.email) });
+    } catch (e) {
+        emailVerifyOtps.delete(u.id);
+        res.status(502).json({ error: 'Could not send email: ' + e.message });
+    }
+});
+
+// Resend login email OTP (unauthenticated — identified by pending token)
+app.post('/api/2fa/email/resend', async (req, res) => {
+    const { pendingToken } = req.body;
+    const rec = pending2FA.get(pendingToken);
+    if (!rec || Date.now() > rec.expiresAt) return res.status(400).json({ error: 'Session expired. Please log in again.' });
+    if (rec.emailOtp === null) return res.status(400).json({ error: 'This session uses an authenticator app.' });
+    const user = appData.users.find(u => u.id === rec.userId);
+    if (!user?.email) return res.status(400).json({ error: 'No email address on account.' });
+    const newOtp = generateOtp();
+    rec.emailOtp  = newOtp;
+    rec.expiresAt = Date.now() + 5 * 60 * 1000;
+    try {
+        await sendEmail(user.email, 'Your login code — Photo Display for TNMLS', otpEmailHtml(newOtp));
+        res.json({ ok: true, email: maskEmail(user.email) });
+    } catch (e) {
+        res.status(502).json({ error: 'Could not send email: ' + e.message });
+    }
+});
+
+// Current user email address
+app.get('/api/user/email', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    res.json({ email: u.email || '' });
+});
+
+app.put('/api/user/email', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const { email } = req.body;
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        return res.status(400).json({ error: 'Invalid email address' });
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    u.email = email ? email.trim().toLowerCase() : '';
     saveData(appData);
     res.json({ ok: true });
 });
@@ -522,6 +683,61 @@ app.delete('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Email config (admin) ───────────────────────────────────────────────────
+app.get('/api/admin/email', requireAdmin, (_req, res) => {
+    const cfg = JSON.parse(JSON.stringify(appData.settings?.email || {}));
+    if (cfg.smtp?.password)      cfg.smtp.password      = '';
+    if (cfg.graph?.clientSecret) cfg.graph.clientSecret = '';
+    res.json(cfg);
+});
+
+app.put('/api/admin/email', requireAdmin, (req, res) => {
+    const { method, smtp, graph } = req.body;
+    if (!appData.settings) appData.settings = {};
+    const existing = appData.settings.email || {};
+    const newCfg = { method: method || '' };
+    if (smtp) {
+        newCfg.smtp = {
+            host:     smtp.host || '',
+            port:     parseInt(smtp.port) || 587,
+            secure:   !!smtp.secure,
+            user:     smtp.user || '',
+            password: smtp.password ? smtp.password : (existing.smtp?.password || ''),
+            from:     smtp.from || ''
+        };
+    } else {
+        newCfg.smtp = existing.smtp || {};
+    }
+    if (graph) {
+        newCfg.graph = {
+            tenantId:     graph.tenantId || '',
+            clientId:     graph.clientId || '',
+            clientSecret: graph.clientSecret ? graph.clientSecret : (existing.graph?.clientSecret || ''),
+            from:         graph.from || ''
+        };
+    } else {
+        newCfg.graph = existing.graph || {};
+    }
+    appData.settings.email = newCfg;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
+    const { to } = req.body;
+    if (!to) return res.status(400).json({ error: 'Recipient address required' });
+    try {
+        await sendEmail(to, 'Test email — Photo Display for TNMLS',
+            `<div style="font-family:sans-serif;padding:32px 24px;max-width:420px">
+                <h2 style="color:#0e7490">Photo Display for TNMLS</h2>
+                <p>This is a test email. Your email configuration is working correctly.</p>
+            </div>`);
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(502).json({ error: e.message });
+    }
+});
+
 // ── Domain / Caddy ────────────────────────────────────────────────────────
 app.get('/api/admin/domain', requireAdmin, (_req, res) => {
     res.json({ domain: appData.settings?.domain || '' });
@@ -538,15 +754,16 @@ app.put('/api/admin/domain', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4' };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30 };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor };
+    const interval = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval };
     saveData(appData);
     res.json(appData.settings);
 });

@@ -553,21 +553,46 @@
         <div class="section-header"><h2>My Security</h2></div>
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px" id="twoFaSection">
 
-            <!-- Status row -->
+            <!-- Email address -->
+            <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px;flex-wrap:wrap;gap:8px">
+                <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px;flex:1">
+                    Email address
+                    <small style="font-size:12px;color:#999">Used for email 2FA codes and notifications</small>
+                </label>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input type="email" id="myEmailInput" class="tz-input" placeholder="you@example.com" style="width:210px">
+                    <button class="btn-add" onclick="saveMyEmail()">Save</button>
+                </div>
+            </div>
+
+            <!-- 2FA status row -->
             <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px">
                 <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px">
                     Two-Factor Authentication
-                    <small style="font-size:12px;color:#999">Use an authenticator app for extra login security</small>
+                    <small style="font-size:12px;color:#999" id="twoFaMethodLabel">Use an authenticator app or email for extra login security</small>
                 </label>
                 <span id="twoFaBadge" style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px"></span>
             </div>
 
-            <!-- Setup panel (shown when enabling) -->
+            <!-- Method selector (only shown when 2FA is disabled) -->
+            <div id="twoFaMethodRow" style="display:none;max-width:480px">
+                <label style="font-size:13px;color:#555;display:block;margin-bottom:8px">2FA method</label>
+                <div style="display:flex;gap:20px">
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
+                        <input type="radio" name="twoFaMethod" value="totp" id="methodTotp" checked> Authenticator app
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
+                        <input type="radio" name="twoFaMethod" value="email" id="methodEmail"> Email code
+                    </label>
+                </div>
+            </div>
+
+            <!-- TOTP setup panel -->
             <div id="twoFaSetupPanel" style="display:none;flex-direction:column;gap:14px;max-width:480px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:10px;padding:18px">
                 <p style="font-size:14px;color:#444">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
                 <img id="twoFaQr" src="" alt="QR code" style="width:180px;height:180px;border-radius:8px;border:1px solid #ddd;background:#fff">
                 <div style="font-size:12px;color:#888">Or enter the secret manually: <code id="twoFaSecret" style="font-family:monospace;color:#333;word-break:break-all"></code></div>
-                <div style="display:flex;gap:10px;align-items:center">
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
                     <input type="number" id="twoFaEnableCode" placeholder="000000"
                         style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
                         onkeydown="if(event.key==='Enter') confirm2FAEnable()">
@@ -576,10 +601,23 @@
                 </div>
             </div>
 
-            <!-- Disable panel (shown when disabling) -->
+            <!-- Email 2FA enable panel -->
+            <div id="twoFaEmailEnablePanel" style="display:none;flex-direction:column;gap:14px;max-width:480px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:10px;padding:18px">
+                <p style="font-size:14px;color:#444" id="emailEnableMsg">A 6-digit code has been sent to your email address. Enter it below to activate email 2FA.</p>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <input type="number" id="twoFaEmailEnableCode" placeholder="000000"
+                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
+                        onkeydown="if(event.key==='Enter') confirmEmailEnable()">
+                    <button class="btn-add" onclick="confirmEmailEnable()">Activate</button>
+                    <button class="btn-cancel" onclick="cancel2FASetup()">Cancel</button>
+                    <button class="btn-cancel" onclick="resend2FAEmailCode('enable')">Resend code</button>
+                </div>
+            </div>
+
+            <!-- TOTP disable panel -->
             <div id="twoFaDisablePanel" style="display:none;flex-direction:column;gap:10px;max-width:480px;background:#fff5f5;border:1px solid #fcd;border-radius:10px;padding:18px">
                 <p style="font-size:14px;color:#444">Enter your current authenticator code to disable 2FA.</p>
-                <div style="display:flex;gap:10px;align-items:center">
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
                     <input type="number" id="twoFaDisableCode" placeholder="000000"
                         style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
                         onkeydown="if(event.key==='Enter') confirm2FADisable()">
@@ -588,9 +626,95 @@
                 </div>
             </div>
 
+            <!-- Email 2FA disable panel -->
+            <div id="twoFaEmailDisablePanel" style="display:none;flex-direction:column;gap:10px;max-width:480px;background:#fff5f5;border:1px solid #fcd;border-radius:10px;padding:18px">
+                <p style="font-size:14px;color:#444" id="emailDisableMsg">A code has been sent to your email address. Enter it below to disable 2FA.</p>
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                    <input type="number" id="twoFaEmailDisableCode" placeholder="000000"
+                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
+                        onkeydown="if(event.key==='Enter') confirmEmailDisable()">
+                    <button style="background:#c0392b;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600" onclick="confirmEmailDisable()">Disable 2FA</button>
+                    <button class="btn-cancel" onclick="cancel2FADisable()">Cancel</button>
+                    <button class="btn-cancel" onclick="resend2FAEmailCode('disable')">Resend code</button>
+                </div>
+            </div>
+
             <!-- Action button -->
             <div>
                 <button class="btn-add" id="twoFaToggleBtn" onclick="toggle2FA()" style="display:none"></button>
+            </div>
+        </div>
+    </section>
+
+    <!-- Email -->
+    <section>
+        <div class="section-header"><h2>Email</h2></div>
+        <div class="settings-grid">
+            <div class="settings-row">
+                <label>Method <small>How this app sends emails (2FA codes, notifications)</small></label>
+                <select id="emailMethod" class="tz-input" onchange="updateEmailMethodUI()">
+                    <option value="">Disabled</option>
+                    <option value="smtp">SMTP</option>
+                    <option value="graph">Microsoft Graph API</option>
+                </select>
+            </div>
+
+            <!-- SMTP fields -->
+            <div id="smtpFields" style="display:none;flex-direction:column;gap:0">
+                <div class="settings-row">
+                    <label for="smtpHost">SMTP host <small>e.g. smtp.gmail.com</small></label>
+                    <input type="text" id="smtpHost" class="tz-input" placeholder="smtp.example.com">
+                </div>
+                <div class="settings-row">
+                    <label for="smtpPort">Port</label>
+                    <div style="display:flex;align-items:center;gap:14px">
+                        <input type="number" id="smtpPort" class="tz-input" style="width:80px" value="587">
+                        <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                            <input type="checkbox" id="smtpSecure"> TLS (use for port 465)
+                        </label>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label for="smtpUser">Username <small>Leave blank if no auth required</small></label>
+                    <input type="text" id="smtpUser" class="tz-input" autocomplete="off">
+                </div>
+                <div class="settings-row">
+                    <label for="smtpPassword">Password</label>
+                    <input type="password" id="smtpPassword" class="tz-input" autocomplete="new-password" placeholder="unchanged">
+                </div>
+                <div class="settings-row">
+                    <label for="smtpFrom">From address <small>Shown as sender in email clients</small></label>
+                    <input type="email" id="smtpFrom" class="tz-input" placeholder="noreply@example.com">
+                </div>
+            </div>
+
+            <!-- Graph API fields -->
+            <div id="graphFields" style="display:none;flex-direction:column;gap:0">
+                <div class="settings-row">
+                    <label for="graphTenantId">Tenant ID</label>
+                    <input type="text" id="graphTenantId" class="tz-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                </div>
+                <div class="settings-row">
+                    <label for="graphClientId">Client ID (App ID)</label>
+                    <input type="text" id="graphClientId" class="tz-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                </div>
+                <div class="settings-row">
+                    <label for="graphClientSecret">Client secret</label>
+                    <input type="password" id="graphClientSecret" class="tz-input" autocomplete="new-password" placeholder="unchanged">
+                </div>
+                <div class="settings-row">
+                    <label for="graphFrom">Sender mailbox <small>Must be a licensed mailbox in your tenant</small></label>
+                    <input type="email" id="graphFrom" class="tz-input" placeholder="noreply@yourtenant.onmicrosoft.com">
+                </div>
+            </div>
+
+            <div id="emailSaveRow" style="display:none;flex-direction:column;gap:10px">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                    <button class="btn-save-settings" onclick="saveEmailConfig()">Save</button>
+                    <button class="btn-save-settings" onclick="testEmailPrompt()"
+                        style="background:#fff;color:var(--accent);border:1px solid var(--accent)">Send test email</button>
+                </div>
+                <p id="emailConfigStatus" style="font-size:13px;min-height:18px"></p>
             </div>
         </div>
     </section>
@@ -1298,43 +1422,78 @@
         showToast('Copied to clipboard.');
     }
 
+    // ── My Email ───────────────────────────────────────────────────────────
+    async function loadMyEmail() {
+        const res  = await fetch('/api/user/email');
+        const data = await res.json();
+        document.getElementById('myEmailInput').value = data.email || '';
+    }
+
+    async function saveMyEmail() {
+        const email = document.getElementById('myEmailInput').value.trim();
+        const res = await fetch('/api/user/email', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        showToast('Email address saved.');
+    }
+
     // ── 2FA ────────────────────────────────────────────────────────────────
     let twoFaEnabled = false;
+    let twoFaMethod  = 'totp';
 
     async function load2FAStatus() {
         const res  = await fetch('/api/2fa/status');
         const data = await res.json();
         twoFaEnabled = data.enabled;
+        twoFaMethod  = data.method || 'totp';
         render2FAStatus();
     }
 
     function render2FAStatus() {
-        const badge  = document.getElementById('twoFaBadge');
-        const btn    = document.getElementById('twoFaToggleBtn');
+        const badge      = document.getElementById('twoFaBadge');
+        const btn        = document.getElementById('twoFaToggleBtn');
+        const methodRow  = document.getElementById('twoFaMethodRow');
+        const methodLabel = document.getElementById('twoFaMethodLabel');
         if (twoFaEnabled) {
-            badge.textContent = 'Enabled';
+            badge.textContent = twoFaMethod === 'email' ? 'Enabled (Email)' : 'Enabled (Authenticator)';
             badge.style.cssText = 'font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:var(--accent-light);color:var(--accent-header)';
+            methodLabel.textContent = twoFaMethod === 'email'
+                ? 'A code is sent to your email at each login'
+                : 'Using authenticator app for extra login security';
             btn.textContent = 'Disable 2FA';
             btn.style.cssText = 'background:#c0392b';
+            methodRow.style.display = 'none';
         } else {
             badge.textContent = 'Disabled';
             badge.style.cssText = 'font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px;background:#f0f0f0;color:#888';
+            methodLabel.textContent = 'Use an authenticator app or email for extra login security';
             btn.textContent = 'Enable 2FA';
             btn.style.cssText = 'background:var(--accent)';
+            methodRow.style.display = '';
         }
         btn.style.display = '';
-        document.getElementById('twoFaSetupPanel').style.display  = 'none';
-        document.getElementById('twoFaDisablePanel').style.display = 'none';
+        document.getElementById('twoFaSetupPanel').style.display       = 'none';
+        document.getElementById('twoFaEmailEnablePanel').style.display  = 'none';
+        document.getElementById('twoFaDisablePanel').style.display      = 'none';
+        document.getElementById('twoFaEmailDisablePanel').style.display = 'none';
     }
 
     function toggle2FA() {
         if (twoFaEnabled) {
-            document.getElementById('twoFaDisablePanel').style.display = 'flex';
-            document.getElementById('twoFaToggleBtn').style.display    = 'none';
-            document.getElementById('twoFaDisableCode').value = '';
-            document.getElementById('twoFaDisableCode').focus();
+            if (twoFaMethod === 'email') { startEmailDisable(); }
+            else {
+                document.getElementById('twoFaDisablePanel').style.display = 'flex';
+                document.getElementById('twoFaToggleBtn').style.display    = 'none';
+                document.getElementById('twoFaDisableCode').value = '';
+                document.getElementById('twoFaDisableCode').focus();
+            }
         } else {
-            start2FASetup();
+            const method = document.querySelector('input[name="twoFaMethod"]:checked')?.value || 'totp';
+            if (method === 'email') start2FAEmailSetup();
+            else start2FASetup();
         }
     }
 
@@ -1342,40 +1501,98 @@
         document.getElementById('twoFaToggleBtn').style.display = 'none';
         const res  = await fetch('/api/2fa/setup');
         const data = await res.json();
-        document.getElementById('twoFaQr').src       = data.qrcode;
-        document.getElementById('twoFaSecret').textContent = data.secret;
+        document.getElementById('twoFaQr').src              = data.qrcode;
+        document.getElementById('twoFaSecret').textContent  = data.secret;
         document.getElementById('twoFaSetupPanel').style.display = 'flex';
         document.getElementById('twoFaEnableCode').value = '';
         document.getElementById('twoFaEnableCode').focus();
     }
 
+    async function start2FAEmailSetup() {
+        const email = document.getElementById('myEmailInput').value.trim();
+        if (!email) return showToast('Save an email address first.', 'error');
+        document.getElementById('twoFaToggleBtn').style.display = 'none';
+        const res  = await fetch('/api/2fa/email/send-code', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ purpose: 'enable' })
+        });
+        const data = await res.json();
+        if (!res.ok) { render2FAStatus(); return showToast(data.error, 'error'); }
+        document.getElementById('emailEnableMsg').textContent =
+            `A 6-digit code has been sent to ${data.email}. Enter it below to activate email 2FA.`;
+        document.getElementById('twoFaEmailEnablePanel').style.display = 'flex';
+        document.getElementById('twoFaEmailEnableCode').value = '';
+        document.getElementById('twoFaEmailEnableCode').focus();
+    }
+
     async function confirm2FAEnable() {
         const code = document.getElementById('twoFaEnableCode').value.trim();
         const res  = await fetch('/api/2fa/enable', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code })
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, method: 'totp' })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
-        twoFaEnabled = true;
+        twoFaEnabled = true; twoFaMethod = 'totp';
         render2FAStatus();
-        showToast('2FA enabled successfully.');
+        showToast('Authenticator 2FA enabled.');
+        loadUsers();
+    }
+
+    async function confirmEmailEnable() {
+        const code = document.getElementById('twoFaEmailEnableCode').value.trim();
+        const res  = await fetch('/api/2fa/enable', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, method: 'email' })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        twoFaEnabled = true; twoFaMethod = 'email';
+        render2FAStatus();
+        showToast('Email 2FA enabled.');
         loadUsers();
     }
 
     function cancel2FASetup() { render2FAStatus(); }
 
+    async function startEmailDisable() {
+        document.getElementById('twoFaToggleBtn').style.display = 'none';
+        const res  = await fetch('/api/2fa/email/send-code', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ purpose: 'disable' })
+        });
+        const data = await res.json();
+        if (!res.ok) { render2FAStatus(); return showToast(data.error, 'error'); }
+        document.getElementById('emailDisableMsg').textContent =
+            `A code has been sent to ${data.email}. Enter it to disable 2FA.`;
+        document.getElementById('twoFaEmailDisablePanel').style.display = 'flex';
+        document.getElementById('twoFaEmailDisableCode').value = '';
+        document.getElementById('twoFaEmailDisableCode').focus();
+    }
+
     async function confirm2FADisable() {
         const code = document.getElementById('twoFaDisableCode').value.trim();
         const res  = await fetch('/api/2fa/disable', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ code })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
-        twoFaEnabled = false;
+        twoFaEnabled = false; twoFaMethod = 'totp';
+        render2FAStatus();
+        showToast('2FA disabled.');
+        loadUsers();
+    }
+
+    async function confirmEmailDisable() {
+        const code = document.getElementById('twoFaEmailDisableCode').value.trim();
+        const res  = await fetch('/api/2fa/disable', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        twoFaEnabled = false; twoFaMethod = 'totp';
         render2FAStatus();
         showToast('2FA disabled.');
         loadUsers();
@@ -1383,12 +1600,95 @@
 
     function cancel2FADisable() { render2FAStatus(); }
 
+    async function resend2FAEmailCode(purpose) {
+        const res  = await fetch('/api/2fa/email/send-code', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ purpose })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        showToast(`Code resent to ${data.email}.`);
+    }
+
     async function adminReset2FA(id, username) {
         if (!confirm(`Reset 2FA for "${username}"? They will be able to log in without a code.`)) return;
         const res = await fetch(`/api/admin/users/${id}/2fa`, { method: 'DELETE' });
         if (!res.ok) return showToast('Could not reset 2FA', 'error');
         showToast(`2FA reset for "${username}".`);
         loadUsers();
+    }
+
+    // ── Email config (admin) ───────────────────────────────────────────────
+    async function loadEmailConfig() {
+        const res = await fetch('/api/admin/email');
+        const cfg = await res.json();
+        document.getElementById('emailMethod').value = cfg.method || '';
+        if (cfg.smtp) {
+            document.getElementById('smtpHost').value     = cfg.smtp.host   || '';
+            document.getElementById('smtpPort').value     = cfg.smtp.port   || 587;
+            document.getElementById('smtpSecure').checked = !!cfg.smtp.secure;
+            document.getElementById('smtpUser').value     = cfg.smtp.user   || '';
+            document.getElementById('smtpFrom').value     = cfg.smtp.from   || '';
+        }
+        if (cfg.graph) {
+            document.getElementById('graphTenantId').value = cfg.graph.tenantId || '';
+            document.getElementById('graphClientId').value  = cfg.graph.clientId || '';
+            document.getElementById('graphFrom').value      = cfg.graph.from     || '';
+        }
+        updateEmailMethodUI();
+    }
+
+    function updateEmailMethodUI() {
+        const method = document.getElementById('emailMethod').value;
+        document.getElementById('smtpFields').style.display  = method === 'smtp'  ? 'flex' : 'none';
+        document.getElementById('graphFields').style.display = method === 'graph' ? 'flex' : 'none';
+        document.getElementById('emailSaveRow').style.display = method ? 'flex' : 'none';
+    }
+
+    async function saveEmailConfig() {
+        const method = document.getElementById('emailMethod').value;
+        const body = { method };
+        if (method === 'smtp') {
+            body.smtp = {
+                host:     document.getElementById('smtpHost').value.trim(),
+                port:     parseInt(document.getElementById('smtpPort').value) || 587,
+                secure:   document.getElementById('smtpSecure').checked,
+                user:     document.getElementById('smtpUser').value.trim(),
+                password: document.getElementById('smtpPassword').value,
+                from:     document.getElementById('smtpFrom').value.trim()
+            };
+        }
+        if (method === 'graph') {
+            body.graph = {
+                tenantId:     document.getElementById('graphTenantId').value.trim(),
+                clientId:     document.getElementById('graphClientId').value.trim(),
+                clientSecret: document.getElementById('graphClientSecret').value,
+                from:         document.getElementById('graphFrom').value.trim()
+            };
+        }
+        const res  = await fetch('/api/admin/email', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error || 'Could not save', 'error');
+        showToast('Email settings saved.');
+        document.getElementById('smtpPassword').value      = '';
+        document.getElementById('graphClientSecret').value = '';
+        document.getElementById('emailConfigStatus').textContent = '';
+    }
+
+    async function testEmailPrompt() {
+        const to = prompt('Send test email to:');
+        if (!to) return;
+        const statusEl = document.getElementById('emailConfigStatus');
+        statusEl.style.color = '#888';
+        statusEl.textContent = 'Sending…';
+        const res  = await fetch('/api/admin/email/test', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to })
+        });
+        const data = await res.json();
+        if (!res.ok) { statusEl.style.color = '#c0392b'; statusEl.textContent = 'Error: ' + data.error; }
+        else          { statusEl.style.color = '#2e7d32'; statusEl.textContent = `Test email sent to ${to}.`; }
     }
 
     // ── Init ───────────────────────────────────────────────────────────────
@@ -1411,12 +1711,14 @@
         `).join('');
     }
 
+    loadMyEmail();
+    load2FAStatus();
+    loadEmailConfig();
     loadDomain();
     loadDisplaySettings();
     loadRoles().then(() => loadUsers());
     loadApiKeys();
     initApiDocs();
-    load2FAStatus();
     loadVersion();
 </script>
 </body>
