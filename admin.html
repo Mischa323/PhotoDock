@@ -732,6 +732,11 @@
         }
 
         [data-theme="dark"] code { color: #94a3b8 !important; }
+
+        /* ── Activity log dark mode ─────────────────────────────────── */
+        [data-theme="dark"] #activityLog table thead th { background: #162032; border-bottom-color: #2d3f52; color: #94a3b8; }
+        [data-theme="dark"] #activityLog table tbody tr:hover { background: #243447; }
+        [data-theme="dark"] #activityLog table tbody tr { border-bottom-color: #2d3f52; }
     </style>
 </head>
 <body>
@@ -745,6 +750,17 @@
 </header>
 
 <main>
+
+    <!-- Activity Log -->
+    <section>
+        <div class="section-header" style="justify-content:space-between">
+            <h2>Activity Log</h2>
+            <button class="back-btn" style="background:var(--accent-light);color:var(--accent-header);font-size:12px" onclick="loadActivityLog()">&#8635; Refresh</button>
+        </div>
+        <div id="activityLog" style="padding:0">
+            <p style="padding:24px;text-align:center;color:#bbb">Loading…</p>
+        </div>
+    </section>
 
     <!-- My Security -->
     <section>
@@ -1035,6 +1051,7 @@
                     <th>Username</th>
                     <th>Role</th>
                     <th>2FA</th>
+                    <th style="white-space:nowrap">Last login</th>
                     <th style="width:120px">Actions</th>
                 </tr>
             </thead>
@@ -1172,6 +1189,7 @@
                     <th>Key</th>
                     <th style="white-space:nowrap;width:90px">Interval</th>
                     <th style="white-space:nowrap;width:110px">Image size <span class="help" data-tip="Override the rendered image size for this key's /api/slideshow/image requests. Leave blank to use the global size set in Display Settings.">?</span></th>
+                    <th style="white-space:nowrap">Last used</th>
                     <th style="white-space:nowrap;width:80px">Created</th>
                     <th style="width:44px">Actions</th>
                 </tr>
@@ -1245,6 +1263,16 @@
     let editingUserId = null;
     let toastTimer;
 
+    function relTimeAgo(iso) {
+        if (!iso) return '<span style="color:#bbb">—</span>';
+        const sec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+        if (sec < 60)   return 'Just now';
+        if (sec < 3600) return `${Math.floor(sec/60)}m ago`;
+        if (sec < 86400)return `${Math.floor(sec/3600)}h ago`;
+        if (sec < 2592000) return `${Math.floor(sec/86400)}d ago`;
+        return new Date(iso).toLocaleDateString();
+    }
+
     // ── Theme ──────────────────────────────────────────────────────────────
     function setTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
@@ -1305,6 +1333,7 @@
                         ? `<span style="font-size:12px;font-weight:700;color:#2e7d32;background:#e6f4ea;padding:2px 10px;border-radius:20px">On</span>`
                         : `<span style="font-size:12px;color:#999">Off</span>`}
                 </td>
+                <td style="font-size:13px;white-space:nowrap">${relTimeAgo(u.lastLogin)}</td>
                 <td>
                     <div class="actions">
                         <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}', '${escHtml(u.username)}', '${u.role}')">&#9998;</button>
@@ -1387,7 +1416,7 @@
         const tbody = document.getElementById('keyTableBody');
 
         if (keys.length === 0) {
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No API keys</td></tr>';
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No API keys</td></tr>';
             return;
         }
 
@@ -1428,7 +1457,8 @@
                         </div>
                     </div>
                 </td>
-                <td>${new Date(k.createdAt).toLocaleDateString()}</td>
+                <td style="font-size:13px;white-space:nowrap">${relTimeAgo(k.lastUsed)}</td>
+                <td style="font-size:13px;white-space:nowrap">${new Date(k.createdAt).toLocaleDateString()}</td>
                 <td>
                     <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(k.name)}')">&#128465;</button>
                 </td>
@@ -1963,10 +1993,56 @@
         `).join('');
     }
 
+    // ── Activity Log ───────────────────────────────────────────────────────
+    const LOG_LABELS = {
+        login_success: { label: 'Login',        color: '#2e7d32', bg: '#e6f4ea' },
+        login_fail:    { label: 'Login failed',  color: '#b71c1c', bg: '#fdecea' },
+        upload:        { label: 'Upload',        color: '#0e7490', bg: '#e0f7fa' },
+        delete:        { label: 'Delete',        color: '#e65100', bg: '#fff3e0' },
+    };
+
+    async function loadActivityLog() {
+        const res  = await fetch('/api/admin/logs');
+        const logs = await res.json();
+        const el   = document.getElementById('activityLog');
+        if (!logs.length) {
+            el.innerHTML = '<p style="padding:24px;text-align:center;color:#bbb">No activity yet.</p>';
+            return;
+        }
+        el.innerHTML = `
+            <table style="width:100%">
+                <thead>
+                    <tr>
+                        <th style="width:130px;white-space:nowrap">Time</th>
+                        <th style="width:110px">Event</th>
+                        <th>User / Key</th>
+                        <th>Detail</th>
+                        <th>IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${logs.slice(0, 100).map(e => {
+                        const meta = LOG_LABELS[e.event] || { label: e.event, color: '#555', bg: '#f0f0f0' };
+                        const who  = escHtml(e.user || e.keyName || '—');
+                        const ago  = relTimeAgo(e.timestamp);
+                        const full = new Date(e.timestamp).toLocaleString();
+                        return `<tr>
+                            <td style="font-size:12px;white-space:nowrap;color:#888" title="${full}">${ago}</td>
+                            <td><span style="font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:${meta.bg};color:${meta.color};white-space:nowrap">${meta.label}</span></td>
+                            <td style="font-size:13px">${who}</td>
+                            <td style="font-size:12px;color:#888">${escHtml(e.detail || '')}</td>
+                            <td style="font-size:12px;color:#888;font-family:monospace">${escHtml(e.ip || '')}</td>
+                        </tr>`;
+                    }).join('')}
+                </tbody>
+            </table>`;
+    }
+
     loadMyEmail();
     load2FAStatus();
     loadEmailConfig();
     loadDisplaySettings();
+    loadActivityLog();
     loadRoles().then(() => loadUsers());
     loadApiKeys();
     initApiDocs();
