@@ -759,18 +759,20 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080 };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right' };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
-    const interval = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
-    const w = Math.min(7680, Math.max(1, parseInt(imageWidth)  || DEFAULT_SETTINGS.imageWidth));
-    const h = Math.min(4320, Math.max(1, parseInt(imageHeight) || DEFAULT_SETTINGS.imageHeight));
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h };
+    const interval  = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
+    const w         = Math.min(7680, Math.max(1, parseInt(imageWidth)  || DEFAULT_SETTINGS.imageWidth));
+    const h         = Math.min(4320, Math.max(1, parseInt(imageHeight) || DEFAULT_SETTINGS.imageHeight));
+    const validPos  = ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
+    const pos       = validPos.includes(datePosition) ? datePosition : DEFAULT_SETTINGS.datePosition;
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos };
     saveData(appData);
     res.json(appData.settings);
 });
@@ -796,39 +798,53 @@ app.get('/api/slideshow/all', requireApiKey, (req, res) => {
 });
 
 function buildDateOverlaySvg(w, h, settings) {
-    const now  = new Date();
-    const tz   = settings.timezone || 'UTC';
-    const fmt  = opts => now.toLocaleString('en-GB', { ...opts, timeZone: tz });
-    const esc  = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const now = new Date();
+    const tz  = settings.timezone || 'UTC';
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    const lines = [];
-    if (settings.showDayName || settings.showDate) {
-        lines.push(fmt({
-            ...(settings.showDayName ? { weekday: 'long' }                              : {}),
-            ...(settings.showDate    ? { day: 'numeric', month: 'long', year: 'numeric'} : {})
-        }));
+    // Build the same two lines as index.html
+    const dayParts = [];
+    if (settings.showDayName) dayParts.push(now.toLocaleDateString('en-GB',  { timeZone: tz, weekday: 'long' }));
+    if (settings.showDate)    dayParts.push(now.toLocaleDateString('en-GB',  { timeZone: tz, day: 'numeric', month: 'long', year: 'numeric' }));
+    const dayLine  = dayParts.join(' ');
+    const timeLine = settings.showTime
+        ? now.toLocaleTimeString('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', ...(settings.showSeconds ? { second: '2-digit' } : {}) })
+        : '';
+
+    if (!dayLine && !timeLine) return null;
+
+    // Scale font with image height, matching the feel of the browser overlay
+    const fsDay  = Math.max(14, Math.round(h * 0.026)); // ~28px at 1080p
+    const fsTime = Math.max(12, Math.round(h * 0.021)); // ~23px at 1080p
+    const lh     = Math.round(fsDay * 1.55);
+    const pad    = Math.round(w * 0.016);
+
+    // Determine position from settings (default top-right)
+    const pos    = settings.datePosition || 'top-right';
+    const isRight  = pos.includes('right');
+    const isBottom = pos.includes('bottom');
+    const anchor   = isRight ? 'end' : 'start';
+    const x        = isRight ? w - pad : pad;
+
+    // For bottom positions, anchor from the bottom edge
+    const lineCount = (dayLine ? 1 : 0) + (timeLine ? 1 : 0);
+    const blockH    = fsDay + (lineCount > 1 ? lh : 0);
+    let   y = isBottom
+        ? h - Math.round(h * 0.05) - blockH + fsDay
+        : Math.round(h * 0.07) + fsDay;
+
+    // Render each text element twice: dark shadow offset + white on top
+    function textPair(txt, px, py, fs, weight, fillOpacity) {
+        const f = `font-family="sans-serif" font-size="${fs}" font-weight="${weight}" text-anchor="${anchor}"`;
+        return `<text ${f} x="${px+1}" y="${py+1}" fill="rgba(0,0,0,0.75)">${esc(txt)}</text>` +
+               `<text ${f} x="${px}"   y="${py}"   fill="rgba(255,255,255,${fillOpacity})">${esc(txt)}</text>`;
     }
-    if (settings.showTime) {
-        lines.push(fmt({ hour: '2-digit', minute: '2-digit', ...(settings.showSeconds ? { second: '2-digit' } : {}) }));
-    }
-    if (!lines.length) return null;
 
-    const fs  = Math.max(16, Math.round(h * 0.036));
-    const pad = Math.round(fs * 0.8);
-    const lh  = Math.round(fs * 1.55);
-    const bh  = lines.length * lh + pad;
-    const by  = h - bh - Math.round(h * 0.02);
+    let svg = '';
+    if (dayLine)  { svg += textPair(dayLine,  x, y, fsDay,  '600', '1');    y += lh; }
+    if (timeLine) { svg += textPair(timeLine, x, y, fsTime, '400', '0.75'); }
 
-    const texts = lines.map((t, i) =>
-        `<text x="${pad}" y="${by + pad * 0.7 + fs + i * lh}" font-family="sans-serif" font-size="${fs}" fill="white">${esc(t)}</text>`
-    ).join('');
-
-    return Buffer.from(
-        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
-        `<rect x="0" y="${by}" width="${w}" height="${bh + pad * 0.5}" fill="rgba(0,0,0,0.48)"/>` +
-        texts +
-        `</svg>`
-    );
+    return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${svg}</svg>`);
 }
 
 app.get('/api/slideshow/image', requireApiKey, async (req, res) => {

@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.15.0",
+    "date": "2026-04-13",
+    "changes": [
+      "Date overlay position is now configurable — choose top-right, top-left, bottom-right, or bottom-left in Display Settings",
+      "Position applies to both the live slideshow and rendered API images"
+    ]
+  },
+  {
     "version": "1.14.0",
     "date": "2026-04-13",
     "changes": [

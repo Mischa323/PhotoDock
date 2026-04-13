@@ -1030,6 +1030,19 @@
             </div>
 
             <div class="settings-row">
+                <label for="datePosition">
+                    Date overlay position <span class="help" data-tip="Where the date and time overlay appears on the slideshow screen and in rendered API images.">?</span>
+                    <small>Corner of the slideshow screen</small>
+                </label>
+                <select id="datePosition" class="tz-input" style="font-family:inherit">
+                    <option value="top-right">Top right</option>
+                    <option value="top-left">Top left</option>
+                    <option value="bottom-right">Bottom right</option>
+                    <option value="bottom-left">Bottom left</option>
+                </select>
+            </div>
+
+            <div class="settings-row">
                 <label>Accent colour <span class="help" data-tip="The highlight colour used for buttons, section headers, and focus rings across all pages. Changes take effect immediately for all users on their next page load.">?</span><small>Theme colour for buttons and header</small></label>
                 <input type="color" id="accentColor" value="#06b6d4"
                     style="width:44px;height:36px;border:1px solid #ddd;border-radius:6px;cursor:pointer;padding:2px"
@@ -1662,6 +1675,7 @@
         document.getElementById('slideshowInterval').value = s.slideshowInterval || 30;
         document.getElementById('imageWidth').value  = s.imageWidth  || 1920;
         document.getElementById('imageHeight').value = s.imageHeight || 1080;
+        document.getElementById('datePosition').value = s.datePosition || 'top-right';
         const color = s.accentColor || '#06b6d4';
         document.getElementById('accentColor').value = color;
         applyTheme(color);
@@ -1678,6 +1692,7 @@
             slideshowInterval: parseInt(document.getElementById('slideshowInterval').value) || 30,
             imageWidth:        parseInt(document.getElementById('imageWidth').value)  || 1920,
             imageHeight:       parseInt(document.getElementById('imageHeight').value) || 1080,
+            datePosition:      document.getElementById('datePosition').value || 'top-right',
         };
         const res  = await fetch('/api/settings', {
             method: 'PUT',
