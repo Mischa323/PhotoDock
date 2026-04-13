@@ -1,7 +1,0 @@
-{
-    admin 0.0.0.0:2019
-}
-
-{$DOMAIN} {
-    reverse_proxy image-upload:{$PORT}
-}
