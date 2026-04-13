@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.14.0",
+    "date": "2026-04-13",
+    "changes": [
+      "New API endpoint /api/slideshow/image — returns the current image as a pre-rendered JPEG",
+      "Image is resized to a configurable width × height (default 1920×1080) with aspect-ratio-preserving letterboxing",
+      "Image size can be changed in Display Settings in the admin panel"
+    ]
+  },
+  {
     "version": "1.13.0",
     "date": "2026-04-13",
     "changes": [

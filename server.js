@@ -6,6 +6,7 @@ const fs      = require('fs');
 const crypto  = require('crypto');
 const QRCode      = require('qrcode');
 const nodemailer  = require('nodemailer');
+const sharp       = require('sharp');
 const { version: pkgVersion } = require('./package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
@@ -722,16 +723,18 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30 };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080 };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
     const interval = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval };
+    const w = Math.min(7680, Math.max(1, parseInt(imageWidth)  || DEFAULT_SETTINGS.imageWidth));
+    const h = Math.min(4320, Math.max(1, parseInt(imageHeight) || DEFAULT_SETTINGS.imageHeight));
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h };
     saveData(appData);
     res.json(appData.settings);
 });
@@ -754,6 +757,28 @@ app.get('/api/slideshow/all', requireApiKey, (req, res) => {
     const files   = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
+});
+
+app.get('/api/slideshow/image', requireApiKey, async (req, res) => {
+    const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
+    const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
+    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(f)).sort();
+    if (files.length === 0) return res.status(404).json({ error: 'No images available' });
+    const slot     = Math.floor(Date.now() / intervalMs);
+    const filename = files[slot % files.length];
+    const filepath = path.join(UPLOADS_DIR, filename);
+    const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
+    try {
+        const buf = await sharp(filepath)
+            .resize(settings.imageWidth, settings.imageHeight, { fit: 'contain', background: { r: 0, g: 0, b: 0 } })
+            .jpeg({ quality: 90 })
+            .toBuffer();
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'no-cache');
+        res.send(buf);
+    } catch (e) {
+        res.status(500).json({ error: 'Image processing failed', detail: e.message });
+    }
 });
 
 // ── Version ────────────────────────────────────────────────────────────────

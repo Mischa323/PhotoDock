@@ -197,6 +197,7 @@ Configure how the app sends emails (required for email 2FA and notifications). S
 ### Display Settings
 Configure the slideshow behaviour and date/time overlay:
 - **Slideshow interval** — seconds between each image (applies to all viewers)
+- **API image size** — width × height in pixels for the `/api/slideshow/image` endpoint (default 1920×1080)
 - Timezone (any IANA timezone, e.g. `Europe/Amsterdam`)
 - Show/hide day name, date, time, seconds
 - Accent colour — theme colour applied across all pages
@@ -262,6 +263,24 @@ Returns all uploaded images.
 ]
 ```
 
+#### `GET /api/slideshow/image`
+Returns the current image as a **pre-rendered JPEG** — no extra fetch needed. The image is scaled to fit the configured API image size (default 1920×1080) while preserving aspect ratio. Black letterboxing is added if the image aspect ratio differs from the configured size.
+
+```
+Content-Type: image/jpeg
+<binary image data>
+```
+
+This is useful for terminals, scripts, or displays that want to consume the image directly without parsing JSON first:
+
+```bash
+# Save the current image to a file
+curl -H "x-api-key: YOUR_KEY" http://your-server-ip:8080/api/slideshow/image -o current.jpg
+
+# Display directly with feh (Linux framebuffer)
+curl -s -H "x-api-key: YOUR_KEY" http://your-server-ip:8080/api/slideshow/image | feh -
+```
+
 ### Example (curl)
 ```bash
 curl -H "x-api-key: YOUR_KEY" http://your-server-ip:8080/api/slideshow/current
@@ -275,13 +294,13 @@ The version shown in the admin portal matches the GitHub release tag.
 
 **To create a new release:**
 ```bash
-git tag v1.12.0
-git push origin v1.12.0
+git tag v1.14.0
+git push origin v1.14.0
 ```
 
 Or go to **GitHub → Releases → Create a new release**.
 
-GitHub Actions will build a Docker image tagged `v1.12.0` and `latest`.
+GitHub Actions will build a Docker image tagged `v1.14.0` and `latest`.
 
 ---
 
