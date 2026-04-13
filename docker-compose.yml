@@ -3,8 +3,12 @@ services:
     image: ghcr.io/mischa323/terminal-photo-display:latest
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
+      - "${HTTPS_PORT:-8081}:${HTTPS_PORT:-8081}"
     environment:
       PORT: ${PORT:-8080}
+      HTTPS_PORT: ${HTTPS_PORT:-8081}
+      SSL_CERT: /data/ssl/cert.pem
+      SSL_KEY: /data/ssl/key.pem
       DATA_FILE: /data/data.json
       UPLOADS_DIR: /data/uploads
     volumes:
