@@ -78,6 +78,43 @@
             justify-content: space-between;
             background: #f9fbf9;
             border-radius: 10px 10px 0 0;
+            cursor: pointer;
+            user-select: none;
+            transition: border-radius 0.22s ease, border-bottom-color 0.22s ease;
+        }
+
+        .section-header::after {
+            content: '▾';
+            font-size: 16px;
+            color: var(--accent-header);
+            transition: transform 0.22s ease;
+            padding-left: 12px;
+            flex-shrink: 0;
+            opacity: 0.7;
+        }
+
+        section.collapsed .section-header {
+            border-radius: 10px;
+            border-bottom-color: transparent;
+        }
+
+        section.collapsed .section-header::after {
+            transform: rotate(-90deg);
+        }
+
+        .section-body {
+            display: grid;
+            grid-template-rows: 1fr;
+            transition: grid-template-rows 0.22s ease;
+        }
+
+        section.collapsed .section-body {
+            grid-template-rows: 0fr;
+        }
+
+        .section-body-inner {
+            overflow: hidden;
+            min-height: 0;
         }
 
         .section-header h2 { font-size: 14px; font-weight: 600; color: var(--accent-header); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -752,19 +789,22 @@
 <main>
 
     <!-- Activity Log -->
-    <section>
-        <div class="section-header" style="justify-content:space-between">
+    <section id="sec-activity">
+        <div class="section-header">
             <h2>Activity Log</h2>
             <button class="back-btn" style="background:var(--accent-light);color:var(--accent-header);font-size:12px" onclick="loadActivityLog()">&#8635; Refresh</button>
         </div>
+        <div class="section-body"><div class="section-body-inner">
         <div id="activityLog" style="padding:0">
             <p style="padding:24px;text-align:center;color:#bbb">Loading…</p>
         </div>
+        </div></div>
     </section>
 
     <!-- My Security -->
-    <section>
+    <section id="sec-security">
         <div class="section-header"><h2>My Security</h2></div>
+        <div class="section-body"><div class="section-body-inner">
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px" id="twoFaSection">
 
             <!-- Email address -->
@@ -858,11 +898,13 @@
                 <button class="btn-add" id="twoFaToggleBtn" onclick="toggle2FA()" style="display:none"></button>
             </div>
         </div>
+        </div></div>
     </section>
 
     <!-- Email -->
-    <section>
+    <section id="sec-email">
         <div class="section-header"><h2>Email</h2></div>
+        <div class="section-body"><div class="section-body-inner">
         <div class="settings-grid">
             <div class="settings-row">
                 <label>Method <span class="help" data-tip="SMTP works with most mail providers (Gmail, Outlook, your own server). Microsoft Graph API is for Microsoft 365 / Exchange Online — it uses app credentials instead of a password.">?</span><small>How this app sends emails (2FA codes, notifications)</small></label>
@@ -965,11 +1007,13 @@
                 <p id="inactivityStatus" style="font-size:13px;margin:0;min-height:18px"></p>
             </div>
         </div>
+        </div></div>
     </section>
 
     <!-- Display Settings -->
-    <section>
+    <section id="sec-display">
         <div class="section-header"><h2>Display Settings</h2></div>
+        <div class="section-body"><div class="section-body-inner">
         <div class="settings-grid">
 
             <div class="settings-row">
@@ -1070,13 +1114,15 @@
 
             <button class="btn-save-settings" onclick="saveDisplaySettings()">Save</button>
         </div>
+        </div></div>
     </section>
 
     <!-- Users -->
-    <section>
+    <section id="sec-users">
         <div class="section-header">
             <h2>Users <span class="help" data-tip="Manage who can log in. Each user has a username, password, and a role that controls what they are allowed to do.">?</span></h2>
         </div>
+        <div class="section-body"><div class="section-body-inner">
         <table>
             <thead>
                 <tr>
@@ -1109,13 +1155,15 @@
             </div>
             <button class="btn-add" onclick="createUser()">Add User</button>
         </div>
+        </div></div>
     </section>
 
     <!-- Roles -->
-    <section>
+    <section id="sec-roles">
         <div class="section-header">
             <h2>Roles &amp; Permissions <span class="help" data-tip="Roles define what users can do. Create custom roles and toggle their permissions, then assign them to users in the Users section above.">?</span></h2>
         </div>
+        <div class="section-body"><div class="section-body-inner">
         <div id="rolesContainer">
             <p style="color:#bbb; text-align:center; padding:20px">Loading…</p>
         </div>
@@ -1126,11 +1174,13 @@
             </div>
             <button class="btn-add" onclick="createRole()">Create Role</button>
         </div>
+        </div></div>
     </section>
 
     <!-- API Info -->
-    <section>
+    <section id="sec-api-ref">
         <div class="section-header"><h2>API Reference</h2></div>
+        <div class="section-body"><div class="section-body-inner">
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:24px">
 
             <!-- Authentication -->
@@ -1206,13 +1256,15 @@
             </div>
 
         </div>
+        </div></div>
     </section>
 
     <!-- API Keys -->
-    <section>
+    <section id="sec-api-keys">
         <div class="section-header">
             <h2>API Keys <span class="help" data-tip="API keys let external devices or scripts fetch the current slideshow image without logging in. Each key has its own interval that controls how often the image changes.">?</span></h2>
         </div>
+        <div class="section-body"><div class="section-body-inner">
         <div style="overflow-x:auto">
         <table style="min-width:540px">
             <thead>
@@ -1250,15 +1302,18 @@
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
         </div>
+        </div></div>
     </section>
 
     <!-- Version / Changelog -->
-    <section>
+    <section id="sec-version">
         <div class="section-header">
             <h2>Version</h2>
             <span id="versionBadge" style="font-size:13px;font-weight:700;background:#eaf3ff;color:#2a6db5;padding:3px 12px;border-radius:20px"></span>
         </div>
+        <div class="section-body"><div class="section-body-inner">
         <div id="changelogContainer" style="padding:8px 0"></div>
+        </div></div>
     </section>
 
 </main>
@@ -2089,6 +2144,21 @@
             </table>`;
     }
 
+    // ── Collapsible sections ───────────────────────────────────────────────
+    function initCollapsible() {
+        const STORAGE_KEY = 'adminSectionState';
+        const state = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+        document.querySelectorAll('section[id]').forEach(sec => {
+            if (state[sec.id]) sec.classList.add('collapsed');
+            sec.querySelector('.section-header').addEventListener('click', e => {
+                if (e.target.closest('button, a, input, select')) return;
+                sec.classList.toggle('collapsed');
+                state[sec.id] = sec.classList.contains('collapsed');
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            });
+        });
+    }
+
     loadMyEmail();
     load2FAStatus();
     loadEmailConfig();
@@ -2098,6 +2168,7 @@
     loadApiKeys();
     initApiDocs();
     loadVersion();
+    initCollapsible();
 </script>
 </body>
 </html>
