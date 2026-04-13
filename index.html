@@ -315,6 +315,82 @@
         .gallery-grid .thumb:hover .del { display: block; }
         .gallery-grid .thumb .del:hover { background: rgba(192,57,43,0.85); }
 
+        /* ── Multi-select mode ────────────────────────────────────────── */
+        .gallery-overlay.select-mode .gallery-grid .thumb { cursor: pointer; }
+        .gallery-overlay.select-mode .gallery-grid .thumb .del { display: none !important; }
+
+        .gallery-grid .thumb.selected { border-color: var(--accent); }
+
+        .thumb-check {
+            position: absolute;
+            top: 5px; left: 5px;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.7);
+            background: rgba(0,0,0,0.35);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #fff;
+            pointer-events: none;
+        }
+        .gallery-overlay.select-mode .thumb-check { display: flex; }
+        .thumb.selected .thumb-check {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .gallery-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            max-width: 960px;
+            margin: 0 auto 20px;
+        }
+
+        .gallery-toolbar h2 { margin: 0; }
+
+        .gallery-select-btn {
+            background: rgba(255,255,255,0.12);
+            color: #ccc;
+            border: 1px solid rgba(255,255,255,0.2);
+            padding: 6px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-family: inherit;
+        }
+        .gallery-select-btn:hover,
+        .gallery-overlay.select-mode .gallery-select-btn {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+
+        .gallery-delete-bar {
+            display: none;
+            position: sticky;
+            bottom: 20px;
+            justify-content: center;
+            margin-top: 24px;
+        }
+        .gallery-delete-bar.visible { display: flex; }
+
+        .gallery-delete-btn {
+            background: #c0392b;
+            color: #fff;
+            border: none;
+            padding: 10px 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            font-family: inherit;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+        }
+        .gallery-delete-btn:hover { background: #a93226; }
+
         .gallery-close {
             position: fixed;
             top: 16px; right: 24px;
@@ -376,8 +452,14 @@
     <!-- Gallery overlay -->
     <div class="gallery-overlay" id="galleryOverlay">
         <span class="gallery-close" id="galleryClose">&times;</span>
-        <h2>All Images</h2>
+        <div class="gallery-toolbar">
+            <h2>All Images</h2>
+            <button class="gallery-select-btn" id="gallerySelectBtn" data-delete>Select</button>
+        </div>
         <div class="gallery-grid" id="galleryGrid"></div>
+        <div class="gallery-delete-bar" id="galleryDeleteBar">
+            <button class="gallery-delete-btn" id="galleryDeleteBtn" data-delete>Delete selected (0)</button>
+        </div>
     </div>
 
     <!-- Drop overlay -->
@@ -512,17 +594,73 @@
             });
         }
 
+        // ── Multi-select state ───────────────────────────────────────
+        let selectMode = false;
+        const selected = new Set();
+        const gallerySelectBtn = document.getElementById('gallerySelectBtn');
+        const galleryDeleteBar = document.getElementById('galleryDeleteBar');
+        const galleryDeleteBtn = document.getElementById('galleryDeleteBtn');
+
+        function updateDeleteBar() {
+            const n = selected.size;
+            galleryDeleteBar.classList.toggle('visible', n > 0);
+            galleryDeleteBtn.textContent = `Delete selected (${n})`;
+        }
+
+        function toggleSelectMode(on) {
+            selectMode = on !== undefined ? on : !selectMode;
+            galleryOverlay.classList.toggle('select-mode', selectMode);
+            gallerySelectBtn.textContent = selectMode ? 'Cancel' : 'Select';
+            if (!selectMode) {
+                selected.clear();
+                galleryGrid.querySelectorAll('.thumb.selected').forEach(t => t.classList.remove('selected'));
+                updateDeleteBar();
+            }
+        }
+
+        gallerySelectBtn.onclick = () => toggleSelectMode();
+
+        galleryDeleteBtn.onclick = async () => {
+            const filenames = [...selected];
+            if (!filenames.length) return;
+            if (!confirm(`Delete ${filenames.length} image(s)?`)) return;
+            try {
+                await Promise.all(filenames.map(f =>
+                    fetch(`/api/images/${encodeURIComponent(f)}`, { method: 'DELETE' })
+                ));
+                showToast(`${filenames.length} image(s) deleted.`);
+                toggleSelectMode(false);
+                await loadImages();
+            } catch {
+                showToast('Could not delete some images.', 'error');
+            }
+        };
+
         // ── Render gallery overlay ───────────────────────────────────
         function renderGallery() {
             galleryGrid.innerHTML = '';
             images.forEach((img, i) => {
                 const thumb = document.createElement('div');
-                thumb.className = 'thumb' + (i === current ? ' current' : '');
-                thumb.onclick = () => { goTo(i); galleryOverlay.classList.remove('open'); };
+                thumb.className = 'thumb' + (i === current ? ' current' : '') + (selected.has(img.filename) ? ' selected' : '');
+                thumb.onclick = () => {
+                    if (selectMode) {
+                        selected.has(img.filename) ? selected.delete(img.filename) : selected.add(img.filename);
+                        thumb.classList.toggle('selected', selected.has(img.filename));
+                        check.textContent = selected.has(img.filename) ? '✓' : '';
+                        updateDeleteBar();
+                    } else {
+                        goTo(i);
+                        galleryOverlay.classList.remove('open');
+                    }
+                };
 
                 const image = document.createElement('img');
                 image.src = img.url;
                 image.alt = img.filename;
+
+                const check = document.createElement('div');
+                check.className = 'thumb-check';
+                check.textContent = selected.has(img.filename) ? '✓' : '';
 
                 const del = document.createElement('button');
                 del.className = 'del';
@@ -543,6 +681,7 @@
                 };
 
                 thumb.appendChild(image);
+                thumb.appendChild(check);
                 thumb.appendChild(del);
                 galleryGrid.appendChild(thumb);
             });
@@ -592,7 +731,7 @@
 
         // ── Gallery overlay ──────────────────────────────────────────
         document.getElementById('galleryBtn').onclick   = () => galleryOverlay.classList.add('open');
-        document.getElementById('galleryClose').onclick = () => galleryOverlay.classList.remove('open');
+        document.getElementById('galleryClose').onclick = () => { galleryOverlay.classList.remove('open'); toggleSelectMode(false); };
 
         // ── Drag & drop ──────────────────────────────────────────────
         let dragCounter = 0;
