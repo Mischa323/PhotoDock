@@ -931,6 +931,40 @@
                 <p id="emailConfigStatus" style="font-size:13px;min-height:18px"></p>
             </div>
         </div>
+
+        <!-- Inactivity notifications -->
+        <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
+            <h3 style="margin:0 0 14px;font-size:15px">Inactivity notifications</h3>
+            <p style="margin:0 0 16px;font-size:13px;color:#666">Send an email to admin accounts when a user or API key has not been active for a set number of days. Set to 0 to disable. Notifications are sent at most once per day per item.</p>
+            <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
+                <div class="settings-row">
+                    <label for="userInactivityDays">
+                        User inactivity threshold <span class="help" data-tip="Send a notification if a user account has not logged in for this many days. Set to 0 to disable.">?</span>
+                        <small>Days since last login (0 = off)</small>
+                    </label>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="number" id="userInactivityDays" min="0" max="3650"
+                            class="tz-input" style="width:70px;font-family:inherit" placeholder="0">
+                        <span style="font-size:14px;color:#888">days</span>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label for="apiKeyInactivityDays">
+                        API key inactivity threshold <span class="help" data-tip="Send a notification if an API key has not been used for this many days. Set to 0 to disable.">?</span>
+                        <small>Days since last use (0 = off)</small>
+                    </label>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <input type="number" id="apiKeyInactivityDays" min="0" max="3650"
+                            class="tz-input" style="width:70px;font-family:inherit" placeholder="0">
+                        <span style="font-size:14px;color:#888">days</span>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
+                <button class="btn-save-settings" onclick="saveInactivitySettings()">Save</button>
+                <p id="inactivityStatus" style="font-size:13px;margin:0;min-height:18px"></p>
+            </div>
+        </div>
     </section>
 
     <!-- Display Settings -->
@@ -1662,6 +1696,8 @@
         const color = s.accentColor || '#06b6d4';
         document.getElementById('accentColor').value = color;
         applyTheme(color);
+        document.getElementById('userInactivityDays').value    = s.userInactivityDays    ?? 0;
+        document.getElementById('apiKeyInactivityDays').value  = s.apiKeyInactivityDays  ?? 0;
     }
 
     async function saveDisplaySettings() {
@@ -1683,6 +1719,25 @@
         const data = await res.json();
         if (!res.ok) showToast(data.error || 'Could not save settings', 'error');
         else showToast('Display settings saved.');
+    }
+
+    async function saveInactivitySettings() {
+        const statusEl = document.getElementById('inactivityStatus');
+        statusEl.textContent = '';
+        // Fetch current settings so we don't overwrite other fields
+        const cur = await (await fetch('/api/settings')).json();
+        const body = Object.assign({}, cur, {
+            userInactivityDays:   parseInt(document.getElementById('userInactivityDays').value)   || 0,
+            apiKeyInactivityDays: parseInt(document.getElementById('apiKeyInactivityDays').value) || 0,
+        });
+        const res = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) { statusEl.style.color = '#c00'; statusEl.textContent = data.error || 'Could not save.'; }
+        else { statusEl.style.color = '#0a0'; statusEl.textContent = 'Saved.'; setTimeout(() => statusEl.textContent = '', 3000); }
     }
 
     // ── API Reference URLs ─────────────────────────────────────────────────
