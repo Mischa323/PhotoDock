@@ -1170,6 +1170,7 @@
                     <th>Name</th>
                     <th>Key</th>
                     <th>Interval</th>
+                    <th>Image size <span class="help" data-tip="Override the rendered image size for this key's /api/slideshow/image requests. Leave blank to use the global size set in Display Settings.">?</span></th>
                     <th>Created</th>
                     <th style="width:80px">Actions</th>
                 </tr>
@@ -1186,6 +1187,14 @@
             <div class="field" style="max-width:110px">
                 <label>Interval (min)</label>
                 <input type="number" id="newKeyInterval" min="1" value="5">
+            </div>
+            <div class="field" style="max-width:160px">
+                <label>Image size (px, optional)</label>
+                <div style="display:flex;align-items:center;gap:4px">
+                    <input type="number" id="newKeyImageWidth"  min="1" max="7680" placeholder="1920" style="width:68px">
+                    <span style="font-size:12px;color:#888">×</span>
+                    <input type="number" id="newKeyImageHeight" min="1" max="4320" placeholder="1080" style="width:68px">
+                </div>
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
         </div>
@@ -1376,7 +1385,7 @@
         const tbody = document.getElementById('keyTableBody');
 
         if (keys.length === 0) {
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No API keys</td></tr>';
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No API keys</td></tr>';
             return;
         }
 
@@ -1395,8 +1404,21 @@
                         <input type="number" min="1" value="${k.intervalMinutes || 5}"
                             id="interval-${k.id}"
                             style="width:60px;border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
-                            onchange="saveKeyInterval('${k.id}')">
+                            onchange="saveKeySettings('${k.id}')">
                         <span style="font-size:12px;color:#888">min</span>
+                    </div>
+                </td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:4px">
+                        <input type="number" min="1" max="7680" value="${k.imageWidth || ''}" placeholder="default"
+                            id="imgw-${k.id}"
+                            style="width:68px;border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
+                            onchange="saveKeySettings('${k.id}')">
+                        <span style="font-size:12px;color:#888">×</span>
+                        <input type="number" min="1" max="4320" value="${k.imageHeight || ''}" placeholder="default"
+                            id="imgh-${k.id}"
+                            style="width:68px;border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
+                            onchange="saveKeySettings('${k.id}')">
                     </div>
                 </td>
                 <td>${new Date(k.createdAt).toLocaleDateString()}</td>
@@ -1407,26 +1429,30 @@
         `).join('');
     }
 
-    async function saveKeyInterval(id) {
-        const interval = parseInt(document.getElementById(`interval-${id}`).value) || 5;
+    async function saveKeySettings(id) {
+        const interval    = parseInt(document.getElementById(`interval-${id}`).value) || 5;
+        const imageWidth  = parseInt(document.getElementById(`imgw-${id}`).value)  || 0;
+        const imageHeight = parseInt(document.getElementById(`imgh-${id}`).value) || 0;
         const res = await fetch(`/api/admin/apikeys/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ interval })
+            body: JSON.stringify({ interval, imageWidth, imageHeight })
         });
-        if (!res.ok) showToast('Could not save interval', 'error');
-        else showToast('Interval updated.');
+        if (!res.ok) showToast('Could not save key settings', 'error');
+        else showToast('Key updated.');
     }
 
     async function createApiKey() {
-        const name     = document.getElementById('newKeyName').value.trim();
-        const interval = parseInt(document.getElementById('newKeyInterval').value) || 5;
+        const name        = document.getElementById('newKeyName').value.trim();
+        const interval    = parseInt(document.getElementById('newKeyInterval').value) || 5;
+        const imageWidth  = parseInt(document.getElementById('newKeyImageWidth').value)  || 0;
+        const imageHeight = parseInt(document.getElementById('newKeyImageHeight').value) || 0;
         if (!name) return showToast('Enter a key name', 'error');
 
         const res  = await fetch('/api/admin/apikeys', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, interval })
+            body: JSON.stringify({ name, interval, imageWidth, imageHeight })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
