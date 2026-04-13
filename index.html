@@ -315,6 +315,19 @@
         .gallery-grid .thumb:hover .del { display: block; }
         .gallery-grid .thumb .del:hover { background: rgba(192,57,43,0.85); }
 
+        .thumb-uploader {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.65));
+            color: rgba(255,255,255,0.85);
+            font-size: 11px;
+            padding: 14px 7px 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            pointer-events: none;
+        }
+
         /* ── Multi-select mode ────────────────────────────────────────── */
         .gallery-overlay.select-mode .gallery-grid .thumb { cursor: pointer; }
         .gallery-overlay.select-mode .gallery-grid .thumb .del { display: none !important; }
@@ -681,6 +694,12 @@
                 };
 
                 thumb.appendChild(image);
+                if (img.uploadedBy) {
+                    const uploader = document.createElement('div');
+                    uploader.className = 'thumb-uploader';
+                    uploader.textContent = img.uploadedBy;
+                    thumb.appendChild(uploader);
+                }
                 thumb.appendChild(check);
                 thumb.appendChild(del);
                 galleryGrid.appendChild(thumb);
