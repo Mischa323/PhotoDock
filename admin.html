@@ -1015,21 +1015,6 @@
             </div>
 
             <div class="settings-row">
-                <label>
-                    API image size <span class="help" data-tip="The pixel dimensions used when the /api/slideshow/image endpoint renders an image. The image is scaled to fit within this frame while preserving its aspect ratio (letterboxed with black bars if needed). Default is 1920×1080.">?</span>
-                    <small>Width × height for /api/slideshow/image</small>
-                </label>
-                <div style="display:flex;align-items:center;gap:8px">
-                    <input type="number" id="imageWidth" min="1" max="7680"
-                        class="tz-input" style="width:80px;font-family:inherit" placeholder="1920">
-                    <span style="font-size:14px;color:#888">×</span>
-                    <input type="number" id="imageHeight" min="1" max="4320"
-                        class="tz-input" style="width:80px;font-family:inherit" placeholder="1080">
-                    <span style="font-size:14px;color:#888">px</span>
-                </div>
-            </div>
-
-            <div class="settings-row">
                 <label for="datePosition">
                     Date overlay position <span class="help" data-tip="Where the date and time overlay appears on the slideshow screen and in rendered API images.">?</span>
                     <small>Corner of the slideshow screen</small>
@@ -1172,7 +1157,7 @@
                             <code id="urlImage" style="font-size:14px;color:#333"></code>
                             <button class="icon-btn" title="Copy" onclick="copyText(document.getElementById('urlImage').textContent)">&#128203;</button>
                         </div>
-                        <p style="font-size:14px;color:#555;margin-bottom:8px">Returns the current image as a pre-rendered JPEG, scaled to the configured API image size (set in Display Settings). Aspect ratio is preserved with black letterboxing.</p>
+                        <p style="font-size:14px;color:#555;margin-bottom:8px">Returns the current image as a pre-rendered JPEG, scaled to the image size configured on the API key (default 1920×1080). Aspect ratio is preserved with black letterboxing.</p>
                         <pre class="api-response">Content-Type: image/jpeg
 &lt;binary image data&gt;</pre>
                     </div>
@@ -1201,7 +1186,7 @@
                     <th style="width:18%">Name</th>
                     <th>Key</th>
                     <th style="white-space:nowrap;width:90px">Interval</th>
-                    <th style="white-space:nowrap;width:110px">Image size <span class="help" data-tip="Override the rendered image size for this key's /api/slideshow/image requests. Leave blank to use the global size set in Display Settings.">?</span></th>
+                    <th style="white-space:nowrap;width:110px">Image size <span class="help" data-tip="The pixel dimensions used when rendering the /api/slideshow/image response for this key. Leave blank to use the default 1920×1080.">?</span></th>
                     <th style="white-space:nowrap">Last used</th>
                     <th style="white-space:nowrap;width:80px">Created</th>
                     <th style="width:44px">Actions</th>
@@ -1673,8 +1658,6 @@
         document.getElementById('showTime').checked    = !!s.showTime;
         document.getElementById('showSeconds').checked = !!s.showSeconds;
         document.getElementById('slideshowInterval').value = s.slideshowInterval || 30;
-        document.getElementById('imageWidth').value  = s.imageWidth  || 1920;
-        document.getElementById('imageHeight').value = s.imageHeight || 1080;
         document.getElementById('datePosition').value = s.datePosition || 'top-right';
         const color = s.accentColor || '#06b6d4';
         document.getElementById('accentColor').value = color;
@@ -1690,8 +1673,6 @@
             showSeconds:       document.getElementById('showSeconds').checked,
             accentColor:       document.getElementById('accentColor').value,
             slideshowInterval: parseInt(document.getElementById('slideshowInterval').value) || 30,
-            imageWidth:        parseInt(document.getElementById('imageWidth').value)  || 1920,
-            imageHeight:       parseInt(document.getElementById('imageHeight').value) || 1080,
             datePosition:      document.getElementById('datePosition').value || 'top-right',
         };
         const res  = await fetch('/api/settings', {
