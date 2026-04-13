@@ -999,6 +999,21 @@
             </div>
 
             <div class="settings-row">
+                <label>
+                    API image size <span class="help" data-tip="The pixel dimensions used when the /api/slideshow/image endpoint renders an image. The image is scaled to fit within this frame while preserving its aspect ratio (letterboxed with black bars if needed). Default is 1920×1080.">?</span>
+                    <small>Width × height for /api/slideshow/image</small>
+                </label>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <input type="number" id="imageWidth" min="1" max="7680"
+                        class="tz-input" style="width:80px;font-family:inherit" placeholder="1920">
+                    <span style="font-size:14px;color:#888">×</span>
+                    <input type="number" id="imageHeight" min="1" max="4320"
+                        class="tz-input" style="width:80px;font-family:inherit" placeholder="1080">
+                    <span style="font-size:14px;color:#888">px</span>
+                </div>
+            </div>
+
+            <div class="settings-row">
                 <label>Accent colour <span class="help" data-tip="The highlight colour used for buttons, section headers, and focus rings across all pages. Changes take effect immediately for all users on their next page load.">?</span><small>Theme colour for buttons and header</small></label>
                 <input type="color" id="accentColor" value="#06b6d4"
                     style="width:44px;height:36px;border:1px solid #ddd;border-radius:6px;cursor:pointer;padding:2px"
@@ -1119,6 +1134,17 @@
   { "index": 0, "filename": "cat-1712345678.jpg", "url": "https://your-server/uploads/cat-1712345678.jpg" },
   { "index": 1, "filename": "dog-1712345679.jpg", "url": "https://your-server/uploads/dog-1712345679.jpg" }
 ]</pre>
+                    </div>
+
+                    <div>
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                            <span class="method-badge get">GET</span>
+                            <code id="urlImage" style="font-size:14px;color:#333"></code>
+                            <button class="icon-btn" title="Copy" onclick="copyText(document.getElementById('urlImage').textContent)">&#128203;</button>
+                        </div>
+                        <p style="font-size:14px;color:#555;margin-bottom:8px">Returns the current image as a pre-rendered JPEG, scaled to the configured API image size (set in Display Settings). Aspect ratio is preserved with black letterboxing.</p>
+                        <pre class="api-response">Content-Type: image/jpeg
+&lt;binary image data&gt;</pre>
                     </div>
 
                 </div>
@@ -1571,6 +1597,8 @@
         document.getElementById('showTime').checked    = !!s.showTime;
         document.getElementById('showSeconds').checked = !!s.showSeconds;
         document.getElementById('slideshowInterval').value = s.slideshowInterval || 30;
+        document.getElementById('imageWidth').value  = s.imageWidth  || 1920;
+        document.getElementById('imageHeight').value = s.imageHeight || 1080;
         const color = s.accentColor || '#06b6d4';
         document.getElementById('accentColor').value = color;
         applyTheme(color);
@@ -1585,6 +1613,8 @@
             showSeconds:       document.getElementById('showSeconds').checked,
             accentColor:       document.getElementById('accentColor').value,
             slideshowInterval: parseInt(document.getElementById('slideshowInterval').value) || 30,
+            imageWidth:        parseInt(document.getElementById('imageWidth').value)  || 1920,
+            imageHeight:       parseInt(document.getElementById('imageHeight').value) || 1080,
         };
         const res  = await fetch('/api/settings', {
             method: 'PUT',
@@ -1599,8 +1629,9 @@
     // ── API Reference URLs ─────────────────────────────────────────────────
     function initApiDocs() {
         const base = window.location.origin;
-        document.getElementById('urlCurrent').textContent  = `${base}/api/slideshow/current`;
-        document.getElementById('urlAll').textContent      = `${base}/api/slideshow/all`;
+        document.getElementById('urlCurrent').textContent   = `${base}/api/slideshow/current`;
+        document.getElementById('urlAll').textContent       = `${base}/api/slideshow/all`;
+        document.getElementById('urlImage').textContent     = `${base}/api/slideshow/image`;
         document.getElementById('exampleQuery').textContent = `${base}/api/slideshow/current?key=YOUR_KEY`;
         document.getElementById('curlExample').textContent  = `curl -H "x-api-key: YOUR_KEY" ${base}/api/slideshow/current`;
     }
