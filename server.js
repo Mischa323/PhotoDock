@@ -759,12 +759,12 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right' };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0 };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
     const interval  = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
@@ -772,7 +772,9 @@ app.put('/api/settings', requireAdmin, (req, res) => {
     const h         = Math.min(4320, Math.max(1, parseInt(imageHeight) || DEFAULT_SETTINGS.imageHeight));
     const validPos  = ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
     const pos       = validPos.includes(datePosition) ? datePosition : DEFAULT_SETTINGS.datePosition;
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos };
+    const userDays  = Math.max(0, parseInt(userInactivityDays)   || 0);
+    const keyDays   = Math.max(0, parseInt(apiKeyInactivityDays) || 0);
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays };
     saveData(appData);
     res.json(appData.settings);
 });
@@ -905,6 +907,88 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
     addLog('delete', { user: req.currentUser?.username, ip: req.ip, detail: filename });
     res.json({ deleted: filename });
 });
+
+// ── Inactivity notifications ───────────────────────────────────────────────
+function inactivityEmailHtml(staleUsers, staleKeys) {
+    let html = `<div style="font-family:sans-serif;padding:32px 24px;max-width:540px">
+        <h2 style="color:#0e7490;margin-bottom:4px">Photo Display for TNMLS</h2>
+        <p style="color:#555;margin-top:0">Inactivity alert — ${new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })}</p>`;
+    if (staleUsers.length) {
+        html += `<h3 style="margin-bottom:8px">Inactive users</h3>
+        <table style="border-collapse:collapse;width:100%">
+        <tr style="border-bottom:1px solid #e0e0e0"><th style="text-align:left;padding:4px 12px 4px 0;font-size:13px;color:#888">Username</th><th style="text-align:left;font-size:13px;color:#888">Last login</th></tr>`;
+        for (const u of staleUsers) {
+            const last = u.lastLogin ? new Date(u.lastLogin).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' }) : 'Never';
+            html += `<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:6px 12px 6px 0;font-size:14px">${u.username}</td><td style="padding:6px 0;font-size:14px;color:#888">${last}</td></tr>`;
+        }
+        html += `</table>`;
+    }
+    if (staleKeys.length) {
+        html += `<h3 style="margin-bottom:8px;margin-top:${staleUsers.length ? 24 : 0}px">Inactive API keys</h3>
+        <table style="border-collapse:collapse;width:100%">
+        <tr style="border-bottom:1px solid #e0e0e0"><th style="text-align:left;padding:4px 12px 4px 0;font-size:13px;color:#888">Name</th><th style="text-align:left;font-size:13px;color:#888">Last used</th></tr>`;
+        for (const k of staleKeys) {
+            const last = k.lastUsed ? new Date(k.lastUsed).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' }) : 'Never';
+            html += `<tr style="border-bottom:1px solid #f0f0f0"><td style="padding:6px 12px 6px 0;font-size:14px">${k.name}</td><td style="padding:6px 0;font-size:14px;color:#888">${last}</td></tr>`;
+        }
+        html += `</table>`;
+    }
+    html += `<p style="font-size:12px;color:#aaa;margin-top:24px">Sent by Photo Display for TNMLS · Manage notification settings in the admin panel</p></div>`;
+    return html;
+}
+
+async function runInactivityCheck() {
+    const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
+    const userDays = settings.userInactivityDays;
+    const keyDays  = settings.apiKeyInactivityDays;
+    if (!userDays && !keyDays) return;
+
+    const now = Date.now();
+    const MS_PER_DAY = 86400 * 1000;
+
+    const staleUsers = userDays ? appData.users.filter(u => {
+        const age = u.lastLogin ? (now - new Date(u.lastLogin).getTime()) : Infinity;
+        const lastNotified = u.lastInactivityNotified ? new Date(u.lastInactivityNotified).getTime() : 0;
+        return age >= userDays * MS_PER_DAY && (now - lastNotified) >= MS_PER_DAY;
+    }) : [];
+
+    const staleKeys = keyDays ? (appData.apiKeys || []).filter(k => {
+        const age = k.lastUsed ? (now - new Date(k.lastUsed).getTime()) : Infinity;
+        const lastNotified = k.lastInactivityNotified ? new Date(k.lastInactivityNotified).getTime() : 0;
+        return age >= keyDays * MS_PER_DAY && (now - lastNotified) >= MS_PER_DAY;
+    }) : [];
+
+    if (!staleUsers.length && !staleKeys.length) return;
+
+    // Collect admin email addresses
+    const adminEmails = appData.users
+        .filter(u => {
+            const role = (appData.roles || []).find(r => r.name === u.role);
+            return role?.canManage && u.email;
+        })
+        .map(u => u.email);
+    if (!adminEmails.length) return;
+
+    const html = inactivityEmailHtml(staleUsers, staleKeys);
+    const subject = 'Inactivity alert — Photo Display for TNMLS';
+    let sent = false;
+    for (const email of adminEmails) {
+        try { await sendEmail(email, subject, html); sent = true; } catch { /* skip */ }
+    }
+
+    if (sent) {
+        const ts = new Date().toISOString();
+        for (const u of staleUsers) { u.lastInactivityNotified = ts; }
+        for (const k of staleKeys)  { k.lastInactivityNotified = ts; }
+        saveData(appData);
+        console.log(`Inactivity notification sent: ${staleUsers.length} user(s), ${staleKeys.length} key(s)`);
+    }
+}
+
+// Run the check once per hour
+setInterval(runInactivityCheck, 60 * 60 * 1000);
+// Also run shortly after startup so the first check doesn't wait an hour
+setTimeout(runInactivityCheck, 30 * 1000);
 
 // ── Start ──────────────────────────────────────────────────────────────────
 function startServer(port) {
