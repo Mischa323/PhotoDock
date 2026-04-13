@@ -28,13 +28,6 @@ services:
     command: caddy run --resume --config /etc/caddy/Caddyfile --adapter caddyfile
     restart: unless-stopped
 
-  watchtower:
-    image: containrrr/watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command: --interval 300 --cleanup
-    restart: unless-stopped
-
 volumes:
   caddy_data:
   caddy_config:

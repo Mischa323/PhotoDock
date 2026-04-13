@@ -11,7 +11,7 @@ A self-hosted image slideshow server. Upload photos through a web browser, displ
 - **External API** so a terminal, TV, or script can fetch the current image on a schedule
 - **Admin panel** to manage users, roles, API keys, and display settings
 - **Automatic HTTPS** via Caddy with free Let's Encrypt certificates
-- **Auto-updates** via Watchtower — push to GitHub and your server updates itself
+- **Auto-updates** via Watchtower — if you already run Watchtower, it will pick up new releases automatically
 
 ---
 
@@ -36,21 +36,7 @@ Browser / Client
 
 ### Auto-update flow
 
-```
-git push to main
-      │
-      ▼
-GitHub Actions builds Docker image
-      │
-      ▼
-Image pushed to ghcr.io (GitHub Container Registry)
-      │
-      ▼
-Watchtower detects new image every 5 minutes
-      │
-      ▼
-Container restarted with new image automatically
-```
+GitHub Actions builds and publishes a new Docker image to `ghcr.io` on every tagged release. If you already run [Watchtower](https://containrrr.dev/watchtower/) on your server, it will detect the new image and restart the container automatically. Watchtower is **not** included in `docker-compose.yml` — it is expected to run separately and watch all containers on the host.
 
 ---
 
