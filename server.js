@@ -13,29 +13,9 @@ const app = express();
 const PORT        = process.env.PORT        || 8080;
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data.json');
-const CADDY_ADMIN = process.env.CADDY_ADMIN || 'http://caddy:2019';
 const TOKEN_DAYS  = 30; // login cookie lifetime
 const COOKIE_NAME = 'auth_token';
 
-// ── Caddy integration ──────────────────────────────────────────────────────
-function buildCaddyfile(domain) {
-    return `{\n    admin 0.0.0.0:2019\n}\n\n${domain} {\n    reverse_proxy image-upload:${PORT}\n}\n`;
-}
-
-async function applyCaddyDomain(domain) {
-    try {
-        const res = await fetch(`${CADDY_ADMIN}/load`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/caddyfile', 'Cache-Control': 'must-revalidate' },
-            body: buildCaddyfile(domain)
-        });
-        if (!res.ok) console.error('Caddy reload failed:', await res.text());
-        return res.ok;
-    } catch (e) {
-        console.error('Could not reach Caddy admin API:', e.message);
-        return false;
-    }
-}
 
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
@@ -277,7 +257,6 @@ const upload = multer({
 });
 
 // ── Middleware ─────────────────────────────────────────────────────────────
-app.set('trust proxy', 1); // trust X-Forwarded-Proto from Caddy so req.protocol = 'https'
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
@@ -683,7 +662,7 @@ app.delete('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
     res.json({ ok: true });
 });
 
-// ── Email config (admin) ───────────────────────────────────────────────────
+// ── Email config ──────────────────────────────────────────────────────────
 app.get('/api/admin/email', requireAdmin, (_req, res) => {
     const cfg = JSON.parse(JSON.stringify(appData.settings?.email || {}));
     if (cfg.smtp?.password)      cfg.smtp.password      = '';
@@ -736,21 +715,6 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
     } catch (e) {
         res.status(502).json({ error: e.message });
     }
-});
-
-// ── Domain / Caddy ────────────────────────────────────────────────────────
-app.get('/api/admin/domain', requireAdmin, (_req, res) => {
-    res.json({ domain: appData.settings?.domain || '' });
-});
-
-app.put('/api/admin/domain', requireAdmin, async (req, res) => {
-    const domain = (req.body.domain || '').trim();
-    if (!domain) return res.status(400).json({ error: 'Domain is required' });
-    const ok = await applyCaddyDomain(domain);
-    if (!ok) return res.status(502).json({ error: 'Could not reach Caddy. Is it running?' });
-    appData.settings.domain = domain;
-    saveData(appData);
-    res.json({ ok: true, domain });
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
@@ -832,8 +796,3 @@ function startServer(port) {
 }
 
 startServer(Number(PORT));
-
-// Re-apply stored domain to Caddy after startup (handles Caddy restarts)
-if (appData.settings?.domain) {
-    setTimeout(() => applyCaddyDomain(appData.settings.domain), 5000);
-}
