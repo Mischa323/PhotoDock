@@ -2,9 +2,6 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# openssl is needed to auto-generate self-signed certificates
-RUN apk add --no-cache openssl
-
 # Install dependencies first (cached layer)
 COPY package*.json ./
 RUN npm ci --omit=dev
