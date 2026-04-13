@@ -194,8 +194,9 @@ function loadData() {
 function saveData(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
 
 let appData = loadData();
-if (!appData.tokens) { appData.tokens = []; saveData(appData); }
-if (!appData.logs)   { appData.logs   = []; saveData(appData); }
+if (!appData.tokens)        { appData.tokens        = []; saveData(appData); }
+if (!appData.logs)          { appData.logs          = []; saveData(appData); }
+if (!appData.imageMetadata) { appData.imageMetadata = {}; saveData(appData); }
 
 const MAX_LOGS = 500;
 function addLog(event, { user, keyName, ip, detail } = {}) {
@@ -899,9 +900,11 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ── Images API ─────────────────────────────────────────────────────────────
 app.get('/api/images', (_req, res) => {
+    const meta  = appData.imageMetadata || {};
     const files = fs.readdirSync(UPLOADS_DIR).map(filename => ({
         filename, url: `/uploads/${filename}`,
-        uploadedAt: fs.statSync(path.join(UPLOADS_DIR, filename)).mtime
+        uploadedAt: meta[filename]?.uploadedAt || fs.statSync(path.join(UPLOADS_DIR, filename)).mtime,
+        uploadedBy: meta[filename]?.uploadedBy || null,
     }));
     files.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
     res.json(files);
@@ -909,7 +912,14 @@ app.get('/api/images', (_req, res) => {
 
 app.post('/api/upload', requireUpload, upload.array('images', 50), (req, res) => {
     if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' });
-    addLog('upload', { user: req.currentUser?.username, ip: req.ip, detail: `${req.files.length} file(s)` });
+    const uploader  = req.currentUser?.username || null;
+    const uploadedAt = new Date().toISOString();
+    if (!appData.imageMetadata) appData.imageMetadata = {};
+    for (const f of req.files) {
+        appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt };
+    }
+    saveData(appData);
+    addLog('upload', { user: uploader, ip: req.ip, detail: `${req.files.length} file(s)` });
     res.json({ uploaded: req.files.map(f => ({ filename: f.filename, url: `/uploads/${f.filename}` })) });
 });
 
@@ -918,6 +928,8 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
     const filepath = path.join(UPLOADS_DIR, filename);
     if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
     fs.unlinkSync(filepath);
+    delete appData.imageMetadata?.[filename];
+    saveData(appData);
     addLog('delete', { user: req.currentUser?.username, ip: req.ip, detail: filename });
     res.json({ deleted: filename });
 });
