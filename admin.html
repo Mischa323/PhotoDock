@@ -68,7 +68,6 @@
             background: #fff;
             border-radius: 10px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.05);
-            overflow: hidden;
         }
 
         .section-header {
@@ -78,6 +77,7 @@
             align-items: center;
             justify-content: space-between;
             background: #f9fbf9;
+            border-radius: 10px 10px 0 0;
         }
 
         .section-header h2 { font-size: 14px; font-weight: 600; color: var(--accent-header); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -303,6 +303,7 @@
             flex-wrap: wrap;
             align-items: flex-end;
             background: #f6f8f6;
+            border-radius: 0 0 10px 10px;
         }
 
         .add-form .field {
@@ -599,13 +600,148 @@
             line-height: 1.6;
             white-space: pre;
         }
+
+        /* ── Theme toggle button ─────────────────────────────────────── */
+        .theme-btn {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            border: none;
+            width: 34px;
+            height: 34px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 8px;
+        }
+        .theme-btn:hover { background: rgba(255,255,255,0.25); }
+
+        /* ── Dark mode ───────────────────────────────────────────────── */
+        [data-theme="dark"] body { background: #0f172a; color: #e2e8f0; }
+
+        [data-theme="dark"] section {
+            background: #1e293b;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 4px 16px rgba(0,0,0,0.2);
+        }
+
+        [data-theme="dark"] .section-header {
+            background: #162032;
+            border-bottom-color: #2d3f52;
+        }
+
+        [data-theme="dark"] thead th {
+            background: #162032;
+            border-bottom-color: #2d3f52;
+            color: #94a3b8;
+        }
+
+        [data-theme="dark"] tbody tr { border-bottom-color: #2d3f52; }
+        [data-theme="dark"] tbody tr:hover { background: #243447; }
+        [data-theme="dark"] tbody td { color: #e2e8f0; }
+
+        [data-theme="dark"] .role-block { border-bottom-color: #2d3f52; }
+        [data-theme="dark"] .role-block h3 { color: #e2e8f0; }
+        [data-theme="dark"] .perm-row label { color: #cbd5e1; }
+        [data-theme="dark"] .perm-row label small { color: #64748b; }
+
+        [data-theme="dark"] .settings-row label { color: #cbd5e1 !important; }
+        [data-theme="dark"] .settings-row label small { color: #64748b !important; }
+
+        [data-theme="dark"] .tz-input,
+        [data-theme="dark"] .edit-input {
+            border-color: #3d5166;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        [data-theme="dark"] select {
+            border-color: #3d5166;
+            background: #0f172a;
+            color: #e2e8f0;
+        }
+
+        [data-theme="dark"] input[type="text"],
+        [data-theme="dark"] input[type="email"],
+        [data-theme="dark"] input[type="number"],
+        [data-theme="dark"] input[type="password"] {
+            border-color: #3d5166 !important;
+            background: #0f172a !important;
+            color: #e2e8f0 !important;
+        }
+
+        [data-theme="dark"] .add-form {
+            background: #162032;
+            border-top-color: #2d3f52;
+        }
+
+        [data-theme="dark"] .add-form label { color: #94a3b8; }
+
+        [data-theme="dark"] .icon-btn { color: #94a3b8; }
+        [data-theme="dark"] .icon-btn:hover { background: #243447; color: #e2e8f0; }
+        [data-theme="dark"] .icon-btn.danger:hover { background: #3d1515; color: #f87171; }
+
+        [data-theme="dark"] .empty-row td { color: #4a5568; }
+
+        [data-theme="dark"] .modal { background: #1e293b; }
+        [data-theme="dark"] .modal h3 { color: #e2e8f0; }
+        [data-theme="dark"] .modal label { color: #94a3b8; }
+
+        [data-theme="dark"] .btn-cancel { background: #2d3f52; color: #e2e8f0; }
+        [data-theme="dark"] .btn-cancel:hover { background: #3d5166; }
+
+        [data-theme="dark"] .cl-entry { border-bottom-color: #2d3f52; }
+        [data-theme="dark"] .cl-date { color: #64748b; }
+        [data-theme="dark"] .cl-changes li { color: #cbd5e1; }
+        [data-theme="dark"] .cl-changes li::before { color: #4a5568; }
+
+        [data-theme="dark"] .key-cell { color: #94a3b8; }
+        [data-theme="dark"] .key-masked { color: #64748b; }
+
+        [data-theme="dark"] .api-block {
+            background: #162032;
+            border-color: #2d3f52;
+            color: #e2e8f0;
+        }
+        [data-theme="dark"] .api-label { color: #64748b; }
+
+        [data-theme="dark"] .badge-admin { background: #0d2a1a; color: #6ee7b7; }
+        [data-theme="dark"] .badge-standard { background: #243447; color: #94a3b8; }
+
+        /* Inline-style text colour overrides */
+        [data-theme="dark"] [style*="color:#444"],
+        [data-theme="dark"] [style*="color:#333"],
+        [data-theme="dark"] [style*="color:#2a3a2a"],
+        [data-theme="dark"] [style*="color:#555"] { color: #e2e8f0 !important; }
+
+        [data-theme="dark"] [style*="color:#888"],
+        [data-theme="dark"] [style*="color:#999"],
+        [data-theme="dark"] [style*="color:#bbb"] { color: #64748b !important; }
+
+        /* Panels inside My Security */
+        [data-theme="dark"] #twoFaSetupPanel,
+        [data-theme="dark"] #twoFaEmailEnablePanel {
+            background: #162032 !important;
+            border-color: #2d3f52 !important;
+        }
+        [data-theme="dark"] #twoFaDisablePanel,
+        [data-theme="dark"] #twoFaEmailDisablePanel {
+            background: #2a1515 !important;
+            border-color: #7a2a2a !important;
+        }
+
+        [data-theme="dark"] code { color: #94a3b8 !important; }
     </style>
 </head>
 <body>
 
 <header>
     <h1>Settings</h1>
-    <a href="/" class="back-btn">&#8592; Back</a>
+    <div style="display:flex;align-items:center;gap:0">
+        <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
+        <a href="/" class="back-btn">&#8592; Back</a>
+    </div>
 </header>
 
 <main>
@@ -1071,6 +1207,29 @@
 <script>
     let editingUserId = null;
     let toastTimer;
+
+    // ── Theme ──────────────────────────────────────────────────────────────
+    function setTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('theme', theme);
+        const btn = document.getElementById('themeBtn');
+        if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+    }
+
+    function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme');
+        setTheme(current === 'dark' ? 'light' : 'dark');
+    }
+
+    // Init theme from localStorage or system preference
+    (function () {
+        const saved = localStorage.getItem('theme');
+        if (saved) {
+            setTheme(saved);
+        } else {
+            setTheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        }
+    })();
 
     // ── Help tooltips (click to toggle on touch devices) ──────────────────
     document.addEventListener('click', e => {

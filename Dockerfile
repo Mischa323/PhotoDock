@@ -2,6 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# openssl is needed to auto-generate self-signed certificates
+RUN apk add --no-cache openssl
+
 # Install dependencies first (cached layer)
 COPY package*.json ./
 RUN npm ci --omit=dev
@@ -13,8 +16,12 @@ COPY . .
 RUN mkdir -p /data/uploads
 
 EXPOSE 8080
+EXPOSE 8081
 
 ENV PORT=8080 \
+    HTTPS_PORT=8081 \
+    SSL_CERT=/data/ssl/cert.pem \
+    SSL_KEY=/data/ssl/key.pem \
     DATA_FILE=/data/data.json \
     UPLOADS_DIR=/data/uploads
 

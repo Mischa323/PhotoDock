@@ -12,9 +12,9 @@ const appVersion   = process.env.APP_VERSION || pkgVersion;
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
-const HTTPS_PORT  = process.env.HTTPS_PORT  || null;
-const SSL_CERT    = process.env.SSL_CERT    || null; // path to certificate file
-const SSL_KEY     = process.env.SSL_KEY     || null; // path to private key file
+const HTTPS_PORT  = process.env.HTTPS_PORT  !== undefined ? process.env.HTTPS_PORT : '8081';
+const SSL_CERT    = process.env.SSL_CERT    || null; // path to certificate file (auto-generated if absent)
+const SSL_KEY     = process.env.SSL_KEY     || null; // path to private key file (auto-generated if absent)
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data.json');
 const TOKEN_DAYS  = 30; // login cookie lifetime
@@ -799,14 +799,37 @@ function startServer(port) {
     });
 }
 
-function startHttpsServer(port) {
-    if (!SSL_CERT || !SSL_KEY) return;
-    if (!fs.existsSync(SSL_CERT) || !fs.existsSync(SSL_KEY)) {
-        console.error(`HTTPS: certificate files not found (SSL_CERT=${SSL_CERT}, SSL_KEY=${SSL_KEY})`);
-        return;
-    }
+function generateSelfSignedCert(certPath, keyPath) {
+    const dir = path.dirname(certPath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const { execSync } = require('child_process');
     try {
-        const creds = { cert: fs.readFileSync(SSL_CERT), key: fs.readFileSync(SSL_KEY) };
+        execSync(
+            `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 3650 -nodes -subj "/CN=localhost"`,
+            { stdio: 'pipe' }
+        );
+        console.log(`HTTPS: generated self-signed certificate at ${certPath}`);
+        return true;
+    } catch (e) {
+        console.error('HTTPS: could not generate self-signed certificate:', e.message);
+        return false;
+    }
+}
+
+function startHttpsServer(port) {
+    // Resolve cert paths — fall back to <data-dir>/ssl/ if not explicitly configured
+    const dataDir  = path.dirname(DATA_FILE);
+    const certPath = SSL_CERT || path.join(dataDir, 'ssl', 'cert.pem');
+    const keyPath  = SSL_KEY  || path.join(dataDir, 'ssl', 'key.pem');
+
+    // Auto-generate a self-signed certificate if files are missing
+    if (!fs.existsSync(certPath) || !fs.existsSync(keyPath)) {
+        console.log('HTTPS: no certificate found — generating self-signed certificate…');
+        if (!generateSelfSignedCert(certPath, keyPath)) return;
+    }
+
+    try {
+        const creds = { cert: fs.readFileSync(certPath), key: fs.readFileSync(keyPath) };
         https.createServer(creds, app).listen(port, () =>
             console.log(`HTTPS server running at https://localhost:${port}`)
         );
