@@ -1,4 +1,5 @@
 const express = require('express');
+const https   = require('https');
 const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
@@ -11,6 +12,9 @@ const appVersion   = process.env.APP_VERSION || pkgVersion;
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
+const HTTPS_PORT  = process.env.HTTPS_PORT  || null;
+const SSL_CERT    = process.env.SSL_CERT    || null; // path to certificate file
+const SSL_KEY     = process.env.SSL_KEY     || null; // path to private key file
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data.json');
 const TOKEN_DAYS  = 30; // login cookie lifetime
@@ -784,7 +788,7 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
 
 // ── Start ──────────────────────────────────────────────────────────────────
 function startServer(port) {
-    const server = app.listen(port, () => console.log(`Server running at http://localhost:${port}`));
+    const server = app.listen(port, () => console.log(`HTTP  server running at http://localhost:${port}`));
     server.on('error', err => {
         if (err.code === 'EADDRINUSE' || err.code === 'EACCES') {
             console.log(`Port ${port} unavailable, trying ${port + 1}...`);
@@ -795,4 +799,21 @@ function startServer(port) {
     });
 }
 
+function startHttpsServer(port) {
+    if (!SSL_CERT || !SSL_KEY) return;
+    if (!fs.existsSync(SSL_CERT) || !fs.existsSync(SSL_KEY)) {
+        console.error(`HTTPS: certificate files not found (SSL_CERT=${SSL_CERT}, SSL_KEY=${SSL_KEY})`);
+        return;
+    }
+    try {
+        const creds = { cert: fs.readFileSync(SSL_CERT), key: fs.readFileSync(SSL_KEY) };
+        https.createServer(creds, app).listen(port, () =>
+            console.log(`HTTPS server running at https://localhost:${port}`)
+        );
+    } catch (e) {
+        console.error('HTTPS: could not start server:', e.message);
+    }
+}
+
 startServer(Number(PORT));
+if (HTTPS_PORT) startHttpsServer(Number(HTTPS_PORT));
