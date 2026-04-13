@@ -494,6 +494,68 @@
             color: #aaa;
         }
 
+        /* ── Help tooltips ───────────────────────────────────────── */
+        .help {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            background: var(--accent-light);
+            color: var(--accent-header);
+            font-size: 10px;
+            font-weight: 700;
+            cursor: help;
+            position: relative;
+            flex-shrink: 0;
+            margin-left: 5px;
+            vertical-align: middle;
+            user-select: none;
+        }
+
+        .help::after {
+            content: attr(data-tip);
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 8px);
+            transform: translateX(-50%);
+            background: #1e293b;
+            color: #e2e8f0;
+            font-size: 12px;
+            font-weight: 400;
+            font-family: 'Inter', sans-serif;
+            padding: 9px 13px;
+            border-radius: 7px;
+            width: 230px;
+            line-height: 1.55;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 99;
+            white-space: normal;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+        }
+
+        .help::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: calc(100% + 2px);
+            transform: translateX(-50%);
+            border: 5px solid transparent;
+            border-top-color: #1e293b;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.15s;
+            z-index: 99;
+        }
+
+        .help:hover::after,
+        .help:hover::before,
+        .help.open::after,
+        .help.open::before { opacity: 1; }
+
         /* ── API Reference ────────────────────────────────────────── */
         .api-block {
             display: flex;
@@ -556,7 +618,7 @@
             <!-- Email address -->
             <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px;flex-wrap:wrap;gap:8px">
                 <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px;flex:1">
-                    Email address
+                    Email address <span class="help" data-tip="Your email address is used when email 2FA is enabled — a code is sent here at each login. It is also used for future notifications.">?</span>
                     <small style="font-size:12px;color:#999">Used for email 2FA codes and notifications</small>
                 </label>
                 <div style="display:flex;gap:8px;align-items:center">
@@ -568,7 +630,7 @@
             <!-- 2FA status row -->
             <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px">
                 <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px">
-                    Two-Factor Authentication
+                    Two-Factor Authentication <span class="help" data-tip="2FA adds a second step after your password. Even if someone knows your password, they still need the code to log in.">?</span>
                     <small style="font-size:12px;color:#999" id="twoFaMethodLabel">Use an authenticator app or email for extra login security</small>
                 </label>
                 <span id="twoFaBadge" style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px"></span>
@@ -579,10 +641,10 @@
                 <label style="font-size:13px;color:#555;display:block;margin-bottom:8px">2FA method</label>
                 <div style="display:flex;gap:20px">
                     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-                        <input type="radio" name="twoFaMethod" value="totp" id="methodTotp" checked> Authenticator app
+                        <input type="radio" name="twoFaMethod" value="totp" id="methodTotp" checked> Authenticator app <span class="help" data-tip="Generates time-based codes in an app like Google Authenticator or Authy. Works offline — no internet needed on your phone.">?</span>
                     </label>
                     <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-                        <input type="radio" name="twoFaMethod" value="email" id="methodEmail"> Email code
+                        <input type="radio" name="twoFaMethod" value="email" id="methodEmail"> Email code <span class="help" data-tip="Sends a 6-digit code to your email address at each login. Requires email to be configured in the Email section below.">?</span>
                     </label>
                 </div>
             </div>
@@ -651,7 +713,7 @@
         <div class="section-header"><h2>Email</h2></div>
         <div class="settings-grid">
             <div class="settings-row">
-                <label>Method <small>How this app sends emails (2FA codes, notifications)</small></label>
+                <label>Method <span class="help" data-tip="SMTP works with most mail providers (Gmail, Outlook, your own server). Microsoft Graph API is for Microsoft 365 / Exchange Online — it uses app credentials instead of a password.">?</span><small>How this app sends emails (2FA codes, notifications)</small></label>
                 <select id="emailMethod" class="tz-input" onchange="updateEmailMethodUI()">
                     <option value="">Disabled</option>
                     <option value="smtp">SMTP</option>
@@ -662,28 +724,28 @@
             <!-- SMTP fields -->
             <div id="smtpFields" style="display:none;flex-direction:column;gap:0">
                 <div class="settings-row">
-                    <label for="smtpHost">SMTP host <small>e.g. smtp.gmail.com</small></label>
+                    <label for="smtpHost">SMTP host <span class="help" data-tip="The address of your outgoing mail server. Examples: smtp.gmail.com, smtp.office365.com, or your own mail server hostname.">?</span><small>e.g. smtp.gmail.com</small></label>
                     <input type="text" id="smtpHost" class="tz-input" placeholder="smtp.example.com">
                 </div>
                 <div class="settings-row">
-                    <label for="smtpPort">Port</label>
+                    <label for="smtpPort">Port <span class="help" data-tip="587 is the standard port (STARTTLS). Use 465 with TLS enabled for SSL-only connections. Port 25 is usually blocked by providers.">?</span></label>
                     <div style="display:flex;align-items:center;gap:14px">
                         <input type="number" id="smtpPort" class="tz-input" style="width:80px" value="587">
                         <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
-                            <input type="checkbox" id="smtpSecure"> TLS (use for port 465)
+                            <input type="checkbox" id="smtpSecure"> TLS <span class="help" data-tip="Enable for port 465 (SSL from the start). Leave off for port 587, which upgrades to encrypted automatically via STARTTLS.">?</span>
                         </label>
                     </div>
                 </div>
                 <div class="settings-row">
-                    <label for="smtpUser">Username <small>Leave blank if no auth required</small></label>
+                    <label for="smtpUser">Username <span class="help" data-tip="Your mail account login name, usually your full email address. Leave blank only if your mail server allows unauthenticated relay (rare).">?</span><small>Leave blank if no auth required</small></label>
                     <input type="text" id="smtpUser" class="tz-input" autocomplete="off">
                 </div>
                 <div class="settings-row">
-                    <label for="smtpPassword">Password</label>
+                    <label for="smtpPassword">Password <span class="help" data-tip="Your mail account password. For Gmail use an App Password (not your Google password). Leave blank to keep the saved password unchanged.">?</span></label>
                     <input type="password" id="smtpPassword" class="tz-input" autocomplete="new-password" placeholder="unchanged">
                 </div>
                 <div class="settings-row">
-                    <label for="smtpFrom">From address <small>Shown as sender in email clients</small></label>
+                    <label for="smtpFrom">From address <span class="help" data-tip="The address shown as the sender in email clients. Must be an address your mail server is authorised to send from.">?</span><small>Shown as sender in email clients</small></label>
                     <input type="email" id="smtpFrom" class="tz-input" placeholder="noreply@example.com">
                 </div>
             </div>
@@ -691,19 +753,19 @@
             <!-- Graph API fields -->
             <div id="graphFields" style="display:none;flex-direction:column;gap:0">
                 <div class="settings-row">
-                    <label for="graphTenantId">Tenant ID</label>
+                    <label for="graphTenantId">Tenant ID <span class="help" data-tip="Your Azure AD tenant ID. Find it in Azure Portal → Azure Active Directory → Overview. Also called the Directory ID.">?</span></label>
                     <input type="text" id="graphTenantId" class="tz-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
                 </div>
                 <div class="settings-row">
-                    <label for="graphClientId">Client ID (App ID)</label>
+                    <label for="graphClientId">Client ID (App ID) <span class="help" data-tip="The Application (client) ID of your registered app in Azure. Found in Azure Portal → App registrations → your app → Overview.">?</span></label>
                     <input type="text" id="graphClientId" class="tz-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
                 </div>
                 <div class="settings-row">
-                    <label for="graphClientSecret">Client secret</label>
+                    <label for="graphClientSecret">Client secret <span class="help" data-tip="Generated in Azure Portal → App registrations → your app → Certificates &amp; secrets. Leave blank to keep the saved secret unchanged.">?</span></label>
                     <input type="password" id="graphClientSecret" class="tz-input" autocomplete="new-password" placeholder="unchanged">
                 </div>
                 <div class="settings-row">
-                    <label for="graphFrom">Sender mailbox <small>Must be a licensed mailbox in your tenant</small></label>
+                    <label for="graphFrom">Sender mailbox <span class="help" data-tip="The Microsoft 365 mailbox used to send emails. Must be a licensed user in your tenant. The app registration needs the Mail.Send application permission in Azure.">?</span><small>Must be a licensed mailbox in your tenant</small></label>
                     <input type="email" id="graphFrom" class="tz-input" placeholder="noreply@yourtenant.onmicrosoft.com">
                 </div>
             </div>
@@ -726,7 +788,7 @@
 
             <div class="settings-row">
                 <label for="tzInput">
-                    Timezone
+                    Timezone <span class="help" data-tip="The timezone used for the date and time overlay on the slideshow. Use IANA format, e.g. Europe/Amsterdam, America/New_York, Asia/Tokyo.">?</span>
                     <small>IANA name, e.g. Europe/Amsterdam</small>
                 </label>
                 <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
@@ -757,7 +819,7 @@
             </div>
 
             <div class="settings-row">
-                <label>Show day name <small>e.g. Saturday</small></label>
+                <label>Show day name <span class="help" data-tip="Displays the day of the week (e.g. Saturday) in the overlay on the slideshow screen.">?</span><small>e.g. Saturday</small></label>
                 <label class="toggle">
                     <input type="checkbox" id="showDayName">
                     <span class="toggle-slider"></span>
@@ -765,7 +827,7 @@
             </div>
 
             <div class="settings-row">
-                <label>Show date <small>e.g. 12 April 2026</small></label>
+                <label>Show date <span class="help" data-tip="Displays the full date (e.g. 12 April 2026) in the overlay on the slideshow screen.">?</span><small>e.g. 12 April 2026</small></label>
                 <label class="toggle">
                     <input type="checkbox" id="showDate">
                     <span class="toggle-slider"></span>
@@ -773,7 +835,7 @@
             </div>
 
             <div class="settings-row">
-                <label>Show time <small>e.g. 10:35</small></label>
+                <label>Show time <span class="help" data-tip="Displays the current time in the slideshow overlay. Enable 'Show seconds' below to include seconds.">?</span><small>e.g. 10:35</small></label>
                 <label class="toggle">
                     <input type="checkbox" id="showTime">
                     <span class="toggle-slider"></span>
@@ -781,7 +843,7 @@
             </div>
 
             <div class="settings-row">
-                <label>Show seconds <small>e.g. 10:35:22</small></label>
+                <label>Show seconds <span class="help" data-tip="Adds seconds to the time display (e.g. 10:35:22). The overlay updates every second when this is on.">?</span><small>e.g. 10:35:22</small></label>
                 <label class="toggle">
                     <input type="checkbox" id="showSeconds">
                     <span class="toggle-slider"></span>
@@ -790,7 +852,7 @@
 
             <div class="settings-row">
                 <label for="slideshowInterval">
-                    Slideshow interval
+                    Slideshow interval <span class="help" data-tip="How many seconds each image is shown before the slideshow moves to the next one. This setting applies to everyone viewing the slideshow.">?</span>
                     <small>Seconds between each image</small>
                 </label>
                 <div style="display:flex;align-items:center;gap:8px">
@@ -801,7 +863,7 @@
             </div>
 
             <div class="settings-row">
-                <label>Accent colour <small>Theme colour for buttons and header</small></label>
+                <label>Accent colour <span class="help" data-tip="The highlight colour used for buttons, section headers, and focus rings across all pages. Changes take effect immediately for all users on their next page load.">?</span><small>Theme colour for buttons and header</small></label>
                 <input type="color" id="accentColor" value="#06b6d4"
                     style="width:44px;height:36px;border:1px solid #ddd;border-radius:6px;cursor:pointer;padding:2px"
                     oninput="applyTheme(this.value)">
@@ -814,7 +876,7 @@
     <!-- Users -->
     <section>
         <div class="section-header">
-            <h2>Users</h2>
+            <h2>Users <span class="help" data-tip="Manage who can log in. Each user has a username, password, and a role that controls what they are allowed to do.">?</span></h2>
         </div>
         <table>
             <thead>
@@ -852,7 +914,7 @@
     <!-- Roles -->
     <section>
         <div class="section-header">
-            <h2>Roles &amp; Permissions</h2>
+            <h2>Roles &amp; Permissions <span class="help" data-tip="Roles define what users can do. Create custom roles and toggle their permissions, then assign them to users in the Users section above.">?</span></h2>
         </div>
         <div id="rolesContainer">
             <p style="color:#bbb; text-align:center; padding:20px">Loading…</p>
@@ -938,7 +1000,7 @@
     <!-- API Keys -->
     <section>
         <div class="section-header">
-            <h2>API Keys</h2>
+            <h2>API Keys <span class="help" data-tip="API keys let external devices or scripts fetch the current slideshow image without logging in. Each key has its own interval that controls how often the image changes.">?</span></h2>
         </div>
         <table>
             <thead>
@@ -1009,6 +1071,15 @@
 <script>
     let editingUserId = null;
     let toastTimer;
+
+    // ── Help tooltips (click to toggle on touch devices) ──────────────────
+    document.addEventListener('click', e => {
+        if (e.target.classList.contains('help')) {
+            e.target.classList.toggle('open');
+        } else {
+            document.querySelectorAll('.help.open').forEach(el => el.classList.remove('open'));
+        }
+    });
 
     function showToast(msg, type = '') {
         clearTimeout(toastTimer);
