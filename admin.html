@@ -2138,7 +2138,7 @@
         const res  = await fetch('/api/version');
         const data = await res.json();
         document.getElementById('versionBadge').textContent = `v${data.version}`;
-        const entries = [...data.changelog].reverse(); // newest first
+        const entries = data.changelog; // already newest first
         document.getElementById('changelogContainer').innerHTML = entries.map((entry, i) => `
             <div class="cl-entry ${i === 0 ? 'cl-current' : ''}">
                 <div class="cl-version">v${entry.version}</div>
