@@ -802,12 +802,72 @@ function startServer(port) {
 function generateSelfSignedCert(certPath, keyPath) {
     const dir = path.dirname(certPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    const { execSync } = require('child_process');
     try {
-        execSync(
-            `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 3650 -nodes -subj "/CN=localhost"`,
-            { stdio: 'pipe' }
-        );
+        // Generate RSA-2048 key pair using Node.js built-in crypto (no openssl CLI needed)
+        const { privateKey, publicKey } = crypto.generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding:  { type: 'spki',   format: 'der' },
+            privateKeyEncoding: { type: 'pkcs8',  format: 'pem' }
+        });
+
+        // ── Minimal DER encoding helpers ──────────────────────────────────
+        function derLen(n) {
+            if (n < 128) return Buffer.from([n]);
+            const b = [];
+            let v = n;
+            while (v > 0) { b.unshift(v & 0xff); v >>= 8; }
+            return Buffer.from([0x80 | b.length, ...b]);
+        }
+        function tlv(tag, content) {
+            return Buffer.concat([Buffer.from([tag]), derLen(content.length), content]);
+        }
+        function seq(items) { return tlv(0x30, Buffer.concat(items)); }
+        function intDer(n) {
+            const b = [];
+            let v = n;
+            do { b.unshift(v & 0xff); v = Math.floor(v / 256); } while (v > 0);
+            if (b[0] & 0x80) b.unshift(0);
+            return tlv(0x02, Buffer.from(b));
+        }
+        function derOid(dotStr) {
+            const p = dotStr.split('.').map(Number);
+            const bytes = [40 * p[0] + p[1]];
+            for (let i = 2; i < p.length; i++) {
+                let n = p[i], tmp = [n & 0x7f];
+                n >>= 7;
+                while (n > 0) { tmp.unshift((n & 0x7f) | 0x80); n >>= 7; }
+                bytes.push(...tmp);
+            }
+            return tlv(0x06, Buffer.from(bytes));
+        }
+        function utcTime(d) {
+            const p = n => String(n).padStart(2, '0');
+            const s = `${String(d.getUTCFullYear()).slice(2)}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
+            return tlv(0x17, Buffer.from(s, 'ascii'));
+        }
+
+        // ── Build TBSCertificate ───────────────────────────────────────────
+        const sigAlg = seq([derOid('1.2.840.113549.1.1.11'), Buffer.from([0x05, 0x00])]); // sha256WithRSAEncryption
+        const name   = seq([tlv(0x31, seq([derOid('2.5.4.3'), tlv(0x0c, Buffer.from('localhost', 'utf8'))]))]); // CN=localhost
+        const now    = new Date();
+        const exp    = new Date(now.getTime() + 10 * 365.25 * 24 * 3600 * 1000);
+        const tbs    = seq([
+            Buffer.from([0xa0, 0x03, 0x02, 0x01, 0x02]), // version: v3
+            intDer(1),                                     // serialNumber: 1
+            sigAlg,
+            name,                                          // issuer
+            seq([utcTime(now), utcTime(exp)]),             // validity
+            name,                                          // subject
+            Buffer.from(publicKey)                         // subjectPublicKeyInfo (SPKI DER)
+        ]);
+
+        // ── Sign and assemble Certificate ─────────────────────────────────
+        const sig  = crypto.sign('sha256', tbs, privateKey);
+        const cert = seq([tbs, sigAlg, tlv(0x03, Buffer.concat([Buffer.from([0x00]), sig]))]);
+        const pem  = `-----BEGIN CERTIFICATE-----\n${cert.toString('base64').match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
+
+        fs.writeFileSync(keyPath,  privateKey);
+        fs.writeFileSync(certPath, pem);
         console.log(`HTTPS: generated self-signed certificate at ${certPath}`);
         return true;
     } catch (e) {
