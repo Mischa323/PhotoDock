@@ -118,15 +118,19 @@
 </head>
 <body>
 <div class="card">
-    <div class="icon">&#128274;</div>
+    <div class="icon" id="icon">&#128274;</div>
     <h1>Two-Factor Auth</h1>
-    <p class="sub">Enter the 6-digit code from your authenticator app.</p>
+    <p class="sub" id="subMsg">Enter the 6-digit code from your authenticator app.</p>
 
     <input type="number" class="code-input" id="codeInput"
            placeholder="000000" maxlength="6" autofocus
            oninput="onInput()" onkeydown="onKey(event)">
 
     <button class="btn" id="submitBtn" onclick="submit()">Verify</button>
+    <button class="btn" id="resendBtn" onclick="resend()"
+        style="display:none;margin-top:8px;background:rgba(255,255,255,0.08);font-size:13px;font-weight:500;padding:10px">
+        Resend code
+    </button>
     <p class="error" id="errorMsg"></p>
     <a href="/login" class="back">&#8592; Back to login</a>
 </div>
@@ -143,8 +147,15 @@
 
     const params       = new URLSearchParams(location.search);
     const pendingToken = params.get('t');
+    const method       = params.get('method') || 'totp';
 
     if (!pendingToken) location.href = '/login';
+
+    if (method === 'email') {
+        document.getElementById('icon').textContent    = '📧';
+        document.getElementById('subMsg').textContent  = 'Check your email for a 6-digit code and enter it below.';
+        document.getElementById('resendBtn').style.display = '';
+    }
 
     function onInput() {
         const v = document.getElementById('codeInput').value;
@@ -182,6 +193,24 @@
             btn.disabled = false;
             btn.textContent = 'Verify';
         }
+    }
+
+    async function resend() {
+        const btn = document.getElementById('resendBtn');
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        const res  = await fetch('/api/2fa/email/resend', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pendingToken })
+        });
+        const data = await res.json();
+        document.getElementById('errorMsg').style.color = res.ok ? '#4caf50' : '#e74c3c';
+        document.getElementById('errorMsg').textContent = res.ok
+            ? `Code resent to ${data.email}.`
+            : (data.error || 'Could not resend.');
+        btn.disabled = false;
+        btn.textContent = 'Resend code';
     }
 </script>
 </body>

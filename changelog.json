@@ -89,6 +89,17 @@
     ]
   },
   {
+    "version": "1.11.0",
+    "date": "2026-04-13",
+    "changes": [
+      "Email notifications via SMTP or Microsoft Graph API",
+      "Email 2FA — receive a one-time code by email instead of an authenticator app",
+      "Email address field per user account for 2FA codes and notifications",
+      "Resend code button on the 2FA login page for email method",
+      "Admin email configuration with test-send button"
+    ]
+  },
+  {
     "version": "1.10.0",
     "date": "2026-04-12",
     "changes": [
