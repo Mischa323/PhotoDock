@@ -195,6 +195,15 @@ function saveData(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null,
 
 let appData = loadData();
 if (!appData.tokens) { appData.tokens = []; saveData(appData); }
+if (!appData.logs)   { appData.logs   = []; saveData(appData); }
+
+const MAX_LOGS = 500;
+function addLog(event, { user, keyName, ip, detail } = {}) {
+    if (!appData.logs) appData.logs = [];
+    appData.logs.unshift({ timestamp: new Date().toISOString(), event, user: user || null, keyName: keyName || null, ip: ip || null, detail: detail || null });
+    if (appData.logs.length > MAX_LOGS) appData.logs.length = MAX_LOGS;
+    saveData(appData);
+}
 
 // ── Cookie token helpers ───────────────────────────────────────────────────
 function parseCookies(req) {
@@ -308,9 +317,17 @@ const requireUpload = requirePermission('canUpload');
 const requireDelete = requirePermission('canDelete');
 
 function requireApiKey(req, res, next) {
-    const key = req.headers['x-api-key'] || req.query.key;
-    if (appData.apiKeys.some(k => k.key === key)) return next();
-    res.status(401).json({ error: 'Invalid or missing API key' });
+    const key       = req.headers['x-api-key'] || req.query.key;
+    const keyRecord = appData.apiKeys.find(k => k.key === key);
+    if (!keyRecord) return res.status(401).json({ error: 'Invalid or missing API key' });
+    req.apiKey = keyRecord;
+    // Update lastUsed at most once per minute to avoid thrashing the file
+    const now = Date.now();
+    if (!keyRecord.lastUsed || now - new Date(keyRecord.lastUsed).getTime() > 60000) {
+        keyRecord.lastUsed = new Date(now).toISOString();
+        saveData(appData);
+    }
+    next();
 }
 
 app.use(requireAuth);
@@ -363,10 +380,13 @@ app.post('/login', async (req, res) => {
             const pendingToken = createPending2FA(user.id);
             return res.redirect(`/2fa?t=${pendingToken}`);
         }
+        user.lastLogin = new Date().toISOString();
+        addLog('login_success', { user: user.username, ip });
         const { token, expiresAt } = createToken(user.id);
         setCookie(res, token, expiresAt);
         res.redirect('/');
     } else {
+        addLog('login_fail', { user: username, ip });
         res.redirect('/login?error=1');
     }
 });
@@ -398,6 +418,8 @@ app.post('/api/2fa/complete', express.json(), (req, res) => {
             return res.status(400).json({ error: 'Invalid code. Try again.' });
     }
     pending2FA.delete(pendingToken);
+    user.lastLogin = new Date().toISOString();
+    addLog('login_success', { user: user.username, ip: req.ip, detail: '2FA' });
     const { token, expiresAt } = createToken(user.id);
     setCookie(res, token, expiresAt);
     res.json({ ok: true });
@@ -639,6 +661,9 @@ app.delete('/api/admin/roles/:role', requireAdmin, (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Admin API — Logs ───────────────────────────────────────────────────────
+app.get('/api/admin/logs', requireAdmin, (_req, res) => res.json(appData.logs || []));
+
 // ── Admin API — API keys ───────────────────────────────────────────────────
 app.get('/api/admin/apikeys', requireAdmin, (_req, res) => res.json(appData.apiKeys));
 
@@ -852,6 +877,7 @@ app.get('/api/images', (_req, res) => {
 
 app.post('/api/upload', requireUpload, upload.array('images', 50), (req, res) => {
     if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' });
+    addLog('upload', { user: req.currentUser?.username, ip: req.ip, detail: `${req.files.length} file(s)` });
     res.json({ uploaded: req.files.map(f => ({ filename: f.filename, url: `/uploads/${f.filename}` })) });
 });
 
@@ -860,6 +886,7 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
     const filepath = path.join(UPLOADS_DIR, filename);
     if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
     fs.unlinkSync(filepath);
+    addLog('delete', { user: req.currentUser?.username, ip: req.ip, detail: filename });
     res.json({ deleted: filename });
 });
 
