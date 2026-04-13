@@ -242,28 +242,27 @@
         /* ── Display settings ─────────────────────────────────────── */
         .settings-grid {
             padding: 20px 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px 16px;
+            align-items: start;
         }
 
         .settings-row {
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            max-width: 480px;
-            gap: 16px;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .settings-row label {
-            font-size: 14px;
+            font-size: 13px;
             color: #444;
             display: flex;
             flex-direction: column;
             gap: 2px;
         }
 
-        .settings-row label small { font-size: 12px; color: #999; }
+        .settings-row label small { font-size: 11px; color: #999; }
 
         .tz-input {
             border: 1px solid #ddd;
@@ -271,8 +270,8 @@
             padding: 7px 10px;
             font-size: 14px;
             outline: none;
-            width: 220px;
-            font-family: monospace;
+            width: 100%;
+            font-family: inherit;
         }
 
         .tz-input:focus { border-color: var(--accent); }
@@ -286,7 +285,6 @@
             cursor: pointer;
             font-size: 14px;
             font-weight: 600;
-            align-self: flex-start;
         }
 
         .btn-save-settings:hover { background: var(--accent-hover); }
@@ -935,7 +933,7 @@
             </div>
 
             <!-- SMTP fields -->
-            <div id="smtpFields" style="display:none;flex-direction:column;gap:0">
+            <div id="smtpFields" style="display:none;flex-direction:column;gap:0;grid-column:1/-1">
                 <div class="settings-row">
                     <label for="smtpHost">SMTP host <span class="help" data-tip="The address of your outgoing mail server. Examples: smtp.gmail.com, smtp.office365.com, or your own mail server hostname.">?</span><small>e.g. smtp.gmail.com</small></label>
                     <input type="text" id="smtpHost" class="tz-input" placeholder="smtp.example.com">
@@ -964,7 +962,7 @@
             </div>
 
             <!-- Graph API fields -->
-            <div id="graphFields" style="display:none;flex-direction:column;gap:0">
+            <div id="graphFields" style="display:none;flex-direction:column;gap:0;grid-column:1/-1">
                 <div class="settings-row">
                     <label for="graphTenantId">Tenant ID <span class="help" data-tip="Your Azure AD tenant ID. Find it in Azure Portal → Azure Active Directory → Overview. Also called the Directory ID.">?</span></label>
                     <input type="text" id="graphTenantId" class="tz-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
@@ -983,7 +981,7 @@
                 </div>
             </div>
 
-            <div id="emailSaveRow" style="display:none;flex-direction:column;gap:10px">
+            <div id="emailSaveRow" style="display:none;flex-direction:column;gap:10px;grid-column:1/-1">
                 <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
                     <button class="btn-save-settings" onclick="saveEmailConfig()">Save</button>
                     <button class="btn-save-settings" onclick="testEmailPrompt()"
@@ -1040,7 +1038,7 @@
                     Timezone <span class="help" data-tip="The timezone used for the date and time overlay on the slideshow. Use IANA format, e.g. Europe/Amsterdam, America/New_York, Asia/Tokyo.">?</span>
                     <small>IANA name, e.g. Europe/Amsterdam</small>
                 </label>
-                <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
+                <div>
                     <input type="text" id="tzInput" class="tz-input" list="tzList" placeholder="Europe/Amsterdam">
                     <datalist id="tzList">
                         <option value="UTC">
@@ -1106,8 +1104,8 @@
                 </label>
                 <div style="display:flex;align-items:center;gap:8px">
                     <input type="number" id="slideshowInterval" min="1" max="3600"
-                        class="tz-input" style="width:80px;font-family:inherit">
-                    <span style="font-size:14px;color:#888">sec</span>
+                        class="tz-input" style="width:70px;font-family:inherit">
+                    <span style="font-size:13px;color:#888">sec</span>
                 </div>
             </div>
 
@@ -1131,7 +1129,7 @@
                     oninput="applyTheme(this.value)">
             </div>
 
-            <button class="btn-save-settings" onclick="saveDisplaySettings()">Save</button>
+            <button class="btn-save-settings" onclick="saveDisplaySettings()" style="grid-column:1/-1">Save</button>
         </div>
         </div></div>
     </section>
