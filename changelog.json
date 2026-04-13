@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.13.0",
+    "date": "2026-04-13",
+    "changes": [
+      "HTTPS is now always active on port 8081 — no certificate required",
+      "Self-signed certificate generated automatically on first start if no cert files are present",
+      "Dark and light mode toggle in the admin panel — persists per browser",
+      "Help tooltips no longer clipped by section overflow"
+    ]
+  },
+  {
     "version": "1.0.0",
     "date": "2026-04-12",
     "changes": [
