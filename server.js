@@ -333,10 +333,24 @@ function requireApiKey(req, res, next) {
 
 // Returns middleware that checks whether req.apiKey has access to a named endpoint.
 // Keys with no allowedEndpoints restriction (null/undefined) pass through (backward compatible).
+// Also logs the call to the activity log, throttled to once per 10 minutes per key.
+const apiCallLastLogged = new Map(); // keyId -> { endpoint, ts } — in-memory only
+const API_LOG_THROTTLE_MS = 10 * 60 * 1000;
+
 function requireEndpoint(name) {
     return (req, res, next) => {
         const allowed = req.apiKey?.allowedEndpoints;
-        if (!allowed || allowed.includes(name)) return next();
+        if (!allowed || allowed.includes(name)) {
+            // Throttled activity log entry
+            const key     = req.apiKey;
+            const mapKey  = `${key.id}:${name}`;
+            const lastTs  = apiCallLastLogged.get(mapKey) || 0;
+            if (Date.now() - lastTs >= API_LOG_THROTTLE_MS) {
+                apiCallLastLogged.set(mapKey, Date.now());
+                addLog(`api_${name}`, { keyName: key.name, ip: req.ip });
+            }
+            return next();
+        }
         res.status(403).json({ error: 'This API key does not have access to this endpoint' });
     };
 }
