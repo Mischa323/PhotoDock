@@ -783,7 +783,17 @@
 
         // ── Upload ───────────────────────────────────────────────────
         async function uploadFiles(files) {
-            const imageFiles = Array.from(files).filter(f => f.type.startsWith('image/'));
+            const ALLOWED_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i;
+            const allFiles  = Array.from(files);
+            const imageFiles = allFiles.filter(f =>
+                f.type.startsWith('image/') || ALLOWED_EXTS.test(f.name)
+            );
+            const rejected = allFiles.filter(f =>
+                !f.type.startsWith('image/') && !ALLOWED_EXTS.test(f.name)
+            );
+            if (rejected.length > 0) {
+                showToast(`Unsupported file type: ${rejected.map(f => f.name).join(', ')}`, 'error');
+            }
             if (imageFiles.length === 0) return;
 
             uploadBtn.disabled = true;
