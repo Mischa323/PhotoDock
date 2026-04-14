@@ -34,7 +34,12 @@ async function hashPassword(plain) {
 }
 
 async function verifyPassword(plain, stored) {
-    if (!stored.startsWith('scrypt:')) return plain === stored; // legacy plain-text
+    if (!stored.startsWith('scrypt:')) {
+        // Legacy plain-text — use timing-safe comparison to prevent user enumeration
+        const a = Buffer.from(plain);
+        const b = Buffer.from(stored);
+        return a.length === b.length && crypto.timingSafeEqual(a, b);
+    }
     const [, salt, hash] = stored.split(':');
     const attempt = await new Promise((res, rej) =>
         crypto.scrypt(plain, salt, 64, (e, d) => e ? rej(e) : res(d.toString('hex')))
@@ -176,6 +181,23 @@ function checkRateLimit(ip) {
 
 function resetRateLimit(ip) { loginAttempts.delete(ip); }
 
+// ── 2FA completion rate limiter (5 attempts per 10 min per IP) ─────────────
+const twoFaAttempts = new Map();
+
+function check2FARateLimit(ip) {
+    const now = Date.now();
+    const rec = twoFaAttempts.get(ip);
+    if (!rec || now > rec.resetAt) {
+        twoFaAttempts.set(ip, { count: 1, resetAt: now + 10 * 60 * 1000 });
+        return true;
+    }
+    if (rec.count >= 5) return false;
+    rec.count++;
+    return true;
+}
+
+function reset2FARateLimit(ip) { twoFaAttempts.delete(ip); }
+
 // ── Persistent data ────────────────────────────────────────────────────────
 function loadData() {
     if (fs.existsSync(DATA_FILE)) return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
@@ -242,14 +264,16 @@ function deleteToken(token) {
     saveData(appData);
 }
 
-function setCookie(res, token, expiresAt) {
+function setCookie(res, token, expiresAt, req = null) {
+    const secure = req?.secure || req?.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
     res.setHeader('Set-Cookie',
-        `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Expires=${new Date(expiresAt).toUTCString()}`
+        `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Expires=${new Date(expiresAt).toUTCString()}${secure}`
     );
 }
 
-function clearCookie(res) {
-    res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+function clearCookie(res, req = null) {
+    const secure = req?.secure || req?.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
 }
 
 // ── Multer ─────────────────────────────────────────────────────────────────
@@ -272,6 +296,7 @@ const upload = multer({
 });
 
 // ── Middleware ─────────────────────────────────────────────────────────────
+app.set('trust proxy', 1); // Trust first hop (nginx/caddy) for accurate req.ip
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
@@ -372,7 +397,7 @@ app.post('/api/setup', async (req, res) => {
     appData.users.push(user);
     saveData(appData);
     const { token, expiresAt } = createToken(user.id);
-    setCookie(res, token, expiresAt);
+    setCookie(res, token, expiresAt, req);
     res.json({ ok: true, redirect: '/admin?mfa_reminder=1' });
 });
 
@@ -428,7 +453,7 @@ app.post('/login', async (req, res) => {
         saveData(appData);
         addLog('login_success', { user: user.username, ip });
         const { token, expiresAt } = createToken(user.id);
-        setCookie(res, token, expiresAt);
+        setCookie(res, token, expiresAt, req);
         res.redirect('/');
     } else {
         addLog('login_fail', { user: username, ip });
@@ -449,7 +474,7 @@ app.post('/login', async (req, res) => {
 app.post('/logout', (req, res) => {
     const cookies = parseCookies(req);
     if (cookies[COOKIE_NAME]) deleteToken(cookies[COOKIE_NAME]);
-    clearCookie(res);
+    clearCookie(res, req);
     res.redirect('/login');
 });
 
@@ -457,6 +482,7 @@ app.post('/logout', (req, res) => {
 app.get('/2fa', (_req, res) => res.sendFile(path.join(__dirname, '2fa.html')));
 
 app.post('/api/2fa/complete', express.json(), (req, res) => {
+    if (!check2FARateLimit(req.ip)) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
     const { pendingToken, code } = req.body;
     const rec = resolvePending2FA(pendingToken);
     if (!rec) return res.status(400).json({ error: 'Session expired. Please log in again.' });
@@ -472,11 +498,12 @@ app.post('/api/2fa/complete', express.json(), (req, res) => {
         if (!verifyTotp(user.twoFactorSecret, String(code).trim()))
             return res.status(400).json({ error: 'Invalid code. Try again.' });
     }
+    reset2FARateLimit(req.ip);
     pending2FA.delete(pendingToken);
     user.lastLogin = new Date().toISOString();
     addLog('login_success', { user: user.username, ip: req.ip, detail: '2FA' });
     const { token, expiresAt } = createToken(user.id);
-    setCookie(res, token, expiresAt);
+    setCookie(res, token, expiresAt, req);
     res.json({ ok: true });
 });
 
@@ -562,7 +589,7 @@ app.post('/api/2fa/email/send-code', async (req, res) => {
         res.json({ ok: true, email: maskEmail(u.email) });
     } catch (e) {
         emailVerifyOtps.delete(u.id);
-        res.status(502).json({ error: 'Could not send email: ' + e.message });
+        res.status(502).json({ error: 'Could not send email. Check the email configuration.' });
     }
 });
 
@@ -581,7 +608,7 @@ app.post('/api/2fa/email/resend', async (req, res) => {
         await sendEmail(user.email, 'Your login code — Photo Display for TNMLS', otpEmailHtml(newOtp));
         res.json({ ok: true, email: maskEmail(user.email) });
     } catch (e) {
-        res.status(502).json({ error: 'Could not send email: ' + e.message });
+        res.status(502).json({ error: 'Could not send email. Check the email configuration.' });
     }
 });
 
@@ -820,7 +847,7 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
             </div>`);
         res.json({ ok: true });
     } catch (e) {
-        res.status(502).json({ error: e.message });
+        res.status(502).json({ error: 'Could not send test email. Check the email configuration.' });
     }
 });
 
@@ -940,7 +967,8 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
         res.set('Cache-Control', 'no-cache');
         res.send(buf);
     } catch (e) {
-        res.status(500).json({ error: 'Image processing failed', detail: e.message });
+        console.error('Image processing failed:', e.message);
+        res.status(500).json({ error: 'Image processing failed' });
     }
 });
 
@@ -1042,7 +1070,7 @@ async function runInactivityCheck() {
     // Collect admin email addresses
     const adminEmails = appData.users
         .filter(u => {
-            const role = (appData.roles || []).find(r => r.name === u.role);
+            const role = appData.roles?.[u.role];
             return role?.canManage && u.email;
         })
         .map(u => u.email);
