@@ -1154,15 +1154,6 @@
                 </div>
             </div>
 
-            <div class="settings-row">
-                <label for="maxLoginAttempts">Failed login lockout <span class="help" data-tip="Block an account automatically after this many consecutive failed login attempts. Set to 0 to disable automatic lockout. Blocked accounts can be unblocked in the Users section.">?</span><small>0 = disabled</small></label>
-                <div style="display:flex;align-items:center;gap:8px">
-                    <input type="number" id="maxLoginAttempts" min="0" max="100"
-                        class="tz-input" style="width:70px;font-family:inherit" placeholder="5">
-                    <span style="font-size:13px;color:#888">attempts</span>
-                </div>
-            </div>
-
             <button class="btn-save-settings" onclick="saveDisplaySettings()" style="grid-column:1/-1">Save</button>
         </div>
         </div></div>
@@ -1206,6 +1197,17 @@
                 </select>
             </div>
             <button class="btn-add" onclick="createUser()">Add User</button>
+        </div>
+        <div style="padding:16px 24px;border-top:1px solid #f0f0f0;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+            <label for="maxLoginAttempts" style="font-size:13px;color:#555;font-weight:500;flex-shrink:0">
+                Failed login lockout <span class="help" data-tip="Block an account automatically after this many consecutive failed login attempts. Set to 0 to disable. Blocked accounts can be unblocked with the unlock button in the table above.">?</span>
+            </label>
+            <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" id="maxLoginAttempts" min="0" max="100"
+                    style="width:70px;padding:7px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;font-family:inherit" placeholder="5">
+                <span style="font-size:13px;color:#888">attempts&ensp;(0&nbsp;=&nbsp;disabled)</span>
+            </div>
+            <button class="btn-save-settings" style="padding:7px 18px;font-size:13px" onclick="saveLockoutSetting()">Save</button>
         </div>
         </div></div>
     </section>
@@ -1876,7 +1878,6 @@
             slideshowInterval: parseInt(document.getElementById('slideshowInterval').value) || 30,
             datePosition:      document.getElementById('datePosition').value || 'top-right',
             logRetentionDays:  parseInt(document.getElementById('logRetentionDays').value) || 30,
-            maxLoginAttempts:  parseInt(document.getElementById('maxLoginAttempts').value) || 0,
         };
         const res  = await fetch('/api/settings', {
             method: 'PUT',
@@ -1886,6 +1887,22 @@
         const data = await res.json();
         if (!res.ok) showToast(data.error || 'Could not save settings', 'error');
         else showToast('Display settings saved.');
+    }
+
+    async function saveLockoutSetting() {
+        // Fetch current settings so we only override maxLoginAttempts
+        const cur = await (await fetch('/api/settings')).json();
+        const body = Object.assign({}, cur, {
+            maxLoginAttempts: parseInt(document.getElementById('maxLoginAttempts').value) || 0
+        });
+        const res  = await fetch('/api/settings', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) showToast(data.error || 'Could not save', 'error');
+        else showToast('Lockout setting saved.');
     }
 
     async function saveInactivitySettings() {
