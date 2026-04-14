@@ -1011,9 +1011,36 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
     if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
     fs.unlinkSync(filepath);
     delete appData.imageMetadata?.[filename];
+    // Remove from all users' favourites
+    for (const u of appData.users) {
+        if (u.favorites?.includes(filename)) u.favorites = u.favorites.filter(f => f !== filename);
+    }
     saveData(appData);
     addLog('delete', { user: req.currentUser?.username, ip: req.ip, detail: filename });
     res.json({ deleted: filename });
+});
+
+// ── Favourites ─────────────────────────────────────────────────────────────
+app.get('/api/favorites', (req, res) => {
+    const user = appData.users.find(u => u.id === req.currentUser.id);
+    res.json(user?.favorites || []);
+});
+
+app.post('/api/favorites/:filename', (req, res) => {
+    const user = appData.users.find(u => u.id === req.currentUser.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const filename = path.basename(req.params.filename);
+    if (!user.favorites) user.favorites = [];
+    if (!user.favorites.includes(filename)) { user.favorites.push(filename); saveData(appData); }
+    res.json({ ok: true });
+});
+
+app.delete('/api/favorites/:filename', (req, res) => {
+    const user = appData.users.find(u => u.id === req.currentUser.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    user.favorites = (user.favorites || []).filter(f => f !== path.basename(req.params.filename));
+    saveData(appData);
+    res.json({ ok: true });
 });
 
 // ── Inactivity notifications ───────────────────────────────────────────────
