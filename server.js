@@ -398,6 +398,18 @@ app.post('/login', async (req, res) => {
         if (user.twoFactorEnabled) {
             if (user.twoFactorMethod === 'email') {
                 if (!user.email) return res.redirect('/login?error=1');
+                // Check email is configured before generating OTP
+                const emailCfg = appData.settings?.email;
+                if (!emailCfg?.method) {
+                    // Email not configured — fall back to TOTP if available, otherwise block login
+                    if (user.twoFactorSecret) {
+                        console.warn(`Email 2FA for ${user.username}: email not configured, falling back to TOTP`);
+                        const pendingToken = createPending2FA(user.id);
+                        return res.redirect(`/2fa?t=${pendingToken}`);
+                    }
+                    console.error(`Email 2FA for ${user.username}: email not configured and no TOTP fallback`);
+                    return res.redirect('/login?error=email');
+                }
                 const otp = generateOtp();
                 const pendingToken = createPending2FA(user.id, otp);
                 try {
