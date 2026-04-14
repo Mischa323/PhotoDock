@@ -329,6 +329,29 @@
             pointer-events: none;
         }
 
+        /* ── Favourite heart button ───────────────────────────────────── */
+        .thumb-fav {
+            position: absolute;
+            top: 5px; left: 5px;
+            width: 26px; height: 26px;
+            border-radius: 50%;
+            background: rgba(0,0,0,0.45);
+            border: none;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: rgba(255,255,255,0.7);
+            padding: 0;
+            z-index: 2;
+            transition: background 0.15s, color 0.15s;
+        }
+        .thumb-fav.faved { display: flex; color: #f87171; }
+        .gallery-grid .thumb:hover .thumb-fav { display: flex; }
+        .gallery-overlay.select-mode .thumb-fav { display: none !important; }
+        .thumb-fav:hover { background: rgba(0,0,0,0.7); color: #f87171; }
+
         /* ── Multi-select mode ────────────────────────────────────────── */
         .gallery-overlay.select-mode .gallery-grid .thumb { cursor: pointer; }
         .gallery-overlay.select-mode .gallery-grid .thumb .del { display: none !important; }
@@ -467,8 +490,11 @@
     <div class="gallery-overlay" id="galleryOverlay">
         <span class="gallery-close" id="galleryClose">&times;</span>
         <div class="gallery-toolbar">
-            <h2>All Images</h2>
-            <button class="gallery-select-btn" id="gallerySelectBtn" data-delete>Select</button>
+            <h2 id="galleryTitle">All Images</h2>
+            <div style="display:flex;gap:8px">
+                <button class="gallery-select-btn" id="galleryFavBtn">&#9829; Favourites</button>
+                <button class="gallery-select-btn" id="gallerySelectBtn" data-delete>Select</button>
+            </div>
         </div>
         <div class="gallery-grid" id="galleryGrid"></div>
         <div class="gallery-delete-bar" id="galleryDeleteBar">
@@ -490,6 +516,8 @@
         let images = [];
         let current = 0;
         let paused = false;
+        let favorites = new Set();
+        let showFavOnly = false;
         let timer = null;
         let timerStart = null;
         let timerBarAnim = null;
@@ -653,7 +681,15 @@
         // ── Render gallery overlay ───────────────────────────────────
         function renderGallery() {
             galleryGrid.innerHTML = '';
-            images.forEach((img, i) => {
+            const visible = showFavOnly ? images.filter(img => favorites.has(img.filename)) : images;
+
+            if (showFavOnly && visible.length === 0) {
+                galleryGrid.innerHTML = '<p style="padding:24px;text-align:center;color:#888;grid-column:1/-1">No favourites yet — click ♥ on any image.</p>';
+                return;
+            }
+
+            visible.forEach((img) => {
+                const i = images.indexOf(img);
                 const thumb = document.createElement('div');
                 thumb.className = 'thumb' + (i === current ? ' current' : '') + (selected.has(img.filename) ? ' selected' : '');
                 thumb.onclick = () => {
@@ -672,6 +708,24 @@
                 image.src = img.url;
                 image.alt = img.filename;
 
+                // ── Favourite heart ──────────────────────────────────
+                const fav = document.createElement('button');
+                fav.className = 'thumb-fav' + (favorites.has(img.filename) ? ' faved' : '');
+                fav.title     = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
+                fav.textContent = '♥';
+                fav.onclick = async (e) => {
+                    e.stopPropagation();
+                    const isFav = favorites.has(img.filename);
+                    const res = await fetch(`/api/favorites/${encodeURIComponent(img.filename)}`,
+                        { method: isFav ? 'DELETE' : 'POST' });
+                    if (res.ok) {
+                        isFav ? favorites.delete(img.filename) : favorites.add(img.filename);
+                        fav.classList.toggle('faved', !isFav);
+                        fav.title = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
+                        if (showFavOnly) renderGallery(); // refresh filter view
+                    }
+                };
+
                 const check = document.createElement('div');
                 check.className = 'thumb-check';
                 check.textContent = selected.has(img.filename) ? '✓' : '';
@@ -687,6 +741,7 @@
                     try {
                         const res = await fetch(`/api/images/${encodeURIComponent(img.filename)}`, { method: 'DELETE' });
                         if (!res.ok) throw new Error();
+                        favorites.delete(img.filename);
                         showToast('Image deleted.');
                         await loadImages();
                     } catch {
@@ -701,6 +756,7 @@
                     uploader.textContent = img.uploadedBy;
                     thumb.appendChild(uploader);
                 }
+                thumb.appendChild(fav);
                 thumb.appendChild(check);
                 thumb.appendChild(del);
                 galleryGrid.appendChild(thumb);
@@ -710,8 +766,12 @@
         // ── Load from server ─────────────────────────────────────────
         async function loadImages() {
             try {
-                const res = await fetch('/api/images');
-                images = await res.json();
+                const [imgRes, favRes] = await Promise.all([
+                    fetch('/api/images'),
+                    fetch('/api/favorites')
+                ]);
+                images    = await imgRes.json();
+                favorites = new Set(favRes.ok ? await favRes.json() : []);
                 if (current >= images.length) current = 0;
                 renderSlides();
                 renderGallery();
@@ -752,6 +812,14 @@
         // ── Gallery overlay ──────────────────────────────────────────
         document.getElementById('galleryBtn').onclick   = () => galleryOverlay.classList.add('open');
         document.getElementById('galleryClose').onclick = () => { galleryOverlay.classList.remove('open'); toggleSelectMode(false); };
+
+        document.getElementById('galleryFavBtn').onclick = () => {
+            showFavOnly = !showFavOnly;
+            const btn = document.getElementById('galleryFavBtn');
+            btn.classList.toggle('active', showFavOnly);
+            document.getElementById('galleryTitle').textContent = showFavOnly ? '♥ Favourites' : 'All Images';
+            renderGallery();
+        };
 
         // ── Drag & drop ──────────────────────────────────────────────
         let dragCounter = 0;
