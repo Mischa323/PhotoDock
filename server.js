@@ -286,13 +286,18 @@ const storage = multer.diskStorage({
     }
 });
 
+const HEIC_EXTS  = new Set(['.heic', '.heif']);
+const IMAGE_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i;
+
 const upload = multer({
     storage,
     fileFilter: (_req, file, cb) => {
-        if (file.mimetype.startsWith('image/')) cb(null, true);
+        const ext = path.extname(file.originalname).toLowerCase();
+        // Accept by MIME type OR by extension — browsers often send HEIC as application/octet-stream
+        if (file.mimetype.startsWith('image/') || HEIC_EXTS.has(ext)) cb(null, true);
         else cb(new Error('Only image files are allowed'));
     },
-    limits: { fileSize: 20 * 1024 * 1024 }
+    limits: { fileSize: 50 * 1024 * 1024 } // raised to 50 MB for HEIC (raw files are large)
 });
 
 // ── Middleware ─────────────────────────────────────────────────────────────
@@ -878,7 +883,7 @@ app.put('/api/settings', requireAdmin, (req, res) => {
 app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
-    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
+    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
     const slot     = Math.floor(Date.now() / intervalMs);
     const index    = slot % files.length;
@@ -889,7 +894,7 @@ app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (re
 });
 
 app.get('/api/slideshow/all', requireApiKey, requireEndpoint('all'), (req, res) => {
-    const files   = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(f)).sort();
+    const files   = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
 });
@@ -948,7 +953,7 @@ function buildDateOverlaySvg(w, h, settings) {
 app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
-    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => /\.(jpg|jpeg|png|gif|webp|bmp)$/i.test(f)).sort();
+    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
     const slot     = Math.floor(Date.now() / intervalMs);
     const filename = files[slot % files.length];
@@ -992,17 +997,46 @@ app.get('/api/images', (_req, res) => {
     res.json(files);
 });
 
-app.post('/api/upload', requireUpload, upload.array('images', 50), (req, res) => {
+app.post('/api/upload', requireUpload, (req, res) => {
+    upload.array('images', 50)(req, res, async (err) => {
+    if (err) {
+        const msg = err.code === 'LIMIT_FILE_SIZE'
+            ? 'File too large (max 50 MB)'
+            : err.message || 'Upload failed';
+        return res.status(400).json({ error: msg });
+    }
     if (!req.files?.length) return res.status(400).json({ error: 'No files uploaded' });
+
+    // Convert HEIC/HEIF to JPEG so browsers can display them
+    const processed = [];
+    for (const f of req.files) {
+        const ext = path.extname(f.filename).toLowerCase();
+        if (HEIC_EXTS.has(ext)) {
+            const newName = f.filename.slice(0, -ext.length) + '.jpg';
+            const newPath = path.join(UPLOADS_DIR, newName);
+            try {
+                await sharp(f.path).jpeg({ quality: 92 }).toFile(newPath);
+                fs.unlinkSync(f.path);
+                processed.push({ filename: newName });
+            } catch (e) {
+                console.error('HEIC conversion failed for', f.filename, ':', e.message);
+                processed.push({ filename: f.filename }); // keep original if conversion fails
+            }
+        } else {
+            processed.push({ filename: f.filename });
+        }
+    }
+
     const uploader  = req.currentUser?.username || null;
     const uploadedAt = new Date().toISOString();
     if (!appData.imageMetadata) appData.imageMetadata = {};
-    for (const f of req.files) {
+    for (const f of processed) {
         appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt };
     }
     saveData(appData);
-    addLog('upload', { user: uploader, ip: req.ip, detail: `${req.files.length} file(s)` });
-    res.json({ uploaded: req.files.map(f => ({ filename: f.filename, url: `/uploads/${f.filename}` })) });
+    addLog('upload', { user: uploader, ip: req.ip, detail: `${processed.length} file(s)` });
+    res.json({ uploaded: processed.map(f => ({ filename: f.filename, url: `/uploads/${f.filename}` })) });
+    }); // end upload.array callback
 });
 
 app.delete('/api/images/:filename', requireDelete, (req, res) => {
