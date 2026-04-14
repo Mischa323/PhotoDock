@@ -788,22 +788,23 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0 };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0, logRetentionDays: 30 };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays, logRetentionDays } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
-    const interval  = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
-    const w         = Math.min(7680, Math.max(1, parseInt(imageWidth)  || DEFAULT_SETTINGS.imageWidth));
-    const h         = Math.min(4320, Math.max(1, parseInt(imageHeight) || DEFAULT_SETTINGS.imageHeight));
-    const validPos  = ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
-    const pos       = validPos.includes(datePosition) ? datePosition : DEFAULT_SETTINGS.datePosition;
-    const userDays  = Math.max(0, parseInt(userInactivityDays)   || 0);
-    const keyDays   = Math.max(0, parseInt(apiKeyInactivityDays) || 0);
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays };
+    const interval    = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
+    const w           = Math.min(7680, Math.max(1, parseInt(imageWidth)  || DEFAULT_SETTINGS.imageWidth));
+    const h           = Math.min(4320, Math.max(1, parseInt(imageHeight) || DEFAULT_SETTINGS.imageHeight));
+    const validPos    = ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
+    const pos         = validPos.includes(datePosition) ? datePosition : DEFAULT_SETTINGS.datePosition;
+    const userDays    = Math.max(0, parseInt(userInactivityDays)   || 0);
+    const keyDays     = Math.max(0, parseInt(apiKeyInactivityDays) || 0);
+    const retentionDays = Math.max(1, parseInt(logRetentionDays) || DEFAULT_SETTINGS.logRetentionDays);
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays, logRetentionDays: retentionDays };
     saveData(appData);
     res.json(appData.settings);
 });
@@ -1029,6 +1030,23 @@ async function runInactivityCheck() {
 setInterval(runInactivityCheck, 60 * 60 * 1000);
 // Also run shortly after startup so the first check doesn't wait an hour
 setTimeout(runInactivityCheck, 30 * 1000);
+
+// ── Log retention pruning ──────────────────────────────────────────────────
+function pruneOldLogs() {
+    const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
+    const retentionMs = settings.logRetentionDays * 86400 * 1000;
+    const cutoff = Date.now() - retentionMs;
+    const before = (appData.logs || []).length;
+    appData.logs = (appData.logs || []).filter(e => new Date(e.timestamp).getTime() >= cutoff);
+    if (appData.logs.length !== before) {
+        saveData(appData);
+        console.log(`Log prune: removed ${before - appData.logs.length} entries older than ${settings.logRetentionDays} day(s)`);
+    }
+}
+
+// Prune once per hour
+setInterval(pruneOldLogs, 60 * 60 * 1000);
+setTimeout(pruneOldLogs, 35 * 1000);
 
 // ── Start ──────────────────────────────────────────────────────────────────
 function startServer(port) {
