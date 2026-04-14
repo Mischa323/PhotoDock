@@ -365,14 +365,15 @@ app.get('/setup', (_req, res) => {
 
 app.post('/api/setup', async (req, res) => {
     if (appData.users.length > 0) return res.status(400).json({ error: 'Already set up' });
-    const { username, password } = req.body;
+    const { username, password, email } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-    const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role: 'admin' };
+    if (!email || !email.includes('@')) return res.status(400).json({ error: 'A valid email address is required' });
+    const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), email: email.trim().toLowerCase(), role: 'admin' };
     appData.users.push(user);
     saveData(appData);
     const { token, expiresAt } = createToken(user.id);
     setCookie(res, token, expiresAt);
-    res.json({ ok: true });
+    res.json({ ok: true, redirect: '/admin?mfa_reminder=1' });
 });
 
 // ── Auth routes ────────────────────────────────────────────────────────────
@@ -386,8 +387,14 @@ app.post('/login', async (req, res) => {
     if (!checkRateLimit(ip)) return res.redirect('/login?error=locked');
     const { username, password } = req.body;
     const user = appData.users.find(u => u.username === username);
+    // Check if account is blocked before verifying password
+    if (user?.blocked) {
+        addLog('login_fail', { user: username, ip, detail: 'account blocked' });
+        return res.redirect('/login?error=blocked');
+    }
     if (user && (await verifyPassword(password, user.password))) {
         resetRateLimit(ip);
+        user.failedLoginAttempts = 0;
         if (user.twoFactorEnabled) {
             if (user.twoFactorMethod === 'email') {
                 if (!user.email) return res.redirect('/login?error=1');
@@ -406,12 +413,23 @@ app.post('/login', async (req, res) => {
             return res.redirect(`/2fa?t=${pendingToken}`);
         }
         user.lastLogin = new Date().toISOString();
+        saveData(appData);
         addLog('login_success', { user: user.username, ip });
         const { token, expiresAt } = createToken(user.id);
         setCookie(res, token, expiresAt);
         res.redirect('/');
     } else {
         addLog('login_fail', { user: username, ip });
+        if (user) {
+            const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
+            const maxAttempts = settings.maxLoginAttempts;
+            user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+            if (maxAttempts > 0 && user.failedLoginAttempts >= maxAttempts) {
+                user.blocked = true;
+                addLog('account_locked', { user: username, ip, detail: `${user.failedLoginAttempts} failed attempts` });
+            }
+            saveData(appData);
+        }
         res.redirect('/login?error=1');
     }
 });
@@ -610,7 +628,7 @@ app.delete('/api/admin/sessions/:userId', requireAdmin, (req, res) => {
 
 // ── Admin API — users ──────────────────────────────────────────────────────
 app.get('/api/admin/users', requireAdmin, (_req, res) => {
-    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role, twoFactorEnabled: !!u.twoFactorEnabled })));
+    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role, email: u.email || null, twoFactorEnabled: !!u.twoFactorEnabled, blocked: !!u.blocked, failedLoginAttempts: u.failedLoginAttempts || 0, lastLogin: u.lastLogin || null })));
 });
 
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
@@ -627,7 +645,7 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
 app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
     const user = appData.users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
-    const { username, password, role } = req.body;
+    const { username, password, role, blocked } = req.body;
     if (username) {
         if (appData.users.some(u => u.username === username && u.id !== user.id))
             return res.status(400).json({ error: 'Username already exists' });
@@ -639,8 +657,15 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
             return res.status(400).json({ error: 'Cannot remove your own admin role' });
         user.role = role;
     }
+    if (typeof blocked === 'boolean') {
+        if (blocked && user.id === req.currentUser?.id)
+            return res.status(400).json({ error: 'Cannot block your own account' });
+        user.blocked = blocked;
+        if (!blocked) user.failedLoginAttempts = 0; // reset on unblock
+        addLog(blocked ? 'user_blocked' : 'user_unblocked', { by: req.currentUser.username, target: user.username });
+    }
     saveData(appData);
-    res.json({ id: user.id, username: user.username, role: user.role });
+    res.json({ id: user.id, username: user.username, role: user.role, blocked: !!user.blocked });
 });
 
 app.delete('/api/admin/users/:id', requireAdmin, (req, res) => {
@@ -788,12 +813,12 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0, logRetentionDays: 30 };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0, logRetentionDays: 30, maxLoginAttempts: 5 };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays, logRetentionDays } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays, logRetentionDays, maxLoginAttempts } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
     const interval    = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
@@ -803,8 +828,9 @@ app.put('/api/settings', requireAdmin, (req, res) => {
     const pos         = validPos.includes(datePosition) ? datePosition : DEFAULT_SETTINGS.datePosition;
     const userDays    = Math.max(0, parseInt(userInactivityDays)   || 0);
     const keyDays     = Math.max(0, parseInt(apiKeyInactivityDays) || 0);
-    const retentionDays = Math.max(1, parseInt(logRetentionDays) || DEFAULT_SETTINGS.logRetentionDays);
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays, logRetentionDays: retentionDays };
+    const retentionDays   = Math.max(1, parseInt(logRetentionDays) || DEFAULT_SETTINGS.logRetentionDays);
+    const maxAttempts = Math.max(0, parseInt(maxLoginAttempts) ?? DEFAULT_SETTINGS.maxLoginAttempts);
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays, logRetentionDays: retentionDays, maxLoginAttempts: maxAttempts };
     saveData(appData);
     res.json(appData.settings);
 });

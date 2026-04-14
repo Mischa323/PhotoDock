@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.17.0",
+    "date": "2026-04-14",
+    "changes": [
+      "Account lockout — accounts are automatically blocked after a configurable number of consecutive failed login attempts (default: 5, 0 = disabled)",
+      "Admin can manually block or unblock any user account from the Users section",
+      "Blocked accounts see a clear message on the login page and cannot sign in",
+      "Email address is now required when creating the initial admin account during setup",
+      "After completing setup, a banner prompts the new admin to configure multi-factor authentication"
+    ]
+  },
+  {
     "version": "1.16.0",
     "date": "2026-04-13",
     "changes": [
