@@ -1015,7 +1015,12 @@ app.post('/api/upload', requireUpload, (req, res) => {
             const newName = f.filename.slice(0, -ext.length) + '.jpg';
             const newPath = path.join(UPLOADS_DIR, newName);
             try {
-                await sharp(f.path).jpeg({ quality: 92 }).toFile(newPath);
+                await sharp(f.path)
+                    .rotate()                                          // apply EXIF orientation
+                    .flatten({ background: { r: 255, g: 255, b: 255 } }) // remove alpha → white bg
+                    .toColorspace('srgb')                              // normalise colour space
+                    .jpeg({ quality: 92 })
+                    .toFile(newPath);
                 fs.unlinkSync(f.path);
                 processed.push({ filename: newName });
             } catch (e) {
