@@ -7,6 +7,7 @@ const crypto  = require('crypto');
 const QRCode      = require('qrcode');
 const nodemailer  = require('nodemailer');
 const sharp       = require('sharp');
+const heicConvert = require('heic-convert');
 const { version: pkgVersion } = require('./package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
@@ -1015,12 +1016,9 @@ app.post('/api/upload', requireUpload, (req, res) => {
             const newName = f.filename.slice(0, -ext.length) + '.jpg';
             const newPath = path.join(UPLOADS_DIR, newName);
             try {
-                await sharp(f.path)
-                    .rotate()                                          // apply EXIF orientation
-                    .flatten({ background: { r: 255, g: 255, b: 255 } }) // remove alpha → white bg
-                    .toColorspace('srgb')                              // normalise colour space
-                    .jpeg({ quality: 92 })
-                    .toFile(newPath);
+                const inputBuffer  = fs.readFileSync(f.path);
+                const outputBuffer = await heicConvert({ buffer: inputBuffer, format: 'JPEG', quality: 0.92 });
+                fs.writeFileSync(newPath, outputBuffer);
                 fs.unlinkSync(f.path);
                 processed.push({ filename: newName });
             } catch (e) {
