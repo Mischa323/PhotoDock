@@ -787,6 +787,25 @@
 
         [data-theme="dark"] code { color: #94a3b8 !important; }
 
+        /* ── Activity log filter pills ──────────────────────────────── */
+        .log-filter {
+            padding: 3px 12px;
+            font-size: 12px;
+            font-family: inherit;
+            font-weight: 500;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            background: #fff;
+            color: #666;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .log-filter:hover { background: #f0f9ff; border-color: var(--accent); color: var(--accent); }
+        .log-filter.active[data-filter="all"]     { background: #e0f7fa; border-color: #0e7490; color: #0e7490; }
+        .log-filter.active[data-filter="info"]    { background: #e6f4ea; border-color: #2e7d32; color: #2e7d32; }
+        .log-filter.active[data-filter="warning"] { background: #fff3e0; border-color: #e65100; color: #e65100; }
+        .log-filter.active[data-filter="error"]   { background: #fdecea; border-color: #b71c1c; color: #b71c1c; }
+
         /* ── Activity log dark mode ─────────────────────────────────── */
         [data-theme="dark"] #activityLog table thead th { background: #162032; border-bottom-color: #2d3f52; color: #94a3b8; }
         [data-theme="dark"] #activityLog table tbody tr:hover { background: #243447; }
@@ -821,6 +840,17 @@
             </div>
         </div>
         <div class="section-body"><div class="section-body-inner">
+        <div style="padding:12px 24px 8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid #f0f0f0">
+            <div id="logFilterBtns" style="display:flex;gap:4px;flex-wrap:wrap">
+                <button class="log-filter active" data-filter="all"     onclick="setLogFilter('all')">All</button>
+                <button class="log-filter"         data-filter="info"    onclick="setLogFilter('info')">Info</button>
+                <button class="log-filter"         data-filter="warning" onclick="setLogFilter('warning')">Warning</button>
+                <button class="log-filter"         data-filter="error"   onclick="setLogFilter('error')">Error</button>
+            </div>
+            <input id="logSearch" type="search" placeholder="Search user, event, detail…"
+                style="margin-left:auto;padding:5px 10px;border:1px solid #ddd;border-radius:6px;font-size:12px;font-family:inherit;width:200px"
+                oninput="logPage=1;renderActivityLog()">
+        </div>
         <div id="activityLog" style="padding:0">
             <p style="padding:24px;text-align:center;color:#bbb">Loading…</p>
         </div>
@@ -2230,20 +2260,34 @@
 
     // ── Activity Log ───────────────────────────────────────────────────────
     const LOG_LABELS = {
-        login_success:  { label: 'Login',          color: '#2e7d32', bg: '#e6f4ea' },
-        login_fail:     { label: 'Login failed',   color: '#b71c1c', bg: '#fdecea' },
-        account_locked: { label: 'Account locked', color: '#7f0000', bg: '#fdecea' },
-        user_blocked:   { label: 'User blocked',   color: '#7f0000', bg: '#fdecea' },
-        user_unblocked: { label: 'User unblocked', color: '#2e7d32', bg: '#e6f4ea' },
-        upload:         { label: 'Upload',         color: '#0e7490', bg: '#e0f7fa' },
-        delete:         { label: 'Delete',         color: '#e65100', bg: '#fff3e0' },
-        api_current:    { label: 'API current',    color: '#6a1b9a', bg: '#f3e5f5' },
-        api_all:        { label: 'API all',        color: '#6a1b9a', bg: '#f3e5f5' },
-        api_image:      { label: 'API image',      color: '#6a1b9a', bg: '#f3e5f5' },
+        login_success:  { label: 'Login',          color: '#2e7d32', bg: '#e6f4ea', severity: 'info'    },
+        login_fail:     { label: 'Login failed',   color: '#b71c1c', bg: '#fdecea', severity: 'warning' },
+        account_locked: { label: 'Account locked', color: '#7f0000', bg: '#fdecea', severity: 'error'   },
+        user_blocked:   { label: 'User blocked',   color: '#7f0000', bg: '#fdecea', severity: 'warning' },
+        user_unblocked: { label: 'User unblocked', color: '#2e7d32', bg: '#e6f4ea', severity: 'info'    },
+        upload:         { label: 'Upload',         color: '#0e7490', bg: '#e0f7fa', severity: 'info'    },
+        delete:         { label: 'Delete',         color: '#e65100', bg: '#fff3e0', severity: 'warning' },
+        api_current:    { label: 'API current',    color: '#6a1b9a', bg: '#f3e5f5', severity: 'info'    },
+        api_all:        { label: 'API all',        color: '#6a1b9a', bg: '#f3e5f5', severity: 'info'    },
+        api_image:      { label: 'API image',      color: '#6a1b9a', bg: '#f3e5f5', severity: 'info'    },
     };
 
-    let allLogs = [];
-    let logPage = 1;
+    // Unknown events default to 'info' severity
+    function logSeverity(event) {
+        return LOG_LABELS[event]?.severity || 'info';
+    }
+
+    let allLogs  = [];
+    let logPage  = 1;
+    let logFilter = 'all';
+
+    function setLogFilter(f) {
+        logFilter = f;
+        logPage   = 1;
+        document.querySelectorAll('.log-filter').forEach(b =>
+            b.classList.toggle('active', b.dataset.filter === f));
+        renderActivityLog();
+    }
 
     async function loadActivityLog() {
         const res = await fetch('/api/admin/logs');
@@ -2259,14 +2303,27 @@
         const prevBtn  = document.getElementById('logPrevBtn');
         const nextBtn  = document.getElementById('logNextBtn');
         const pageSize = parseInt(document.getElementById('logPageSize').value) || 10;
-        const total    = allLogs.length;
+        const search   = (document.getElementById('logSearch')?.value || '').toLowerCase().trim();
+
+        // Apply severity filter then text search
+        const filtered = allLogs.filter(e => {
+            if (logFilter !== 'all' && logSeverity(e.event) !== logFilter) return false;
+            if (search) {
+                const hay = [e.event, e.user, e.keyName, e.detail, e.ip].filter(Boolean).join(' ').toLowerCase();
+                if (!hay.includes(search)) return false;
+            }
+            return true;
+        });
+
+        const total    = filtered.length;
         const pages    = Math.max(1, Math.ceil(total / pageSize));
         logPage        = Math.min(Math.max(1, logPage), pages);
         const start    = (logPage - 1) * pageSize;
-        const slice    = allLogs.slice(start, start + pageSize);
+        const slice    = filtered.slice(start, start + pageSize);
 
         if (!total) {
-            el.innerHTML = '<p style="padding:24px;text-align:center;color:#bbb">No activity yet.</p>';
+            const msg = allLogs.length ? 'No entries match the current filter.' : 'No activity yet.';
+            el.innerHTML = `<p style="padding:24px;text-align:center;color:#bbb">${msg}</p>`;
             pager.style.display = 'none';
             return;
         }
@@ -2300,7 +2357,8 @@
             </table>`;
 
         pager.style.display = 'flex';
-        info.textContent    = `${start + 1}–${Math.min(start + pageSize, total)} of ${total}`;
+        const suffix = (logFilter !== 'all' || search) && total !== allLogs.length ? ` (${allLogs.length} total)` : '';
+        info.textContent = `${start + 1}–${Math.min(start + pageSize, total)} of ${total}${suffix}`;
         prevBtn.disabled    = logPage <= 1;
         nextBtn.disabled    = logPage >= pages;
         prevBtn.style.opacity = logPage <= 1    ? '0.4' : '1';
