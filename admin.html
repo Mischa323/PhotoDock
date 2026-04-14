@@ -1407,6 +1407,13 @@
         </div>
         <div class="section-body"><div class="section-body-inner">
         <div id="changelogContainer" style="padding:8px 0"></div>
+        <div id="changelogPager" style="display:none;padding:12px 24px;align-items:center;justify-content:space-between;border-top:1px solid #eef1ee">
+            <span id="changelogInfo" style="font-size:12px;color:#888"></span>
+            <div style="display:flex;gap:6px">
+                <button class="back-btn" style="font-size:12px;padding:4px 12px" id="clPrevBtn" onclick="clPage--;renderChangelog()">&#8592; Prev</button>
+                <button class="back-btn" style="font-size:12px;padding:4px 12px" id="clNextBtn" onclick="clPage++;renderChangelog()">Next &#8594;</button>
+            </div>
+        </div>
         </div></div>
     </section>
 
@@ -2241,13 +2248,34 @@
 
     // ── Init ───────────────────────────────────────────────────────────────
     // ── Version / Changelog ────────────────────────────────────────────────
+    let allChangelog = [];
+    let clPage = 1;
+    const CL_PAGE_SIZE = 5;
+
     async function loadVersion() {
         const res  = await fetch('/api/version');
         const data = await res.json();
         document.getElementById('versionBadge').textContent = `v${data.version}`;
-        const entries = data.changelog; // already newest first
-        document.getElementById('changelogContainer').innerHTML = entries.map((entry, i) => `
-            <div class="cl-entry ${i === 0 ? 'cl-current' : ''}">
+        allChangelog = data.changelog; // already newest first
+        clPage = 1;
+        renderChangelog();
+    }
+
+    function renderChangelog() {
+        const container = document.getElementById('changelogContainer');
+        const pager     = document.getElementById('changelogPager');
+        const info      = document.getElementById('changelogInfo');
+        const prevBtn   = document.getElementById('clPrevBtn');
+        const nextBtn   = document.getElementById('clNextBtn');
+        const total     = allChangelog.length;
+        const pages     = Math.max(1, Math.ceil(total / CL_PAGE_SIZE));
+        clPage          = Math.min(Math.max(1, clPage), pages);
+        const start     = (clPage - 1) * CL_PAGE_SIZE;
+        const slice     = allChangelog.slice(start, start + CL_PAGE_SIZE);
+
+        container.innerHTML = slice.map((entry) => {
+            const isCurrent = allChangelog.indexOf(entry) === 0;
+            return `<div class="cl-entry ${isCurrent ? 'cl-current' : ''}">
                 <div class="cl-version">v${entry.version}</div>
                 <div class="cl-right">
                     <div class="cl-date">${entry.date}</div>
@@ -2255,8 +2283,15 @@
                         ${entry.changes.map(c => `<li>${escHtml(c)}</li>`).join('')}
                     </ul>
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
+
+        pager.style.display  = total > CL_PAGE_SIZE ? 'flex' : 'none';
+        info.textContent     = `${start + 1}–${Math.min(start + CL_PAGE_SIZE, total)} of ${total}`;
+        prevBtn.disabled     = clPage <= 1;
+        nextBtn.disabled     = clPage >= pages;
+        prevBtn.style.opacity = clPage <= 1    ? '0.4' : '1';
+        nextBtn.style.opacity = clPage >= pages ? '0.4' : '1';
     }
 
     // ── Activity Log ───────────────────────────────────────────────────────
