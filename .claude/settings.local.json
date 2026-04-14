@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e 'const src = require\\(\\\\\"fs\\\\\"\\).readFileSync\\(\\\\\"server.js\\\\\",\\\\\"utf8\\\\\"\\); const m = src.match\\(/function generateSelfSignedCert[\\\\s\\\\S]*?^}/m\\); console.log\\(m ? \\\\\"found\\\\\" : \\\\\"not found\\\\\"\\)')",
+      "Bash(node -e ':*)",
+      "Bash(node --check server.js)"
+    ]
+  }
+}
