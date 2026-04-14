@@ -1154,6 +1154,15 @@
                 </div>
             </div>
 
+            <div class="settings-row">
+                <label for="maxLoginAttempts">Failed login lockout <span class="help" data-tip="Block an account automatically after this many consecutive failed login attempts. Set to 0 to disable automatic lockout. Blocked accounts can be unblocked in the Users section.">?</span><small>0 = disabled</small></label>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <input type="number" id="maxLoginAttempts" min="0" max="100"
+                        class="tz-input" style="width:70px;font-family:inherit" placeholder="5">
+                    <span style="font-size:13px;color:#888">attempts</span>
+                </div>
+            </div>
+
             <button class="btn-save-settings" onclick="saveDisplaySettings()" style="grid-column:1/-1">Save</button>
         </div>
         </div></div>
@@ -1171,12 +1180,13 @@
                     <th>Username</th>
                     <th>Role</th>
                     <th>2FA</th>
+                    <th>Status</th>
                     <th style="white-space:nowrap">Last login</th>
-                    <th style="width:120px">Actions</th>
+                    <th style="width:140px">Actions</th>
                 </tr>
             </thead>
             <tbody id="userTableBody">
-                <tr class="empty-row"><td colspan="2">Loading…</td></tr>
+                <tr class="empty-row"><td colspan="6">Loading…</td></tr>
             </tbody>
         </table>
         <div class="add-form">
@@ -1458,24 +1468,32 @@
         const tbody = document.getElementById('userTableBody');
 
         if (users.length === 0) {
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="2">No users</td></tr>';
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="6">No users</td></tr>';
             return;
         }
 
         tbody.innerHTML = users.map(u => `
-            <tr>
+            <tr${u.blocked ? ' style="opacity:0.7"' : ''}>
                 <td>${escHtml(u.username)}</td>
-                <td><span class="badge badge-${u.role}">${u.role === 'admin' ? 'Admin' : 'Standard'}</span></td>
+                <td><span class="badge badge-${u.role}">${u.role === 'admin' ? 'Admin' : escHtml(u.role)}</span></td>
                 <td>
                     ${u.twoFactorEnabled
                         ? `<span style="font-size:12px;font-weight:700;color:#2e7d32;background:#e6f4ea;padding:2px 10px;border-radius:20px">On</span>`
                         : `<span style="font-size:12px;color:#999">Off</span>`}
+                </td>
+                <td>
+                    ${u.blocked
+                        ? `<span style="font-size:12px;font-weight:700;color:#c0392b;background:#fdecea;padding:2px 10px;border-radius:20px" title="${u.failedLoginAttempts} failed attempt(s)">Blocked</span>`
+                        : `<span style="font-size:12px;color:#2e7d32">Active</span>`}
                 </td>
                 <td style="font-size:13px;white-space:nowrap">${relTimeAgo(u.lastLogin)}</td>
                 <td>
                     <div class="actions">
                         <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}', '${escHtml(u.username)}', '${u.role}')">&#9998;</button>
                         ${u.twoFactorEnabled ? `<button class="icon-btn danger" title="Reset 2FA" onclick="adminReset2FA('${u.id}', '${escHtml(u.username)}')">&#128274;</button>` : ''}
+                        ${u.blocked
+                            ? `<button class="icon-btn" title="Unblock account" onclick="setUserBlocked('${u.id}', '${escHtml(u.username)}', false)" style="color:#2e7d32">&#128275;</button>`
+                            : `<button class="icon-btn danger" title="Block account" onclick="setUserBlocked('${u.id}', '${escHtml(u.username)}', true)">&#128683;</button>`}
                         <button class="icon-btn danger" title="Delete" onclick="deleteUser('${u.id}', '${escHtml(u.username)}')">&#128465;</button>
                     </div>
                 </td>
@@ -1509,6 +1527,20 @@
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
         showToast(`User "${username}" deleted.`);
+        loadUsers();
+    }
+
+    async function setUserBlocked(id, username, blocked) {
+        const action = blocked ? 'block' : 'unblock';
+        if (!confirm(`${blocked ? 'Block' : 'Unblock'} user "${username}"?`)) return;
+        const res = await fetch(`/api/admin/users/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blocked })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+        showToast(`User "${username}" ${action}ed.`);
         loadUsers();
     }
 
@@ -1825,6 +1857,7 @@
         document.getElementById('slideshowInterval').value = s.slideshowInterval || 30;
         document.getElementById('datePosition').value  = s.datePosition     || 'top-right';
         document.getElementById('logRetentionDays').value = s.logRetentionDays ?? 30;
+        document.getElementById('maxLoginAttempts').value  = s.maxLoginAttempts ?? 5;
         const color = s.accentColor || '#06b6d4';
         document.getElementById('accentColor').value = color;
         applyTheme(color);
@@ -1843,6 +1876,7 @@
             slideshowInterval: parseInt(document.getElementById('slideshowInterval').value) || 30,
             datePosition:      document.getElementById('datePosition').value || 'top-right',
             logRetentionDays:  parseInt(document.getElementById('logRetentionDays').value) || 30,
+            maxLoginAttempts:  parseInt(document.getElementById('maxLoginAttempts').value) || 0,
         };
         const res  = await fetch('/api/settings', {
             method: 'PUT',
@@ -2179,13 +2213,16 @@
 
     // ── Activity Log ───────────────────────────────────────────────────────
     const LOG_LABELS = {
-        login_success: { label: 'Login',        color: '#2e7d32', bg: '#e6f4ea' },
-        login_fail:    { label: 'Login failed',  color: '#b71c1c', bg: '#fdecea' },
-        upload:        { label: 'Upload',        color: '#0e7490', bg: '#e0f7fa' },
-        delete:        { label: 'Delete',        color: '#e65100', bg: '#fff3e0' },
-        api_current:   { label: 'API current',   color: '#6a1b9a', bg: '#f3e5f5' },
-        api_all:       { label: 'API all',       color: '#6a1b9a', bg: '#f3e5f5' },
-        api_image:     { label: 'API image',     color: '#6a1b9a', bg: '#f3e5f5' },
+        login_success:  { label: 'Login',          color: '#2e7d32', bg: '#e6f4ea' },
+        login_fail:     { label: 'Login failed',   color: '#b71c1c', bg: '#fdecea' },
+        account_locked: { label: 'Account locked', color: '#7f0000', bg: '#fdecea' },
+        user_blocked:   { label: 'User blocked',   color: '#7f0000', bg: '#fdecea' },
+        user_unblocked: { label: 'User unblocked', color: '#2e7d32', bg: '#e6f4ea' },
+        upload:         { label: 'Upload',         color: '#0e7490', bg: '#e0f7fa' },
+        delete:         { label: 'Delete',         color: '#e65100', bg: '#fff3e0' },
+        api_current:    { label: 'API current',    color: '#6a1b9a', bg: '#f3e5f5' },
+        api_all:        { label: 'API all',        color: '#6a1b9a', bg: '#f3e5f5' },
+        api_image:      { label: 'API image',      color: '#6a1b9a', bg: '#f3e5f5' },
     };
 
     let allLogs = [];
@@ -2278,6 +2315,23 @@
     initApiDocs();
     loadVersion();
     initCollapsible();
+
+    // Show MFA setup reminder after first-run account creation
+    if (new URLSearchParams(location.search).get('mfa_reminder') === '1') {
+        history.replaceState({}, '', '/admin');
+        setTimeout(() => {
+            const banner = document.createElement('div');
+            banner.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0f2a3a;color:#fff;border:1px solid #06b6d4;border-radius:10px;padding:16px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 4px 24px rgba(0,0,0,0.35);z-index:9999;max-width:480px;font-size:14px';
+            banner.innerHTML = `<span style="font-size:22px">🔐</span>
+                <div style="flex:1">
+                    <div style="font-weight:600;margin-bottom:4px">Account created successfully!</div>
+                    <div style="color:#a5d8e6;font-size:13px">We recommend setting up multi-factor authentication to protect your account.</div>
+                </div>
+                <button onclick="document.getElementById('sec-security').scrollIntoView({behavior:'smooth'});this.closest('div[style]').remove()" style="background:#06b6d4;color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">Set up MFA</button>
+                <button onclick="this.closest('div[style]').remove()" style="background:transparent;color:#888;border:none;cursor:pointer;font-size:18px;line-height:1;padding:0 4px">✕</button>`;
+            document.body.appendChild(banner);
+        }, 400);
+    }
 </script>
 </body>
 </html>
