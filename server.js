@@ -931,10 +931,11 @@ function buildDateOverlaySvg(w, h, settings) {
         : Math.round(h * 0.07) + fsDay;
 
     // Render each text element twice: dark shadow offset + white on top
+    // Use SVG-native fill-opacity (not CSS rgba()) — librsvg doesn't support rgba() in attributes
     function textPair(txt, px, py, fs, weight, fillOpacity) {
         const f = `font-family="sans-serif" font-size="${fs}" font-weight="${weight}" text-anchor="${anchor}"`;
-        return `<text ${f} x="${px+1}" y="${py+1}" fill="rgba(0,0,0,0.75)">${esc(txt)}</text>` +
-               `<text ${f} x="${px}"   y="${py}"   fill="rgba(255,255,255,${fillOpacity})">${esc(txt)}</text>`;
+        return `<text ${f} x="${px+1}" y="${py+1}" fill="black" fill-opacity="0.75">${esc(txt)}</text>` +
+               `<text ${f} x="${px}"   y="${py}"   fill="white" fill-opacity="${fillOpacity}">${esc(txt)}</text>`;
     }
 
     let svg = '';
