@@ -570,12 +570,9 @@
             user-select: none;
         }
 
-        .help::after {
-            content: attr(data-tip);
-            position: absolute;
-            left: 50%;
-            bottom: calc(100% + 8px);
-            transform: translateX(-50%);
+        #help-tooltip {
+            position: fixed;
+            z-index: 9999;
             background: #1e293b;
             color: #e2e8f0;
             font-size: 12px;
@@ -586,31 +583,21 @@
             width: 230px;
             line-height: 1.55;
             pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.15s;
-            z-index: 99;
             white-space: normal;
             box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            opacity: 0;
+            transition: opacity 0.15s;
         }
-
-        .help::before {
+        #help-tooltip.visible { opacity: 1; }
+        #help-tooltip::after {
             content: '';
             position: absolute;
             left: 50%;
-            bottom: calc(100% + 2px);
+            top: 100%;
             transform: translateX(-50%);
             border: 5px solid transparent;
             border-top-color: #1e293b;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.15s;
-            z-index: 99;
         }
-
-        .help:hover::after,
-        .help:hover::before,
-        .help.open::after,
-        .help.open::before { opacity: 1; }
 
         /* ── API Reference ────────────────────────────────────────── */
         .api-block {
@@ -1351,21 +1338,17 @@
         </div>
         <div class="section-body"><div class="section-body-inner">
         <div style="overflow-x:auto">
-        <table style="min-width:540px">
+        <table style="min-width:400px">
             <thead>
                 <tr>
-                    <th style="width:18%">Name</th>
-                    <th>Key</th>
-                    <th style="white-space:nowrap;width:90px">Interval</th>
-                    <th style="white-space:nowrap;width:110px">Image size <span class="help" data-tip="The pixel dimensions used when rendering the /api/slideshow/image response for this key. Leave blank to use the default 1920×1080.">?</span></th>
-                    <th style="white-space:nowrap;width:100px">Endpoints <span class="help" data-tip="Which API endpoints this key is allowed to call. Uncheck an endpoint to block access to it.">?</span></th>
+                    <th style="width:30%">Name</th>
+                    <th style="white-space:nowrap;width:100px">Interval</th>
                     <th style="white-space:nowrap">Last used</th>
-                    <th style="white-space:nowrap;width:80px">Created</th>
-                    <th style="width:44px">Actions</th>
+                    <th style="width:64px">Actions</th>
                 </tr>
             </thead>
             <tbody id="keyTableBody">
-                <tr class="empty-row"><td colspan="6">Loading…</td></tr>
+                <tr class="empty-row"><td colspan="4">Loading…</td></tr>
             </tbody>
         </table>
         </div>
@@ -1393,6 +1376,14 @@
                     <label class="ep-toggle"><input type="checkbox" id="newKeyEpAll"     checked> all</label>
                     <label class="ep-toggle"><input type="checkbox" id="newKeyEpImage"   checked> image</label>
                 </div>
+            </div>
+            <div class="field" style="max-width:110px">
+                <label>Date overlay</label>
+                <select id="newKeyShowDate" style="border:1px solid #ddd;border-radius:4px;padding:5px 6px;font-size:13px;outline:none;width:100%">
+                    <option value="">Global</option>
+                    <option value="1">On</option>
+                    <option value="0">Off</option>
+                </select>
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
         </div>
@@ -1626,7 +1617,7 @@
         const tbody = document.getElementById('keyTableBody');
 
         if (keys.length === 0) {
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No API keys</td></tr>';
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No API keys</td></tr>';
             return;
         }
 
@@ -1634,62 +1625,71 @@
         const hasEp = (k, name) => !k.allowedEndpoints || k.allowedEndpoints.includes(name);
 
         tbody.innerHTML = keys.map(k => `
-            <tr>
+            <tr id="row-${k.id}">
                 <td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(k.name)}">${escHtml(k.name)}</td>
-                <td>
-                    <div class="key-cell">
-                        <span class="key-masked" id="keyval-${k.id}">••••••••••••</span>
-                        <button class="icon-btn" title="Show/hide" onclick="toggleKey('${k.id}', '${escHtml(k.key)}')">&#128065;</button>
-                        <button class="icon-btn" title="Copy" onclick="copyKey('${escHtml(k.key)}')">&#128203;</button>
-                    </div>
-                </td>
-                <td>
-                    <div style="display:flex;align-items:center;gap:6px">
+                <td style="font-size:13px;white-space:nowrap">
+                    <div style="display:flex;align-items:center;gap:4px">
                         <input type="number" min="1" value="${k.intervalMinutes || 5}"
                             id="interval-${k.id}"
-                            style="width:60px;border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
+                            style="width:54px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:13px;outline:none"
                             onchange="saveKeySettings('${k.id}')">
                         <span style="font-size:12px;color:#888">min</span>
                     </div>
                 </td>
-                <td>
-                    <div style="display:flex;flex-direction:column;gap:3px">
-                        <div style="display:flex;align-items:center;gap:3px">
-                            <span style="font-size:10px;color:#888;width:8px">W</span>
-                            <input type="number" min="1" max="7680" value="${k.imageWidth || ''}" placeholder="—"
-                                id="imgw-${k.id}"
-                                style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
-                                onchange="saveKeySettings('${k.id}')">
-                        </div>
-                        <div style="display:flex;align-items:center;gap:3px">
-                            <span style="font-size:10px;color:#888;width:8px">H</span>
-                            <input type="number" min="1" max="4320" value="${k.imageHeight || ''}" placeholder="—"
-                                id="imgh-${k.id}"
-                                style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
-                                onchange="saveKeySettings('${k.id}')">
-                        </div>
-                    </div>
-                </td>
-                <td>
-                    <div style="display:flex;flex-direction:column;gap:4px">
-                        <label class="ep-toggle">
-                            <input type="checkbox" id="ep-current-${k.id}" ${hasEp(k,'current') ? 'checked' : ''}
-                                onchange="saveKeySettings('${k.id}')"> current
-                        </label>
-                        <label class="ep-toggle">
-                            <input type="checkbox" id="ep-all-${k.id}" ${hasEp(k,'all') ? 'checked' : ''}
-                                onchange="saveKeySettings('${k.id}')"> all
-                        </label>
-                        <label class="ep-toggle">
-                            <input type="checkbox" id="ep-image-${k.id}" ${hasEp(k,'image') ? 'checked' : ''}
-                                onchange="saveKeySettings('${k.id}')"> image
-                        </label>
-                    </div>
-                </td>
                 <td style="font-size:13px;white-space:nowrap">${relTimeAgo(k.lastUsed)}</td>
-                <td style="font-size:13px;white-space:nowrap">${new Date(k.createdAt).toLocaleDateString()}</td>
                 <td>
-                    <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(k.name)}')">&#128465;</button>
+                    <div style="display:flex;gap:4px">
+                        <button class="icon-btn" title="Expand settings" onclick="toggleKeyExpand('${k.id}')">&#9881;</button>
+                        <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(k.name)}')">&#128465;</button>
+                    </div>
+                </td>
+            </tr>
+            <tr id="expand-${k.id}" style="display:none">
+                <td colspan="4" style="padding:0">
+                    <div style="background:#f8fafc;border-top:1px solid #e8edf2;border-bottom:1px solid #e8edf2;padding:14px 16px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+                        <div>
+                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API Key</div>
+                            <div class="key-cell">
+                                <span class="key-masked" id="keyval-${k.id}">••••••••••••</span>
+                                <button class="icon-btn" title="Show/hide" onclick="toggleKey('${k.id}', '${escHtml(k.key)}')">&#128065;</button>
+                                <button class="icon-btn" title="Copy" onclick="copyKey('${escHtml(k.key)}')">&#128203;</button>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Image size</div>
+                            <div style="display:flex;align-items:center;gap:4px">
+                                <input type="number" min="1" max="7680" value="${k.imageWidth || ''}" placeholder="1920"
+                                    id="imgw-${k.id}" style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
+                                    onchange="saveKeySettings('${k.id}')">
+                                <span style="font-size:12px;color:#888">×</span>
+                                <input type="number" min="1" max="4320" value="${k.imageHeight || ''}" placeholder="1080"
+                                    id="imgh-${k.id}" style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
+                                    onchange="saveKeySettings('${k.id}')">
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Endpoints</div>
+                            <div style="display:flex;flex-direction:column;gap:4px">
+                                <label class="ep-toggle"><input type="checkbox" id="ep-current-${k.id}" ${hasEp(k,'current') ? 'checked' : ''} onchange="saveKeySettings('${k.id}')"> current</label>
+                                <label class="ep-toggle"><input type="checkbox" id="ep-all-${k.id}"     ${hasEp(k,'all')     ? 'checked' : ''} onchange="saveKeySettings('${k.id}')"> all</label>
+                                <label class="ep-toggle"><input type="checkbox" id="ep-image-${k.id}"   ${hasEp(k,'image')   ? 'checked' : ''} onchange="saveKeySettings('${k.id}')"> image</label>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Date overlay</div>
+                            <select id="showdate-${k.id}"
+                                style="border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
+                                onchange="saveKeySettings('${k.id}')">
+                                <option value=""  ${k.showDate == null   ? 'selected' : ''}>Global default</option>
+                                <option value="1" ${k.showDate === true  ? 'selected' : ''}>Always on</option>
+                                <option value="0" ${k.showDate === false ? 'selected' : ''}>Always off</option>
+                            </select>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Created</div>
+                            <div style="font-size:13px">${new Date(k.createdAt).toLocaleDateString()}</div>
+                        </div>
+                    </div>
                 </td>
             </tr>
         `).join('');
@@ -1702,10 +1702,12 @@
         const allowedEndpoints = ['current', 'all', 'image'].filter(ep =>
             document.getElementById(`ep-${ep}-${id}`)?.checked
         );
+        const showDateVal = document.getElementById(`showdate-${id}`)?.value;
+        const showDate = showDateVal === '1' ? true : showDateVal === '0' ? false : null;
         const res = await fetch(`/api/admin/apikeys/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ interval, imageWidth, imageHeight, allowedEndpoints })
+            body: JSON.stringify({ interval, imageWidth, imageHeight, allowedEndpoints, showDate })
         });
         if (!res.ok) showToast('Could not save key settings', 'error');
         else showToast('Key updated.');
@@ -1721,10 +1723,12 @@
         );
         if (!name) return showToast('Enter a key name', 'error');
 
+        const newShowDateVal = document.getElementById('newKeyShowDate')?.value;
+        const showDate = newShowDateVal === '1' ? true : newShowDateVal === '0' ? false : null;
         const res  = await fetch('/api/admin/apikeys', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, interval, imageWidth, imageHeight, allowedEndpoints })
+            body: JSON.stringify({ name, interval, imageWidth, imageHeight, allowedEndpoints, showDate })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
@@ -1740,6 +1744,18 @@
         if (!res.ok) return showToast('Could not delete key', 'error');
         showToast(`Key "${name}" deleted.`);
         loadApiKeys();
+    }
+
+    const expandedKeys = new Set();
+    function toggleKeyExpand(id) {
+        const row = document.getElementById(`expand-${id}`);
+        if (expandedKeys.has(id)) {
+            row.style.display = 'none';
+            expandedKeys.delete(id);
+        } else {
+            row.style.display = '';
+            expandedKeys.add(id);
+        }
     }
 
     const visibleKeys = {};
@@ -2443,6 +2459,33 @@
             document.body.appendChild(banner);
         }, 400);
     }
+
+    // ── Global help tooltip (body-level so overflow:hidden never clips it) ──
+    const helpTip = document.createElement('div');
+    helpTip.id = 'help-tooltip';
+    document.body.appendChild(helpTip);
+
+    document.addEventListener('mouseover', e => {
+        const el = e.target.closest('.help[data-tip]');
+        if (!el) return;
+        helpTip.textContent = el.dataset.tip;
+        const r = el.getBoundingClientRect();
+        helpTip.style.left = '0';
+        helpTip.style.top  = '0';
+        helpTip.classList.add('visible');
+        // Position: centred above the badge, clamped to viewport
+        const tw = helpTip.offsetWidth;
+        let x = r.left + r.width / 2 - tw / 2;
+        x = Math.max(8, Math.min(x, window.innerWidth - tw - 8));
+        const y = r.top - helpTip.offsetHeight - 10;
+        helpTip.style.left = x + 'px';
+        helpTip.style.top  = (y < 8 ? r.bottom + 10 : y) + 'px';
+    });
+
+    document.addEventListener('mouseout', e => {
+        if (!e.target.closest('.help[data-tip]')) return;
+        helpTip.classList.remove('visible');
+    });
 </script>
 </body>
 </html>

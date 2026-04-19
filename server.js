@@ -765,12 +765,13 @@ app.get('/api/admin/apikeys', requireAdmin, (_req, res) => res.json(appData.apiK
 const VALID_ENDPOINTS = ['current', 'all', 'image'];
 
 app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
-    const { name, interval, imageWidth, imageHeight, allowedEndpoints } = req.body;
+    const { name, interval, imageWidth, imageHeight, allowedEndpoints, showDate } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
     const apiKey = { id: crypto.randomUUID(), name, key: crypto.randomBytes(24).toString('base64url'), intervalMinutes: Math.max(1, parseInt(interval) || 5), createdAt: new Date().toISOString() };
     const w = parseInt(imageWidth);  if (w > 0) apiKey.imageWidth  = Math.min(7680, w);
     const h = parseInt(imageHeight); if (h > 0) apiKey.imageHeight = Math.min(4320, h);
     if (Array.isArray(allowedEndpoints)) apiKey.allowedEndpoints = allowedEndpoints.filter(e => VALID_ENDPOINTS.includes(e));
+    if (showDate === true || showDate === false) apiKey.showDate = showDate;
     appData.apiKeys.push(apiKey);
     saveData(appData);
     res.json(apiKey);
@@ -779,9 +780,10 @@ app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
 app.put('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
     const apiKey = appData.apiKeys.find(k => k.id === req.params.id);
     if (!apiKey) return res.status(404).json({ error: 'Key not found' });
-    const { name, interval, imageWidth, imageHeight, allowedEndpoints } = req.body;
+    const { name, interval, imageWidth, imageHeight, allowedEndpoints, showDate } = req.body;
     if (name) apiKey.name = name;
     if (interval !== undefined) apiKey.intervalMinutes = Math.max(1, parseInt(interval) || 5);
+    if ('showDate' in req.body) apiKey.showDate = showDate === true || showDate === false ? showDate : null;
     // imageWidth/imageHeight: positive number = override, 0/null/'' = use global default
     if (imageWidth !== undefined) {
         const w = parseInt(imageWidth);
@@ -960,6 +962,9 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     const filename = files[slot % files.length];
     const filepath = path.join(UPLOADS_DIR, filename);
     const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
+    // Per-key date overlay override (set in admin panel)
+    if (keyRecord.showDate === true)  { settings.showDate = true;  settings.showDayName = true; }
+    if (keyRecord.showDate === false) { settings.showDate = false; settings.showDayName = false; settings.showTime = false; }
     const imgW = keyRecord?.imageWidth  || settings.imageWidth;
     const imgH = keyRecord?.imageHeight || settings.imageHeight;
     try {
