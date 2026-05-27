@@ -103,6 +103,44 @@
         }
         .screen-tab:hover { background: rgba(255,255,255,0.15); color: #fff; }
         .screen-tab.active { background: var(--accent); color: #fff; }
+        .screen-tab.device-tab { background: rgba(217,119,6,0.12); color: rgba(251,191,36,0.7); }
+        .screen-tab.device-tab:hover { background: rgba(217,119,6,0.22); color: #fbbf24; }
+        .screen-tab.device-tab.active { background: #d97706; color: #fff; }
+
+        .album-bar {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 7px 24px;
+            background: rgba(0,0,0,0.55);
+            border-bottom: 1px solid rgba(253,224,71,0.08);
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(253,224,71,0.1) transparent;
+            position: sticky;
+            top: 112px;
+            z-index: 19;
+        }
+        .album-tab {
+            flex-shrink: 0;
+            border: none;
+            padding: 5px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+            background: rgba(217,119,6,0.12);
+            color: rgba(251,191,36,0.65);
+            transition: background 0.15s, color 0.15s;
+            white-space: nowrap;
+            font-family: inherit;
+        }
+        .album-tab:hover { background: rgba(217,119,6,0.22); color: #fbbf24; }
+        .album-tab.active { background: #d97706; color: #fff; }
+        .album-tab.all-device { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.55); }
+        .album-tab.all-device:hover { background: rgba(255,255,255,0.13); color: #fff; }
+        .album-tab.all-device.active { background: rgba(255,255,255,0.18); color: #fff; }
 
         .new-screen-btn {
             flex-shrink: 0;
@@ -264,6 +302,24 @@
         }
         .thumb:hover .thumb-assign { display: block; }
         .thumb-assign:hover { background: rgba(0,0,0,0.85); color: #fff; }
+
+        .thumb-album-btn {
+            position: absolute;
+            bottom: 5px; right: 5px;
+            background: rgba(0,0,0,0.6);
+            color: rgba(253,224,71,0.85);
+            border: 1px solid rgba(253,224,71,0.3);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 10px;
+            cursor: pointer;
+            display: none;
+            font-family: inherit;
+            white-space: nowrap;
+            z-index: 2;
+        }
+        .thumb:hover .thumb-album-btn { display: block; }
+        .thumb-album-btn:hover { background: rgba(0,0,0,0.85); color: #fde047; }
 
         /* ── Empty state ──────────────────────────────────────────────── */
         .empty-state {
@@ -446,6 +502,7 @@
     <header>
         <h1>My Photos</h1>
         <div class="header-right">
+            <a href="/screens" class="btn btn-ghost" style="text-decoration:none" data-admin>&#128444; Screens</a>
             <a href="/admin.html" class="btn btn-ghost" style="text-decoration:none" data-admin>&#9881; Settings</a>
             <form method="POST" action="/logout" style="margin:0">
                 <button class="btn btn-ghost" type="submit">Log out</button>
@@ -462,8 +519,14 @@
     <!-- Screen tabs -->
     <div class="screen-bar" id="screenBar">
         <button class="screen-tab active" id="tabAll">All Photos</button>
-        <!-- screen tabs injected here -->
+        <!-- screen/device tabs injected here -->
         <button class="new-screen-btn" id="newScreenBtn">+ New Screen</button>
+    </div>
+
+    <!-- Album sub-bar (shown when a device tab is active) -->
+    <div class="album-bar" id="albumBar">
+        <!-- album tabs injected here -->
+        <button class="new-screen-btn" id="newAlbumBtn" data-admin style="border-color:rgba(253,224,71,0.3);color:rgba(253,224,71,0.5)">+ New Album</button>
     </div>
 
     <!-- Select toolbar -->
@@ -540,6 +603,40 @@
         </div>
     </div>
 
+    <!-- New Album modal -->
+    <div class="modal-backdrop" id="newAlbumModal">
+        <div class="modal">
+            <h3>New Album</h3>
+            <div class="field">
+                <label>Device</label>
+                <select id="newAlbumDevice"><option value="">Select device…</option></select>
+            </div>
+            <div class="field">
+                <label>Album name</label>
+                <input type="text" id="newAlbumName" placeholder="e.g. Summer 2024" maxlength="60">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" id="cancelNewAlbumBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveNewAlbumBtn">Create Album</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add to Album modal -->
+    <div class="modal-backdrop" id="addToAlbumModal">
+        <div class="modal">
+            <h3>Add to Album</h3>
+            <div class="field">
+                <label>Album</label>
+                <select id="addToAlbumSel"></select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" id="cancelAddAlbumBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveAddAlbumBtn">Add to Album</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Drop overlay -->
     <div class="drop-overlay" id="dropOverlay">Drop images to upload</div>
 
@@ -554,10 +651,16 @@
         let paused     = false;
         let favorites  = new Set();
         let screens    = [];
+        let albums     = [];
+        let devices    = [];
         let activeScreen       = null; // null = "All Photos"
+        let activeDevice       = null;
+        let activeAlbum        = null;
         let uploadTargetScreen = null;
         let assigningFilename  = null;
+        let addAlbumImageFilename = null;
         let selectMode = false;
+        let isAdmin    = false;
         const selected = new Set();
         let timer = null, timerStart = null, timerBarAnim = null;
 
@@ -586,6 +689,16 @@
                 const res = await fetch('/api/screens');
                 screens = await res.json();
             } catch { screens = []; }
+            if (isAdmin) {
+                try {
+                    const [devRes, albRes] = await Promise.all([
+                        fetch('/api/admin/devices'),
+                        fetch('/api/admin/albums')
+                    ]);
+                    if (devRes.ok) devices = await devRes.json();
+                    if (albRes.ok) albums = await albRes.json();
+                } catch {}
+            }
             renderScreenTabs();
             renderUploadMenu();
         }
@@ -593,22 +706,74 @@
         function renderScreenTabs() {
             const bar    = document.getElementById('screenBar');
             const newBtn = document.getElementById('newScreenBtn');
-            bar.querySelectorAll('.screen-tab[data-screen-id]').forEach(el => el.remove());
+            bar.querySelectorAll('.screen-tab[data-screen-id], .screen-tab[data-device-id]').forEach(el => el.remove());
             screens.forEach(s => {
                 const tab = document.createElement('button');
                 tab.className = 'screen-tab' + (activeScreen === s.id ? ' active' : '');
                 tab.dataset.screenId = s.id;
                 tab.textContent = s.name + (s.imageCount !== undefined ? ` (${s.imageCount})` : '');
-                tab.onclick = () => { activeScreen = s.id; refreshTabs(); renderGallery(); updateSsLabel(); };
+                tab.onclick = () => { activeScreen = s.id; activeDevice = null; activeAlbum = null; showAlbumBar(false); refreshTabs(); renderGallery(); updateSsLabel(); };
                 bar.insertBefore(tab, newBtn);
             });
-            document.getElementById('tabAll').classList.toggle('active', activeScreen === null);
+            devices.forEach(dev => {
+                const devAlbums = albums.filter(a => a.deviceId === dev.id);
+                if (devAlbums.length === 0) return;
+                const tab = document.createElement('button');
+                tab.className = 'screen-tab device-tab' + (activeDevice === dev.id ? ' active' : '');
+                tab.dataset.deviceId = dev.id;
+                tab.textContent = dev.name || ('Device ' + dev.id.slice(0, 8));
+                tab.onclick = () => {
+                    activeDevice = dev.id; activeScreen = null; activeAlbum = null;
+                    refreshTabs(); renderAlbumBar(); renderGallery();
+                };
+                bar.insertBefore(tab, newBtn);
+            });
+            document.getElementById('tabAll').classList.toggle('active', activeScreen === null && activeDevice === null);
+        }
+
+        function renderAlbumBar() {
+            const bar    = document.getElementById('albumBar');
+            const newBtn = document.getElementById('newAlbumBtn');
+            bar.querySelectorAll('.album-tab').forEach(el => el.remove());
+            if (!activeDevice) { showAlbumBar(false); return; }
+            const devAlbums = albums.filter(a => a.deviceId === activeDevice);
+            // "All" tab for this device
+            const allTab = document.createElement('button');
+            allTab.className = 'album-tab all-device' + (activeAlbum === null ? ' active' : '');
+            allTab.textContent = 'All photos';
+            allTab.onclick = () => { activeAlbum = null; refreshAlbumBar(); renderGallery(); };
+            bar.insertBefore(allTab, newBtn);
+            devAlbums.forEach(alb => {
+                const tab = document.createElement('button');
+                tab.className = 'album-tab' + (activeAlbum === alb.id ? ' active' : '');
+                tab.dataset.albumId = alb.id;
+                tab.textContent = (alb.favorited ? '★ ' : '') + alb.name + (alb.images?.length ? ` (${alb.images.length})` : '');
+                tab.onclick = () => { activeAlbum = alb.id; refreshAlbumBar(); renderGallery(); };
+                bar.insertBefore(tab, newBtn);
+            });
+            showAlbumBar(true);
+        }
+
+        function refreshAlbumBar() {
+            document.querySelectorAll('#albumBar .album-tab.all-device').forEach(t =>
+                t.classList.toggle('active', activeAlbum === null));
+            document.querySelectorAll('#albumBar .album-tab[data-album-id]').forEach(t =>
+                t.classList.toggle('active', t.dataset.albumId === activeAlbum));
+        }
+
+        function showAlbumBar(visible) {
+            const bar     = document.getElementById('albumBar');
+            const toolbar = document.getElementById('selectToolbar');
+            bar.style.display = visible ? 'flex' : 'none';
+            toolbar.style.top = visible ? '156px' : '112px';
         }
 
         function refreshTabs() {
-            document.getElementById('tabAll').classList.toggle('active', activeScreen === null);
+            document.getElementById('tabAll').classList.toggle('active', activeScreen === null && activeDevice === null);
             document.querySelectorAll('.screen-tab[data-screen-id]').forEach(t =>
                 t.classList.toggle('active', t.dataset.screenId === activeScreen));
+            document.querySelectorAll('.screen-tab[data-device-id]').forEach(t =>
+                t.classList.toggle('active', t.dataset.deviceId === activeDevice));
         }
 
         function updateSsLabel() {
@@ -618,6 +783,9 @@
 
         document.getElementById('tabAll').onclick = () => {
             activeScreen = null;
+            activeDevice = null;
+            activeAlbum  = null;
+            showAlbumBar(false);
             refreshTabs();
             renderGallery();
             updateSsLabel();
@@ -718,15 +886,99 @@
             } catch (e) { showToast('Error: ' + e.message, 'error'); }
         };
 
+        // ── New Album modal ──────────────────────────────────────────
+        document.getElementById('newAlbumBtn').onclick = () => {
+            const sel = document.getElementById('newAlbumDevice');
+            sel.innerHTML = '<option value="">Select device…</option>';
+            devices.forEach(d => {
+                const opt = document.createElement('option');
+                opt.value = d.id;
+                opt.textContent = d.name || d.id;
+                if (d.id === activeDevice) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            document.getElementById('newAlbumName').value = '';
+            document.getElementById('newAlbumModal').classList.add('open');
+            setTimeout(() => document.getElementById('newAlbumName').focus(), 50);
+        };
+        document.getElementById('cancelNewAlbumBtn').onclick = () =>
+            document.getElementById('newAlbumModal').classList.remove('open');
+        document.getElementById('saveNewAlbumBtn').onclick = async () => {
+            const name = document.getElementById('newAlbumName').value.trim();
+            const deviceId = document.getElementById('newAlbumDevice').value;
+            if (!name) { showToast('Album name is required.', 'error'); return; }
+            if (!deviceId) { showToast('Please select a device.', 'error'); return; }
+            try {
+                const res = await fetch('/api/admin/albums', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, deviceId })
+                });
+                if (!res.ok) throw new Error((await res.json()).error);
+                document.getElementById('newAlbumModal').classList.remove('open');
+                showToast(`Album "${name}" created.`);
+                await loadScreens();
+                if (activeDevice) renderAlbumBar();
+            } catch (e) { showToast('Could not create album: ' + e.message, 'error'); }
+        };
+        document.getElementById('newAlbumName').addEventListener('keydown', e => {
+            if (e.key === 'Enter') document.getElementById('saveNewAlbumBtn').click();
+            if (e.key === 'Escape') document.getElementById('cancelNewAlbumBtn').click();
+        });
+
+        // ── Add to Album modal ───────────────────────────────────────
+        function openAddToAlbumModal(filename) {
+            addAlbumImageFilename = filename;
+            const sel = document.getElementById('addToAlbumSel');
+            sel.innerHTML = '';
+            albums.forEach(alb => {
+                const dev = devices.find(d => d.id === alb.deviceId);
+                const devLabel = dev ? (dev.name || dev.id.slice(0, 8)) + ': ' : '';
+                const opt = document.createElement('option');
+                opt.value = alb.id;
+                opt.textContent = devLabel + alb.name;
+                sel.appendChild(opt);
+            });
+            document.getElementById('addToAlbumModal').classList.add('open');
+        }
+        document.getElementById('cancelAddAlbumBtn').onclick = () =>
+            document.getElementById('addToAlbumModal').classList.remove('open');
+        document.getElementById('saveAddAlbumBtn').onclick = async () => {
+            if (!addAlbumImageFilename) return;
+            const albumId = document.getElementById('addToAlbumSel').value;
+            if (!albumId) return;
+            const alb = albums.find(a => a.id === albumId);
+            if (!alb) return;
+            const images = [...new Set([...(alb.images || []), addAlbumImageFilename])];
+            try {
+                const res = await fetch(`/api/admin/albums/${albumId}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ images })
+                });
+                if (!res.ok) throw new Error((await res.json()).error);
+                alb.images = images;
+                document.getElementById('addToAlbumModal').classList.remove('open');
+                showToast('Added to album.');
+                renderGallery();
+            } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        };
+
         // ── Render gallery ───────────────────────────────────────────
         function renderGallery() {
             const galleryEl = document.getElementById('galleryGrid');
             galleryEl.className = 'gallery-grid' + (selectMode ? ' select-mode' : '');
             galleryEl.innerHTML = '';
 
-            const visible = activeScreen === null
-                ? allImages
-                : allImages.filter(img => img.screenId === activeScreen);
+            const currentAlbum = activeAlbum ? albums.find(a => a.id === activeAlbum) : null;
+            const deviceAlbumImages = activeDevice && !activeAlbum
+                ? [...new Set(albums.filter(a => a.deviceId === activeDevice).flatMap(a => a.images || []))]
+                : null;
+            const visible = currentAlbum
+                ? allImages.filter(img => (currentAlbum.images || []).includes(img.filename))
+                : deviceAlbumImages
+                    ? allImages.filter(img => deviceAlbumImages.includes(img.filename))
+                    : activeScreen === null
+                        ? allImages
+                        : allImages.filter(img => img.screenId === activeScreen);
 
             if (visible.length === 0) {
                 emptyState.style.display = 'flex';
@@ -811,13 +1063,38 @@
                     }
                 }
 
-                // Assign to screen button
-                if (screens.length > 0) {
+                // Assign/remove buttons
+                if (currentAlbum) {
+                    const removeBtn = document.createElement('button');
+                    removeBtn.className = 'thumb-assign';
+                    removeBtn.textContent = '✕ Remove from album';
+                    removeBtn.onclick = async e => {
+                        e.stopPropagation();
+                        const updImgs = (currentAlbum.images || []).filter(f => f !== img.filename);
+                        const r = await fetch(`/api/admin/albums/${currentAlbum.id}`, {
+                            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ images: updImgs })
+                        });
+                        if (r.ok) { currentAlbum.images = updImgs; showToast('Removed from album.'); renderGallery(); }
+                        else showToast('Error removing from album.', 'error');
+                    };
+                    thumb.appendChild(removeBtn);
+                } else if (screens.length > 0) {
                     const assignBtn = document.createElement('button');
                     assignBtn.className = 'thumb-assign';
                     assignBtn.textContent = img.screenId ? '⊙ Change screen' : '⊕ Add to screen';
                     assignBtn.onclick = e => { e.stopPropagation(); openAssignModal(img.filename); };
                     thumb.appendChild(assignBtn);
+                }
+
+                // Add to album button (admin only, not when already viewing an album)
+                if (albums.length > 0 && isAdmin && !currentAlbum) {
+                    const inAlbums = albums.filter(a => (a.images || []).includes(img.filename));
+                    const albBtn = document.createElement('button');
+                    albBtn.className = 'thumb-album-btn';
+                    albBtn.textContent = inAlbums.length > 0 ? '📁 ' + inAlbums.length + ' album(s)' : '📁 Add to album';
+                    albBtn.onclick = e => { e.stopPropagation(); openAddToAlbumModal(img.filename); };
+                    thumb.appendChild(albBtn);
                 }
 
                 galleryEl.appendChild(thumb);
@@ -1068,6 +1345,7 @@
                 const res  = await fetch('/api/me');
                 const user = await res.json();
                 const p    = user.permissions || {};
+                isAdmin = !!p.canManage;
                 if (!p.canManage) document.querySelectorAll('[data-admin]').forEach(el => el.style.display = 'none');
                 if (!p.canUpload) document.getElementById('uploadMenuBtn').style.display = 'none';
                 if (!p.canDelete) document.querySelectorAll('[data-delete]').forEach(el => el.style.display = 'none');
@@ -1075,8 +1353,7 @@
         }
 
         // ── Init ─────────────────────────────────────────────────────
-        applyRole();
-        loadScreens().then(() => loadImages());
+        applyRole().then(() => loadScreens().then(() => loadImages()));
     </script>
 </body>
 </html>

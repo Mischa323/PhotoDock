@@ -1,8 +1,16 @@
-FROM node:20-alpine
+FROM node:20-slim
+
+# Python3 + git for PlatformIO
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip git \
+    && rm -rf /var/lib/apt/lists/*
+
+# PlatformIO CLI
+RUN pip3 install --break-system-packages platformio
 
 WORKDIR /app
 
-# Install dependencies first (cached layer)
+# Install Node.js dependencies first (cached layer)
 COPY package*.json ./
 RUN npm ci --omit=dev
 
