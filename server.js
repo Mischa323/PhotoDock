@@ -4,6 +4,7 @@ const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 const crypto  = require('crypto');
+const { spawn, execSync, exec } = require('child_process');
 const QRCode      = require('qrcode');
 const nodemailer  = require('nodemailer');
 const sharp       = require('sharp');
@@ -11,6 +12,9 @@ const heicConvert = require('heic-convert');
 const { version: pkgVersion } = require('./package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
+
+const ESP32_DIR    = path.join(__dirname, 'esp32');
+const FIRMWARE_DIR = path.join(__dirname, 'firmware_build');
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
@@ -221,6 +225,7 @@ if (!appData.tokens)        { appData.tokens        = []; saveData(appData); }
 if (!appData.logs)          { appData.logs          = []; saveData(appData); }
 if (!appData.imageMetadata) { appData.imageMetadata = {}; saveData(appData); }
 if (!appData.screens)       { appData.screens       = []; saveData(appData); }
+if (!appData.albums)        { appData.albums        = []; saveData(appData); }
 
 const MAX_LOGS = 500;
 function addLog(event, { user, keyName, ip, detail } = {}) {
@@ -484,6 +489,9 @@ app.post('/logout', (req, res) => {
     clearCookie(res, req);
     res.redirect('/login');
 });
+
+app.get('/screens', requireAuth, (_req, res) => res.sendFile(path.join(__dirname, 'screens.html')));
+app.get('/admin',   requireAuth, (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
 
 // ── 2FA — login completion (unauthenticated) ───────────────────────────────
 app.get('/2fa', (_req, res) => res.sendFile(path.join(__dirname, '2fa.html')));
@@ -803,6 +811,48 @@ app.put('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
 
 app.delete('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
     appData.apiKeys = appData.apiKeys.filter(k => k.id !== req.params.id);
+    // Also remove device status entries and albums linked to this key
+    if (appData.deviceStatus) {
+        for (const [devId, d] of Object.entries(appData.deviceStatus)) {
+            if (d.apiKeyId === req.params.id) delete appData.deviceStatus[devId];
+        }
+    }
+    appData.albums = (appData.albums || []).filter(a => a.deviceId !== req.params.id);
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// ── Albums ────────────────────────────────────────────────────────────────
+app.get('/api/admin/albums', requireAdmin, (_req, res) => res.json(appData.albums || []));
+
+app.post('/api/admin/albums', requireAdmin, (req, res) => {
+    const { name, deviceId } = req.body;
+    if (!name)     return res.status(400).json({ error: 'Name required' });
+    if (!deviceId) return res.status(400).json({ error: 'deviceId required' });
+    if (!appData.apiKeys.find(k => k.id === deviceId))
+        return res.status(404).json({ error: 'Device not found' });
+    const album = { id: crypto.randomUUID(), name, deviceId, images: [], favorited: false, createdAt: new Date().toISOString() };
+    appData.albums.push(album);
+    saveData(appData);
+    res.json(album);
+});
+
+app.put('/api/admin/albums/:id', requireAdmin, (req, res) => {
+    const album = appData.albums.find(a => a.id === req.params.id);
+    if (!album) return res.status(404).json({ error: 'Album not found' });
+    if ('name'      in req.body) album.name      = String(req.body.name);
+    if ('favorited' in req.body) album.favorited = !!req.body.favorited;
+    if ('images'    in req.body && Array.isArray(req.body.images))
+        album.images = req.body.images.map(f => path.basename(f))
+            .filter(f => fs.existsSync(path.join(UPLOADS_DIR, f)));
+    saveData(appData);
+    res.json(album);
+});
+
+app.delete('/api/admin/albums/:id', requireAdmin, (req, res) => {
+    const idx = appData.albums.findIndex(a => a.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Album not found' });
+    appData.albums.splice(idx, 1);
     saveData(appData);
     res.json({ ok: true });
 });
@@ -887,6 +937,22 @@ app.put('/api/settings', requireAdmin, (req, res) => {
 
 // ── Slideshow API (external) ───────────────────────────────────────────────
 function getScreenFiles(keyRecord) {
+    const deviceId     = keyRecord?.id;
+    const deviceAlbums = (appData.albums || []).filter(a => a.deviceId === deviceId);
+
+    if (deviceAlbums.length > 0) {
+        // Build weighted playlist: favorited albums appear 3× more often
+        const playlist = [];
+        for (const album of deviceAlbums) {
+            const imgs = (album.images || []).filter(f => fs.existsSync(path.join(UPLOADS_DIR, f)));
+            if (imgs.length === 0) continue;
+            const weight = album.favorited ? 3 : 1;
+            for (let i = 0; i < weight; i++) playlist.push(...imgs);
+        }
+        if (playlist.length > 0) return playlist;
+    }
+
+    // Fallback: old screenId-based filter, or all images
     const screenId = keyRecord?.screenId || null;
     const meta     = appData.imageMetadata || {};
     const all      = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
@@ -999,6 +1065,208 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
 // ── Version ────────────────────────────────────────────────────────────────
 app.get('/api/version', (_req, res) => res.json({ version: appVersion, changelog }));
 
+// ── ESP32 firmware build (admin only, SSE stream) ─────────────────────────
+let buildInProgress = false;
+
+function escCStr(s) {
+    return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+// Resolve the pio executable — checks PlatformIO's default venv, Python Scripts dirs, then PATH
+function findPio() {
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    if (process.platform === 'win32') {
+        const candidates = [
+            path.join(home, '.platformio', 'penv', 'Scripts', 'pio.exe'),
+        ];
+        // Also search Python install dirs for pip-installed pio
+        const pythonRoots = ['C:\\Python314', 'C:\\Python313', 'C:\\Python312', 'C:\\Python311', 'C:\\Python310',
+            path.join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python314'),
+            path.join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python313'),
+            path.join(home, 'AppData', 'Local', 'Programs', 'Python', 'Python312'),
+        ];
+        for (const r of pythonRoots) candidates.push(path.join(r, 'Scripts', 'pio.exe'));
+        // User install location (pip install --user, or non-writable system site-packages)
+        const appData = process.env.APPDATA || path.join(home, 'AppData', 'Roaming');
+        for (const ver of ['Python314', 'Python313', 'Python312', 'Python311', 'Python310'])
+            candidates.push(path.join(appData, 'Python', ver, 'Scripts', 'pio.exe'));
+        for (const p of candidates) { if (fs.existsSync(p)) return p; }
+    } else {
+        const candidates = [
+            path.join(home, '.platformio', 'penv', 'bin', 'pio'),
+            '/usr/local/bin/pio',
+            '/usr/bin/pio',
+        ];
+        for (const p of candidates) { if (fs.existsSync(p)) return p; }
+    }
+    return 'pio'; // rely on PATH as last resort
+}
+
+// Find boot_app0.bin inside ~/.platformio/packages (cross-platform)
+function findBoot0() {
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    const pkgsDir = path.join(home, '.platformio', 'packages');
+    try {
+        for (const pkg of fs.readdirSync(pkgsDir)) {
+            if (!pkg.startsWith('framework-arduino')) continue;
+            const candidate = path.join(pkgsDir, pkg, 'tools', 'partitions', 'boot_app0.bin');
+            if (fs.existsSync(candidate)) return candidate;
+        }
+    } catch {}
+    // Docker / Linux fallback
+    if (process.platform !== 'win32') {
+        try {
+            const p = execSync('find /root/.platformio -name boot_app0.bin 2>/dev/null | head -1').toString().trim();
+            if (p) return p;
+        } catch {}
+    }
+    return null;
+}
+
+// Firmware status — lets the UI know if a binary is ready to flash
+app.get('/api/admin/firmware/status', requireAdmin, (_req, res) => {
+    const manifest = path.join(FIRMWARE_DIR, 'manifest.json');
+    const firmware  = path.join(FIRMWARE_DIR, 'firmware.bin');
+    const ready     = fs.existsSync(manifest) && fs.existsSync(firmware);
+    let builtAt     = null;
+    if (ready) { try { builtAt = fs.statSync(firmware).mtime.toISOString(); } catch {} }
+    res.json({ ready, builtAt });
+});
+
+app.post('/api/admin/firmware/build', requireAdmin, (req, res) => {
+    if (buildInProgress) return res.status(409).json({ error: 'A build is already in progress' });
+
+    const {
+        wifi_ssid = '', wifi_password = '',
+        server_host = '', server_port = 8080,
+        api_key = '',
+    } = req.body || {};
+
+    const esc = s => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const configContent = [
+        '#pragma once',
+        '#define DEFAULT_SLEEP_S         (5 * 60)',
+        '#define BATTERY_ADC_PIN         4',
+        '#define BATTERY_DIVIDER_RATIO   2.0f',
+        '#define JPEG_BUF_SIZE           (512 * 1024)',
+        `#define DEFAULT_WIFI_SSID       "${esc(wifi_ssid)}"`,
+        `#define DEFAULT_WIFI_PASS       "${esc(wifi_password)}"`,
+        `#define DEFAULT_SERVER_HOST     "${esc(server_host)}"`,
+        `#define DEFAULT_SERVER_PORT     ${parseInt(server_port) || 8080}`,
+        `#define DEFAULT_API_KEY         "${esc(api_key)}"`,
+    ].join('\n') + '\n';
+    fs.writeFileSync(path.join(ESP32_DIR, 'src', 'config.h'), configContent);
+
+    // Check PlatformIO is available BEFORE opening the SSE stream (avoids blocking after headers sent)
+    const pioBin = findPio();
+    const pioOk = pioBin !== 'pio'
+        ? fs.existsSync(pioBin)   // full path — already checked by findPio, but be explicit
+        : (() => { try { execSync(process.platform === 'win32' ? 'where pio' : 'which pio', { stdio: 'ignore', timeout: 3000 }); return true; } catch { return false; } })();
+
+    if (!pioOk) {
+        return res.status(500).json({
+            error: `PlatformIO not found (looked for: ${pioBin}). Install with: pip install platformio, then restart the server.`
+        });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.socket?.setTimeout(0); // disable socket timeout for long-running SSE
+    res.flushHeaders();
+
+    const send = (type, data) => { try { res.write(`data: ${JSON.stringify({ type, data })}\n\n`); } catch {} };
+
+    buildInProgress = true;
+    send('log', `▶ PlatformIO: ${pioBin}\n▶ Starting build…\n`);
+
+    // Keep SSE connection alive during quiet phases (toolchain downloads etc.)
+    const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 15000);
+
+    const pio = spawn(pioBin, ['run', '-e', 'esp32s3-photopainter'], {
+        cwd: ESP32_DIR,
+        env: {
+            ...process.env,
+            CI: '1',                                  // non-interactive mode, skip consent prompts
+            PLATFORMIO_DISABLE_AUTO_CHECK_UPDATES: '1',
+        },
+        shell: process.platform === 'win32',
+    });
+
+    pio.stdout.on('data', d => send('log', d.toString()));
+    pio.stderr.on('data', d => send('log', d.toString()));
+
+    pio.on('error', err => {
+        clearInterval(keepalive);
+        buildInProgress = false;
+        send('error',
+            `Cannot start PlatformIO: ${err.message}\n\n` +
+            `Install PlatformIO CLI:\n  pip install platformio\n\nThen restart the server.`
+        );
+        res.end();
+    });
+
+    let pioClosed = false;
+    pio.on('close', (code, signal) => {
+        pioClosed = true;
+        clearInterval(keepalive);
+        buildInProgress = false;
+        if (code !== 0) {
+            const reason = signal ? `killed by signal ${signal}` : `exit code ${code}`;
+            send('error', `Build failed (${reason})`);
+            res.end();
+            return;
+        }
+        try {
+            const buildDir = path.join(ESP32_DIR, '.pio', 'build', 'esp32s3-photopainter');
+            fs.mkdirSync(FIRMWARE_DIR, { recursive: true });
+            for (const f of ['bootloader.bin', 'partitions.bin', 'firmware.bin'])
+                fs.copyFileSync(path.join(buildDir, f), path.join(FIRMWARE_DIR, f));
+
+            // Locate boot_app0.bin from PlatformIO packages directory
+            const boot0 = findBoot0();
+            if (boot0) fs.copyFileSync(boot0, path.join(FIRMWARE_DIR, 'boot_app0.bin'));
+            else send('log', '⚠ boot_app0.bin not found — flash may fail if this is the first build\n');
+
+            const manifest = {
+                name: 'Photo Display – ESP32-S3-PhotoPainter',
+                version: appVersion,
+                builds: [{ chipFamily: 'ESP32-S3', parts: [
+                    { path: '/firmware/bootloader.bin', offset: 0 },
+                    { path: '/firmware/partitions.bin', offset: 32768 },
+                    { path: '/firmware/boot_app0.bin',  offset: 57344 },
+                    { path: '/firmware/firmware.bin',   offset: 65536 },
+                ]}],
+            };
+            fs.writeFileSync(path.join(FIRMWARE_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
+
+            // Persist flash config to the matching API key record
+            if (api_key) {
+                const keyRecord = appData.apiKeys.find(k => k.key === api_key);
+                if (keyRecord) {
+                    keyRecord.lastFlash = {
+                        mode:       wifi_ssid ? 'auto' : 'manual',
+                        wifiSsid:   wifi_ssid   || null,
+                        serverHost: server_host || null,
+                        serverPort: parseInt(server_port) || 8080,
+                        builtAt:    new Date().toISOString(),
+                    };
+                    saveData(appData);
+                }
+            }
+
+            send('done', 'Build succeeded — ready to flash');
+        } catch (e) {
+            send('error', `Post-build copy failed: ${e.message}`);
+        }
+        res.end();
+    });
+
+});
+
+// Serve built firmware files for esp-web-tools
+app.use('/firmware', express.static(FIRMWARE_DIR));
+
 // ── Static files ───────────────────────────────────────────────────────────
 app.use(express.static(__dirname));
 app.use('/uploads', express.static(UPLOADS_DIR));
@@ -1104,6 +1372,86 @@ app.delete('/api/favorites/:filename', (req, res) => {
     user.favorites = (user.favorites || []).filter(f => f !== path.basename(req.params.filename));
     saveData(appData);
     res.json({ ok: true });
+});
+
+// ── Device status (posted by ESP32 after each display refresh) ────────────
+app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
+    const key = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
+    const { battery_mv, wifi_rssi, firmware_version, device_id } = req.body || {};
+    if (!appData.deviceStatus) appData.deviceStatus = {};
+    const id = device_id || key.id;
+    appData.deviceStatus[id] = {
+        deviceId:        id,
+        apiKeyId:        key.id,
+        apiKeyName:      key.name,
+        screenId:        key.screenId || null,
+        intervalMinutes: key.intervalMinutes || 5,
+        batteryMv:       battery_mv   != null ? Number(battery_mv)  : null,
+        wifiRssi:        wifi_rssi    != null ? Number(wifi_rssi)   : null,
+        fwVersion:       firmware_version || null,
+        lastSeen:        new Date().toISOString(),
+    };
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+app.get('/api/admin/devices', requireAdmin, (_req, res) => {
+    const statuses = Object.values(appData.deviceStatus || {});
+    // Merge lastFlash + key string from apiKeys into each status entry
+    const result = statuses.map(d => {
+        const key = appData.apiKeys.find(k => k.id === d.apiKeyId);
+        return { ...d, apiKey: key?.key || null, lastFlash: key?.lastFlash || null };
+    });
+    // Also include API keys that have never checked in
+    const seenKeyIds = new Set(statuses.map(d => d.apiKeyId));
+    for (const key of appData.apiKeys) {
+        if (!seenKeyIds.has(key.id)) {
+            result.push({
+                deviceId:        key.id,
+                apiKeyId:        key.id,
+                apiKeyName:      key.name,
+                apiKey:          key.key,
+                screenId:        key.screenId || null,
+                intervalMinutes: key.intervalMinutes || 5,
+                batteryMv:       null,
+                wifiRssi:        null,
+                fwVersion:       null,
+                lastSeen:        null,
+                lastFlash:       key.lastFlash || null,
+            });
+        }
+    }
+    res.json(result);
+});
+
+// ── WiFi network scan (admin only) ────────────────────────────────────────
+app.get('/api/admin/wifi-scan', requireAdmin, (_req, res) => {
+    const isWindows = process.platform === 'win32';
+    // Windows: list saved profiles — no location permission required.
+    // Linux:   list saved connections via nmcli (works in Docker too).
+    const cmd = isWindows
+        ? 'netsh wlan show profiles'
+        : 'nmcli -t -f NAME,TYPE connection show 2>/dev/null';
+
+    exec(cmd, { timeout: 12000 }, (err, stdout) => {
+        if (err && !stdout) return res.status(500).json({ error: 'WiFi scan failed', detail: err.message });
+        const ssids = [];
+        if (isWindows) {
+            // Matches lines like:  "    All User Profile     : MyNetwork"
+            for (const m of String(stdout).matchAll(/All User Profile\s*:\s*(.+)$/gm)) {
+                const s = m[1].trim();
+                if (s && !ssids.includes(s)) ssids.push(s);
+            }
+        } else {
+            // nmcli -t output: "NAME:TYPE" — keep only 802-11-wireless entries
+            for (const line of String(stdout).split('\n')) {
+                const [name, type] = line.split(':');
+                if (type?.trim() === '802-11-wireless' && name?.trim() && !ssids.includes(name.trim()))
+                    ssids.push(name.trim());
+            }
+        }
+        res.json({ ssids });
+    });
 });
 
 // ── Screens ────────────────────────────────────────────────────────────────

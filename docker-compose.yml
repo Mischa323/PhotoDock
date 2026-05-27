@@ -13,6 +13,8 @@ services:
       UPLOADS_DIR: /data/uploads
     volumes:
       - ./data:/data
+      - pio-cache:/root/.platformio
     restart: unless-stopped
 
-volumes: {}
+volumes:
+  pio-cache:

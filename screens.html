@@ -1,0 +1,1457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <title>Screens — Photo Display</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    <style>
+        :root {
+            --accent:        #06b6d4;
+            --accent-hover:  #0891b2;
+            --accent-header: #0e7490;
+            --accent-light:  rgba(6,182,212,0.14);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body { font-family: 'Inter', sans-serif; background: #ecfeff; min-height: 100vh; }
+
+        header {
+            background: var(--accent-header);
+            color: #fff;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 24px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+        }
+        header h1 { font-size: 18px; font-weight: 600; }
+        .nav-btn {
+            background: rgba(255,255,255,0.15);
+            color: #fff;
+            border: none;
+            padding: 7px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+        }
+        .nav-btn:hover { background: rgba(255,255,255,0.25); }
+        .nav-btn.primary { background: var(--accent); }
+        .nav-btn.primary:hover { background: var(--accent-hover); }
+
+        main { max-width: 1100px; margin: 32px auto; padding: 0 24px 60px; }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .section-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: .07em;
+            margin-bottom: 12px;
+            margin-top: 32px;
+        }
+        .section-label:first-child { margin-top: 0; }
+
+        /* Screen cards grid */
+        .screen-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 20px;
+        }
+
+        .screen-card {
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid #e0f2fe;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            overflow: hidden;
+        }
+        .screen-card-header {
+            padding: 16px 20px 14px;
+            border-bottom: 1px solid #f0f9ff;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 8px;
+        }
+        .screen-card-title { font-size: 15px; font-weight: 600; color: #0f172a; }
+        .screen-card-meta { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+        .screen-card-body { padding: 14px 20px 18px; display: flex; flex-direction: column; gap: 10px; }
+
+        .icon-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: #94a3b8;
+            font-size: 15px;
+            padding: 3px 5px;
+            border-radius: 5px;
+            line-height: 1;
+            flex-shrink: 0;
+        }
+        .icon-btn:hover { background: #fee2e2; color: #c00; }
+        .icon-btn.edit:hover { background: #e0f2fe; color: var(--accent-header); }
+
+        /* Device card inside a screen */
+        .device-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .device-name { font-size: 13px; font-weight: 600; color: #334155; }
+
+        .device-stats { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+        /* Battery */
+        .battery-wrap { display: flex; align-items: center; gap: 6px; }
+        .battery-icon { font-size: 14px; }
+        .battery-bar-outer {
+            width: 52px; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;
+        }
+        .battery-bar-inner { height: 100%; border-radius: 4px; transition: width .3s; }
+        .battery-bar-inner.high   { background: #22c55e; }
+        .battery-bar-inner.medium { background: #f59e0b; }
+        .battery-bar-inner.low    { background: #ef4444; }
+        .battery-pct { font-size: 12px; font-weight: 600; color: #475569; min-width: 34px; }
+
+        /* WiFi */
+        .wifi-wrap { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #475569; }
+        .wifi-bars { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+        .wifi-bars span {
+            display: block; width: 3px; background: #cbd5e1; border-radius: 1px;
+        }
+        .wifi-bars span:nth-child(1) { height: 4px; }
+        .wifi-bars span:nth-child(2) { height: 7px; }
+        .wifi-bars span:nth-child(3) { height: 10px; }
+        .wifi-bars span:nth-child(4) { height: 14px; }
+        .wifi-bars.q1 span:nth-child(1) { background: #ef4444; }
+        .wifi-bars.q2 span:nth-child(1),
+        .wifi-bars.q2 span:nth-child(2) { background: #f59e0b; }
+        .wifi-bars.q3 span:nth-child(1),
+        .wifi-bars.q3 span:nth-child(2),
+        .wifi-bars.q3 span:nth-child(3) { background: #22c55e; }
+        .wifi-bars.q4 span { background: #22c55e; }
+
+        /* Status pill */
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 9px;
+            border-radius: 20px;
+        }
+        .status-pill::before { content: ''; display: block; width: 6px; height: 6px; border-radius: 50%; }
+        .status-online  { background: #dcfce7; color: #15803d; }
+        .status-online::before  { background: #22c55e; }
+        .status-recent  { background: #fef3c7; color: #92400e; }
+        .status-recent::before  { background: #f59e0b; }
+        .status-offline { background: #f1f5f9; color: #64748b; }
+        .status-offline::before { background: #94a3b8; }
+
+        .device-last-seen { font-size: 11px; color: #94a3b8; }
+        .device-flash-info { font-size: 11px; color: #94a3b8; }
+        .btn-flash-card {
+            font-size: 11px; font-weight: 600; font-family: inherit;
+            padding: 3px 10px; border-radius: 6px; border: 1px solid var(--accent);
+            background: transparent; color: var(--accent); cursor: pointer;
+            transition: background .15s, color .15s;
+        }
+        .btn-flash-card:hover { background: var(--accent); color: #fff; }
+        .btn-delete-card {
+            font-size: 11px; font-weight: 600; font-family: inherit;
+            padding: 3px 8px; border-radius: 6px; border: 1px solid #e2e8f0;
+            background: transparent; color: #94a3b8; cursor: pointer;
+            transition: border-color .15s, color .15s, background .15s;
+        }
+        .btn-delete-card:hover { border-color: #ef4444; color: #ef4444; }
+
+        .no-devices { font-size: 13px; color: #94a3b8; font-style: italic; }
+
+        /* Albums */
+        .device-albums { margin-top: 12px; border-top: 1px solid #e2e8f0; padding-top: 12px; }
+        [data-theme="dark"] .device-albums { border-color: #2d3f52; }
+        .albums-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+        .albums-label { font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: .04em; }
+        .btn-new-album { font-size: 11px; font-weight: 600; font-family: inherit; padding: 3px 10px;
+            border-radius: 6px; border: 1px solid #94a3b8; background: transparent; color: #64748b;
+            cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
+        .btn-new-album:hover { border-color: var(--accent); color: var(--accent); background: #f0faff; }
+        .album-list { display: flex; flex-direction: column; gap: 8px; }
+        .album-card { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; }
+        [data-theme="dark"] .album-card { border-color: #2d3f52; }
+        .album-card.favorited { border-color: #f59e0b; background: #fffbeb; }
+        [data-theme="dark"] .album-card.favorited { background: #1f1a0a; border-color: #b45309; }
+        .album-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+        .btn-fav { font-size: 15px; background: none; border: none; cursor: pointer; padding: 0 2px; line-height: 1; opacity: .5; transition: opacity .15s, transform .15s; }
+        .btn-fav:hover, .btn-fav.active { opacity: 1; transform: scale(1.2); }
+        .album-name-text { font-size: 13px; font-weight: 600; color: #334155; flex: 1; }
+        [data-theme="dark"] .album-name-text { color: #cbd5e1; }
+        .btn-album-del { font-size: 11px; background: none; border: none; cursor: pointer; color: #94a3b8; padding: 0 2px; transition: color .15s; }
+        .btn-album-del:hover { color: #ef4444; }
+        .album-thumbs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .album-thumb { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: border-color .15s; }
+        .album-thumb:hover { border-color: #ef4444; }
+        .btn-add-imgs { width: 44px; height: 44px; border-radius: 4px; border: 1px dashed #94a3b8; background: none;
+            font-size: 18px; color: #94a3b8; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            transition: border-color .15s, color .15s; flex-shrink: 0; }
+        .btn-add-imgs:hover { border-color: var(--accent); color: var(--accent); border-style: solid; }
+        .album-no-images { font-size: 11px; color: #94a3b8; font-style: italic; }
+        /* Image picker modal */
+        .picker-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+        .picker-modal { background: #fff; border-radius: 12px; width: min(700px, 96vw); max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+        [data-theme="dark"] .picker-modal { background: #1e293b; }
+        .picker-header { padding: 16px 20px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; }
+        [data-theme="dark"] .picker-header { border-color: #2d3f52; }
+        .picker-title { font-size: 15px; font-weight: 700; color: #0f172a; }
+        [data-theme="dark"] .picker-title { color: #e2e8f0; }
+        .picker-grid { flex: 1; overflow-y: auto; padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 6px; }
+        .picker-img { position: relative; cursor: pointer; border-radius: 6px; overflow: hidden; aspect-ratio: 1; }
+        .picker-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .picker-img.selected::after { content: '✓'; position: absolute; inset: 0; background: rgba(6,182,212,.6); display: flex; align-items: center; justify-content: center; font-size: 22px; color: #fff; font-weight: 700; }
+        .picker-footer { padding: 12px 20px; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 8px; }
+        [data-theme="dark"] .picker-footer { border-color: #2d3f52; }
+
+        /* Add-screen form */
+        .add-form {
+            background: #fff;
+            border: 1px dashed #b0e0ea;
+            border-radius: 12px;
+            padding: 20px 22px;
+            display: flex;
+            align-items: flex-end;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .add-form .field { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 150px; }
+        .add-form .field label { font-size: 12px; font-weight: 500; color: #555; }
+        .add-form .field input {
+            padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; font-family: inherit; background: #fff;
+        }
+        .btn-add {
+            background: var(--accent);
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            padding: 9px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .btn-add:hover { background: var(--accent-hover); }
+
+        .toast {
+            position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+            background: #0f172a; color: #fff; padding: 10px 22px; border-radius: 8px;
+            font-size: 14px; font-weight: 500; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+            transition: transform .25s; pointer-events: none; z-index: 9999;
+        }
+        .toast.show { transform: translateX(-50%) translateY(0); }
+        .toast.error { background: #7f1d1d; }
+
+        /* Dark mode */
+        [data-theme="dark"] body            { background: #0f1c2b; color: #e2e8f0; }
+        [data-theme="dark"] .screen-card    { background: #1e293b; border-color: #2d3f52; }
+        [data-theme="dark"] .screen-card-header { border-color: #2d3f52; }
+        [data-theme="dark"] .screen-card-title  { color: #e2e8f0; }
+        [data-theme="dark"] .device-card    { background: #162032; border-color: #2d3f52; }
+        [data-theme="dark"] .device-name    { color: #cbd5e1; }
+        [data-theme="dark"] .add-form       { background: #1e293b; border-color: #2d4a5e; }
+        [data-theme="dark"] .add-form .field input { background: #162032; border-color: #2d3f52; color: #e2e8f0; }
+
+        .theme-btn {
+            background: none; border: none; cursor: pointer; font-size: 18px;
+            padding: 4px 8px; border-radius: 6px; margin-right: 6px;
+        }
+        .theme-btn:hover { background: rgba(255,255,255,0.15); }
+
+        /* Edit modal */
+        .modal-backdrop {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.45); z-index: 100;
+            align-items: center; justify-content: center;
+        }
+        .modal {
+            background: #fff; border-radius: 12px; padding: 28px 28px 22px;
+            width: 380px; max-width: 94vw;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.22);
+            display: flex; flex-direction: column; gap: 14px;
+        }
+        .modal h3 { font-size: 16px; font-weight: 600; color: #0f172a; }
+        .modal .field { display: flex; flex-direction: column; gap: 4px; }
+        .modal .field label { font-size: 12px; font-weight: 500; color: #555; }
+        .modal .field input {
+            padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; font-family: inherit;
+        }
+        .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+        .btn-cancel {
+            background: #f1f5f9; color: #475569; border: none;
+            border-radius: 6px; padding: 8px 18px; font-size: 13px;
+            font-weight: 600; cursor: pointer; font-family: inherit;
+        }
+        .btn-cancel:hover { background: #e2e8f0; }
+        .btn-save {
+            background: var(--accent); color: #fff; border: none;
+            border-radius: 6px; padding: 8px 18px; font-size: 13px;
+            font-weight: 600; cursor: pointer; font-family: inherit;
+        }
+        .btn-save:hover { background: var(--accent-hover); }
+        [data-theme="dark"] .modal { background: #1e293b; }
+        [data-theme="dark"] .modal h3 { color: #e2e8f0; }
+        [data-theme="dark"] .modal .field input { background: #162032; border-color: #334155; color: #e2e8f0; }
+        [data-theme="dark"] .btn-cancel { background: #334155; color: #cbd5e1; }
+
+        /* ── Device Setup Wizard ─────────────────────────────────────── */
+        .wizard-card {
+            background: #fff;
+            border-radius: 12px;
+            border: 1px solid #e0f2fe;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+            overflow: hidden;
+        }
+        .wizard-steps {
+            display: flex;
+            align-items: center;
+            padding: 16px 24px;
+            border-bottom: 1px solid #f0f9ff;
+        }
+        .wizard-step-item { display: flex; align-items: center; gap: 8px; }
+        .wizard-step-dot {
+            width: 28px; height: 28px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 700;
+            background: #e2e8f0; color: #64748b; flex-shrink: 0;
+            transition: background .2s, color .2s;
+        }
+        .wizard-step-dot.active { background: var(--accent); color: #fff; }
+        .wizard-step-dot.done   { background: #22c55e; color: #fff; }
+        .wizard-step-label { font-size: 12px; font-weight: 600; color: #94a3b8; transition: color .2s; }
+        .wizard-step-label.active { color: var(--accent-header); }
+        .wizard-step-label.done   { color: #22c55e; }
+        .wizard-step-line { flex: 1; height: 2px; background: #e2e8f0; margin: 0 12px; transition: background .2s; }
+        .wizard-step-line.done { background: #22c55e; }
+        .wizard-body { padding: 24px 24px 20px; }
+        .wizard-panel { display: none; }
+        .wizard-panel.active { display: block; }
+        .wizard-title { font-size: 15px; font-weight: 600; color: #0f172a; margin-bottom: 18px; }
+        .wz-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+        .wz-field label { font-size: 12px; font-weight: 500; color: #555; }
+        .wz-field input, .wz-field select {
+            padding: 8px 10px; border: 1px solid #ddd; border-radius: 6px;
+            font-size: 13px; font-family: inherit; background: #fff;
+        }
+        .wifi-scan-row { display: flex; gap: 8px; }
+        .wifi-scan-row select { flex: 1; }
+        .btn-scan {
+            background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
+            border-radius: 6px; padding: 8px 14px; font-size: 13px;
+            font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap;
+        }
+        .btn-scan:hover { background: #e2e8f0; }
+        .host-port-row { display: grid; grid-template-columns: 1fr 84px; gap: 10px; }
+        .wizard-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+        .wizard-summary {
+            background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+            padding: 12px 16px; margin-bottom: 16px;
+        }
+        .wizard-summary-row { display: flex; gap: 8px; font-size: 13px; padding: 3px 0; }
+        .wizard-summary-row .lbl { color: #94a3b8; font-weight: 500; min-width: 68px; }
+        .wizard-summary-row .val { color: #334155; font-weight: 600; }
+        #wzBuildLog {
+            display: none; margin: 12px 0 0;
+            background: #0f172a; color: #e2e8f0;
+            font-family: 'Courier New', monospace; font-size: 12px;
+            line-height: 1.55; border-radius: 8px; padding: 12px 14px;
+            max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+        }
+        #wzFlashActions { display: none; align-items: center; gap: 12px; margin-top: 12px; }
+        esp-web-install-button { --esp-tools-button-color: var(--accent); --esp-tools-button-text-color: #fff; }
+        [data-theme="dark"] .wizard-card   { background: #1e293b; border-color: #2d3f52; }
+        [data-theme="dark"] .wizard-steps  { border-color: #2d3f52; }
+        [data-theme="dark"] .wizard-title  { color: #e2e8f0; }
+        [data-theme="dark"] .wz-field input,
+        [data-theme="dark"] .wz-field select { background: #162032; border-color: #334155; color: #e2e8f0; }
+        [data-theme="dark"] .btn-scan      { background: #2d3f52; border-color: #334155; color: #cbd5e1; }
+        [data-theme="dark"] .wizard-summary { background: #162032; border-color: #2d3f52; }
+        [data-theme="dark"] .wizard-summary-row .val { color: #cbd5e1; }
+        /* API key reveal */
+        .key-reveal {
+            background: #f0f9ff; border: 1px solid #bae6fd;
+            border-radius: 8px; padding: 14px 16px; margin: 16px 0;
+        }
+        .key-reveal-label { font-size: 12px; font-weight: 600; color: #0369a1; margin-bottom: 8px; }
+        .key-reveal-row   { display: flex; align-items: center; gap: 8px; }
+        .key-value {
+            flex: 1; font-family: 'Courier New', monospace; font-size: 12px;
+            background: #fff; border: 1px solid #e0f2fe; border-radius: 4px;
+            padding: 7px 10px; color: #0f172a; word-break: break-all;
+        }
+        .btn-copy {
+            background: none; border: 1px solid #bae6fd; border-radius: 6px;
+            padding: 6px 10px; cursor: pointer; font-size: 14px;
+            color: #0369a1; flex-shrink: 0;
+        }
+        .btn-copy:hover { background: #e0f2fe; }
+
+        /* Flash step */
+        .flash-instructions { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+        .flash-step { display: flex; align-items: flex-start; gap: 12px; font-size: 13px; color: #334155; }
+        .flash-step-num {
+            width: 24px; height: 24px; border-radius: 50%; background: var(--accent);
+            color: #fff; font-size: 12px; font-weight: 700;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .fw-status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 12px; font-weight: 600; padding: 4px 10px;
+            border-radius: 20px; margin-bottom: 16px;
+        }
+        .fw-status-badge.ready   { background: #dcfce7; color: #15803d; }
+        .fw-status-badge.missing { background: #fef3c7; color: #92400e; }
+
+        /* Setup guide step 3 */
+        .setup-steps { display: flex; flex-direction: column; gap: 18px; }
+        .setup-step  { display: flex; align-items: flex-start; gap: 14px; }
+        .setup-step-num {
+            width: 28px; height: 28px; border-radius: 50%; background: #e0f2fe;
+            color: var(--accent-header); font-size: 13px; font-weight: 700;
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px;
+        }
+        .setup-step-title { font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+        .setup-step-sub   { font-size: 12px; color: #94a3b8; margin-top: 4px; }
+        .setup-val {
+            display: inline-block; font-family: 'Courier New', monospace; font-size: 13px;
+            background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 5px;
+            padding: 5px 10px; color: #0f172a; word-break: break-all;
+        }
+        .setup-config-row {
+            display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap;
+        }
+        .setup-config-lbl { font-size: 12px; font-weight: 600; color: #94a3b8; min-width: 54px; }
+
+        [data-theme="dark"] .key-reveal  { background: #0f2336; border-color: #1e4060; }
+        [data-theme="dark"] .key-value   { background: #162032; border-color: #1e4060; color: #e2e8f0; }
+        [data-theme="dark"] .btn-copy    { border-color: #1e4060; color: #7dd3fc; }
+        [data-theme="dark"] .setup-val   { background: #162032; border-color: #2d3f52; color: #e2e8f0; }
+        [data-theme="dark"] .setup-step-title { color: #cbd5e1; }
+        [data-theme="dark"] .setup-step-num   { background: #1e3a4a; color: #7dd3fc; }
+        [data-theme="dark"] .fw-status-badge.ready   { background: #14532d; color: #86efac; }
+        [data-theme="dark"] .fw-status-badge.missing { background: #451a03; color: #fcd34d; }
+
+        /* Mode selection cards */
+        .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+        .mode-card {
+            border: 2px solid #e2e8f0; border-radius: 10px; padding: 16px 18px;
+            cursor: pointer; transition: border-color .15s, background .15s; user-select: none;
+        }
+        .mode-card:hover { border-color: var(--accent); }
+        .mode-card.selected { border-color: var(--accent); background: #f0faff; }
+        .mode-card-icon { font-size: 22px; margin-bottom: 8px; }
+        .mode-card-title { font-size: 14px; font-weight: 600; color: #0f172a; margin-bottom: 4px; }
+        .mode-card-desc { font-size: 12px; color: #64748b; line-height: 1.5; }
+        [data-theme="dark"] .mode-card { border-color: #2d3f52; }
+        [data-theme="dark"] .mode-card:hover { border-color: var(--accent); }
+        [data-theme="dark"] .mode-card.selected { border-color: var(--accent); background: #0f2336; }
+        [data-theme="dark"] .mode-card-title { color: #e2e8f0; }
+        [data-theme="dark"] .mode-card-desc { color: #94a3b8; }
+        .device-type-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1px solid #e2e8f0; margin-bottom: 20px; }
+        .toggle-btn { flex: 1; padding: 8px 16px; border: none; background: #f8fafc; cursor: pointer; font-size: 13px; font-weight: 500; color: #64748b; transition: background .15s, color .15s; font-family: inherit; }
+        .toggle-btn:not(:last-child) { border-right: 1px solid #e2e8f0; }
+        .toggle-btn.selected { background: var(--accent); color: #fff; font-weight: 600; }
+        [data-theme="dark"] .device-type-toggle { border-color: #2d3f52; }
+        [data-theme="dark"] .toggle-btn { background: #1e293b; color: #94a3b8; }
+        [data-theme="dark"] .toggle-btn:not(:last-child) { border-color: #2d3f52; }
+        [data-theme="dark"] .toggle-btn.selected { background: var(--accent); color: #fff; }
+    </style>
+</head>
+<body>
+
+<header>
+    <h1>Screens</h1>
+    <div style="display:flex;align-items:center;gap:4px">
+        <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
+        <a href="/admin" class="nav-btn">&#8592; Settings</a>
+        <a href="/"      class="nav-btn" style="margin-left:4px">&#8962; Gallery</a>
+    </div>
+</header>
+
+<main>
+    <div class="toolbar">
+        <div style="font-size:14px;color:#555" id="screenCount">Loading…</div>
+    </div>
+
+    <div id="deviceGrid" class="screen-grid"></div>
+
+    <!-- Image picker modal -->
+    <div id="pickerOverlay" class="picker-overlay" style="display:none" onclick="if(event.target===this)closePicker()">
+        <div class="picker-modal">
+            <div class="picker-header">
+                <span class="picker-title" id="pickerTitle">Add images</span>
+                <button class="icon-btn" onclick="closePicker()">&#10005;</button>
+            </div>
+            <div class="picker-grid" id="pickerGrid"></div>
+            <div class="picker-footer">
+                <button class="btn-cancel" onclick="closePicker()">Cancel</button>
+                <button class="btn-add" onclick="savePickerSelection()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="section-label" style="margin-top:40px">Set up a new device</div>
+    <div class="wizard-card">
+
+        <!-- Step indicator -->
+        <div class="wizard-steps">
+            <div class="wizard-step-item">
+                <div class="wizard-step-dot active" id="dot1">1</div>
+                <span class="wizard-step-label active" id="lbl1">Name</span>
+            </div>
+            <div class="wizard-step-line" id="line1"></div>
+            <div class="wizard-step-item">
+                <div class="wizard-step-dot" id="dot2">2</div>
+                <span class="wizard-step-label" id="lbl2">Config</span>
+            </div>
+            <div class="wizard-step-line" id="line2"></div>
+            <div class="wizard-step-item">
+                <div class="wizard-step-dot" id="dot3">3</div>
+                <span class="wizard-step-label" id="lbl3">Flash</span>
+            </div>
+            <div class="wizard-step-line" id="line3"></div>
+            <div class="wizard-step-item">
+                <div class="wizard-step-dot" id="dot4">4</div>
+                <span class="wizard-step-label" id="lbl4">Done</span>
+            </div>
+        </div>
+
+        <div class="wizard-body">
+
+            <!-- Step 1: Name -->
+            <div class="wizard-panel active" id="wizardPanel1">
+                <div class="device-type-toggle">
+                    <button class="toggle-btn selected" id="toggleNewBtn" onclick="setSetupType('new')">New device</button>
+                    <button class="toggle-btn" id="toggleReflashBtn" onclick="setSetupType('reflash')">Reflash existing</button>
+                </div>
+
+                <!-- New device fields -->
+                <div id="wzNewFields">
+                    <div class="wizard-title">What would you like to call this screen?</div>
+                    <div class="wz-field">
+                        <label>Screen name</label>
+                        <input type="text" id="wzName" placeholder="e.g. Living Room Display" maxlength="60" autofocus>
+                    </div>
+                    <div class="wz-field">
+                        <label>Description <span style="color:#94a3b8;font-weight:400">(optional)</span></label>
+                        <input type="text" id="wzDesc" placeholder="Short description" maxlength="120">
+                    </div>
+                    <div class="wz-field">
+                        <label>Device type</label>
+                        <select id="wzDeviceType">
+                            <option value="waveshare-s3-photopainter">Waveshare ESP32-S3-PhotoPainter (7.3&quot; ACeP 7-color, 800×480)</option>
+                        </select>
+                    </div>
+                    <div class="key-reveal" id="wzKeyReveal" style="display:none">
+                        <div class="key-reveal-label">Screen &amp; API key created — copy the key, you'll need it in step 3</div>
+                        <div class="key-reveal-row">
+                            <span class="key-value" id="wzCreatedKeyValue"></span>
+                            <button class="btn-copy" onclick="copyKey()" title="Copy API key">&#128203;</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Reflash existing device fields -->
+                <div id="wzExistingFields" style="display:none">
+                    <div class="wizard-title">Select the device to reflash</div>
+                    <div class="wz-field">
+                        <label>Existing device</label>
+                        <select id="wzExistingKey">
+                            <option value="">— loading devices… —</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="wizard-actions">
+                    <button class="btn-add" id="wzStep1Btn" onclick="wizardStep1Next()">Next &#8594;</button>
+                    <button class="btn-add" id="wzContinueBtn" style="display:none" onclick="wizardSetStep(2)">Configure &#8594;</button>
+                </div>
+            </div>
+
+            <!-- Step 2: Config -->
+            <div class="wizard-panel" id="wizardPanel2">
+                <div class="wizard-title">How would you like to configure the device?</div>
+                <div class="mode-cards">
+                    <div class="mode-card" id="modeAutoCard" onclick="setWizardMode('auto')">
+                        <div class="mode-card-icon">&#9889;</div>
+                        <div class="mode-card-title">Automatic</div>
+                        <div class="mode-card-desc">Enter your WiFi and server settings here. The firmware will connect automatically after flashing — no setup on the device needed.</div>
+                    </div>
+                    <div class="mode-card" id="modeManualCard" onclick="setWizardMode('manual')">
+                        <div class="mode-card-icon">&#128295;</div>
+                        <div class="mode-card-title">Manual</div>
+                        <div class="mode-card-desc">Flash generic firmware. After power-on, connect to the device's WiFi hotspot to configure it directly.</div>
+                    </div>
+                </div>
+                <div id="wzAutoFields" style="display:none">
+                    <div class="wz-field">
+                        <label>WiFi network</label>
+                        <div class="wifi-scan-row">
+                            <select id="wzSsidSelect" onchange="onSsidSelect()">
+                                <option value="">— click Scan to load saved networks —</option>
+                            </select>
+                            <button class="btn-scan" id="scanBtn" onclick="scanWifi()">&#8635; Scan</button>
+                        </div>
+                        <input type="text" id="wzSsidCustom" placeholder="Or type a network name"
+                               style="margin-top:6px" autocomplete="off">
+                    </div>
+                    <div class="wz-field">
+                        <label>WiFi password</label>
+                        <input type="password" id="wzPassword" placeholder="••••••••" autocomplete="new-password">
+                    </div>
+                    <div class="wz-field host-port-row">
+                        <div class="wz-field" style="margin-bottom:0">
+                            <label>Server host</label>
+                            <input type="text" id="wzHost" placeholder="192.168.1.100" autocomplete="off">
+                        </div>
+                        <div class="wz-field" style="margin-bottom:0">
+                            <label>Port</label>
+                            <input type="number" id="wzPort" value="8080" min="1" max="65535">
+                        </div>
+                    </div>
+                </div>
+                <div class="wizard-actions">
+                    <button class="btn-cancel" onclick="wizardBack(2)">&#8592; Back</button>
+                    <button class="btn-add" onclick="wizardStep2Next()">Next &#8594;</button>
+                </div>
+            </div>
+
+            <!-- Step 3: Flash -->
+            <div class="wizard-panel" id="wizardPanel3">
+                <div class="wizard-title">Flash the firmware to your device</div>
+                <div id="wzFwStatus"></div>
+                <div id="wzBuildControls" style="display:none">
+                    <div class="flash-instructions">
+                        <div class="flash-step">
+                            <div class="flash-step-num">1</div>
+                            <div>Click <strong>Build Firmware</strong> — compiles the firmware (~2 min)</div>
+                        </div>
+                        <div class="flash-step">
+                            <div class="flash-step-num">2</div>
+                            <div>Once built, plug the ESP32 in via USB and click <strong>Flash Device</strong></div>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                        <button class="btn-add" id="wzBuildBtn" onclick="wizardBuild()">Build Firmware</button>
+                        <span id="wzBuildStatus" style="font-size:13px;color:#888"></span>
+                    </div>
+                    <pre id="wzBuildLog"></pre>
+                </div>
+                <div id="wzFlashControls" style="display:none">
+                    <div class="flash-instructions">
+                        <div class="flash-step">
+                            <div class="flash-step-num">1</div>
+                            <div>Hold the <strong>BOOT</strong> button on the ESP32, connect it via USB, then release BOOT</div>
+                        </div>
+                        <div class="flash-step">
+                            <div class="flash-step-num">2</div>
+                            <div>Click <strong>Flash Device</strong> and select the serial port when prompted</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                        <esp-web-install-button manifest="/firmware/manifest.json" id="espInstallBtn">
+                            <button slot="activate" class="btn-add">&#9889; Flash Device</button>
+                            <span slot="unsupported" style="font-size:13px;color:#c00">Web Serial not supported — use Chrome or Edge.</span>
+                        </esp-web-install-button>
+                        <span style="font-size:12px;color:#94a3b8">Requires Chrome or Edge.</span>
+                    </div>
+                    <div id="wzFlashDone" style="display:none;margin-top:12px">
+                        <span style="font-size:13px;color:#22c55e;font-weight:600">&#10003; Flash complete!</span>
+                    </div>
+                </div>
+                <div class="wizard-actions">
+                    <button class="btn-cancel" onclick="wizardBack(3)">&#8592; Back</button>
+                    <button class="btn-add" id="wzFlashContinue" style="display:none" onclick="wizardSetStep(4)">Continue &#8594;</button>
+                </div>
+            </div>
+
+            <!-- Step 4: Done -->
+            <div class="wizard-panel" id="wizardPanel4">
+
+                <!-- Automatic mode -->
+                <div id="wzDoneAuto" style="display:none">
+                    <div class="wizard-title">Your device is ready!</div>
+                    <p style="font-size:13px;color:#475569;margin-bottom:16px">The firmware was built with your settings baked in. Power on the device and it will connect automatically.</p>
+                    <div class="wizard-summary">
+                        <div class="wizard-summary-row"><span class="lbl">WiFi</span><span class="val" id="wzDoneWifi">—</span></div>
+                        <div class="wizard-summary-row"><span class="lbl">Server</span><span class="val" id="wzDoneServer">—</span></div>
+                        <div class="wizard-summary-row"><span class="lbl">Screen</span><span class="val" id="wzDoneScreen">—</span></div>
+                    </div>
+                </div>
+
+                <!-- Manual mode: captive portal guide -->
+                <div id="wzDoneManual" style="display:none">
+                    <div class="wizard-title">Configure the device via its setup portal</div>
+                    <div class="setup-steps">
+                        <div class="setup-step">
+                            <div class="setup-step-num">1</div>
+                            <div>
+                                <div class="setup-step-title">Power on the device</div>
+                                <div class="setup-step-sub">On first boot it creates a temporary WiFi hotspot.</div>
+                            </div>
+                        </div>
+                        <div class="setup-step">
+                            <div class="setup-step-num">2</div>
+                            <div>
+                                <div class="setup-step-title">Connect to the setup network</div>
+                                <div style="font-size:13px;color:#334155">On your phone or laptop, join:</div>
+                                <div class="setup-config-row">
+                                    <span class="setup-config-lbl">Network</span>
+                                    <code class="setup-val">PhotoDisplay-XXXX</code>
+                                </div>
+                                <div class="setup-step-sub">XXXX = last 4 hex digits of the device's MAC address.</div>
+                            </div>
+                        </div>
+                        <div class="setup-step">
+                            <div class="setup-step-num">3</div>
+                            <div>
+                                <div class="setup-step-title">Open the setup page</div>
+                                <div style="font-size:13px;color:#334155">A captive-portal page should open automatically. If not:</div>
+                                <div class="setup-config-row">
+                                    <code class="setup-val">http://192.168.4.1</code>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="setup-step">
+                            <div class="setup-step-num">4</div>
+                            <div>
+                                <div class="setup-step-title">Enter your settings</div>
+                                <div style="font-size:13px;color:#334155">Fill in WiFi name &amp; password, then copy these values:</div>
+                                <div class="setup-config-row">
+                                    <span class="setup-config-lbl">Host</span>
+                                    <code class="setup-val" id="wzSetupHost">—</code>
+                                    <button class="btn-copy" onclick="copySetup('wzSetupHost')" title="Copy">&#128203;</button>
+                                </div>
+                                <div class="setup-config-row">
+                                    <span class="setup-config-lbl">Port</span>
+                                    <code class="setup-val" id="wzSetupPort">—</code>
+                                    <button class="btn-copy" onclick="copySetup('wzSetupPort')" title="Copy">&#128203;</button>
+                                </div>
+                                <div class="setup-config-row">
+                                    <span class="setup-config-lbl">API key</span>
+                                    <code class="setup-val" id="wzSetupKey">—</code>
+                                    <button class="btn-copy" onclick="copySetup('wzSetupKey')" title="Copy">&#128203;</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="setup-step">
+                            <div class="setup-step-num">5</div>
+                            <div>
+                                <div class="setup-step-title">Save &amp; restart</div>
+                                <div class="setup-step-sub">The device saves its settings, reboots, and starts fetching photos.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="wizard-actions" style="margin-top:24px">
+                    <button class="btn-cancel" onclick="wizardBack(4)">&#8592; Back</button>
+                    <button class="btn-add" onclick="wizardDone()">Done &#10003;</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+    // ── Theme ────────────────────────────────────────────────────────────────
+    function setTheme(t) {
+        document.documentElement.setAttribute('data-theme', t);
+        localStorage.setItem('theme', t);
+        const btn = document.getElementById('themeBtn');
+        if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
+    }
+    function toggleTheme() {
+        setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+    }
+    (function () {
+        const s = localStorage.getItem('theme');
+        setTheme(s || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+    })();
+
+    // ── Toast ────────────────────────────────────────────────────────────────
+    let _toastTimer;
+    function showToast(msg, type = '') {
+        clearTimeout(_toastTimer);
+        const el = document.getElementById('toast');
+        el.textContent = msg;
+        el.className = 'toast show ' + type;
+        _toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function escHtml(s) {
+        return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function relTimeAgo(iso) {
+        if (!iso) return '—';
+        const sec = Math.floor((Date.now() - new Date(iso)) / 1000);
+        if (sec < 60)      return 'just now';
+        if (sec < 3600)    return `${Math.floor(sec/60)}m ago`;
+        if (sec < 86400)   return `${Math.floor(sec/3600)}h ago`;
+        return `${Math.floor(sec/86400)}d ago`;
+    }
+
+    function batteryPct(mv) {
+        if (mv == null) return null;
+        return Math.min(100, Math.max(0, Math.round((mv - 3000) / (4200 - 3000) * 100)));
+    }
+
+    function wifiQuality(rssi) {
+        if (rssi == null) return null;
+        if (rssi >= -50) return { q: 4, label: 'Excellent' };
+        if (rssi >= -65) return { q: 3, label: 'Good' };
+        if (rssi >= -75) return { q: 2, label: 'Fair' };
+        return { q: 1, label: 'Poor' };
+    }
+
+    function onlineStatus(lastSeen, intervalMinutes) {
+        if (!lastSeen) return { cls: 'status-offline', text: 'Never seen' };
+        const ageMs  = Date.now() - new Date(lastSeen);
+        const window = (intervalMinutes || 5) * 2 * 60 * 1000;
+        if (ageMs < window)          return { cls: 'status-online',  text: 'Online' };
+        if (ageMs < 60 * 60 * 1000) return { cls: 'status-recent',  text: 'Recent' };
+        return { cls: 'status-offline', text: 'Offline' };
+    }
+
+    function deviceCardHtml(d) {
+        const pct    = batteryPct(d.batteryMv);
+        const wifi   = wifiQuality(d.wifiRssi);
+        const status = onlineStatus(d.lastSeen, d.intervalMinutes);
+
+        const battHtml = pct != null
+            ? `<div class="battery-wrap">
+                <span class="battery-icon">🔋</span>
+                <div class="battery-bar-outer">
+                    <div class="battery-bar-inner ${pct > 50 ? 'high' : pct > 20 ? 'medium' : 'low'}"
+                         style="width:${pct}%"></div>
+                </div>
+                <span class="battery-pct">${pct}%</span>
+               </div>`
+            : `<span style="font-size:12px;color:#94a3b8">Battery N/A</span>`;
+
+        const wifiHtml = wifi != null
+            ? `<div class="wifi-wrap">
+                <div class="wifi-bars q${wifi.q}">
+                    <span></span><span></span><span></span><span></span>
+                </div>
+                <span>${d.wifiRssi} dBm</span>
+               </div>`
+            : `<span style="font-size:12px;color:#94a3b8">WiFi N/A</span>`;
+
+        const flashHtml = d.lastFlash
+            ? `<div class="device-flash-info">&#128736; Flashed ${relTimeAgo(d.lastFlash.builtAt)} &mdash; ${
+                d.lastFlash.mode === 'auto'
+                    ? `${escHtml(d.lastFlash.wifiSsid || '')} &rarr; ${escHtml(d.lastFlash.serverHost || '')}:${d.lastFlash.serverPort}`
+                    : 'Manual (captive portal)'
+              }</div>`
+            : '';
+
+        const keyAttr = d.apiKey ? ` data-key="${escHtml(d.apiKey)}"` : '';
+
+        const deviceAlbums = allAlbums.filter(a => a.deviceId === d.apiKeyId);
+        const albumsHtml = deviceAlbums.map(album => {
+            const thumbsHtml = (album.images || []).slice(0, 6).map(f =>
+                `<img class="album-thumb" src="/uploads/${escHtml(f)}" title="${escHtml(f)}"
+                      onclick="removeImageFromAlbum('${escHtml(album.id)}','${escHtml(f)}')" />`
+            ).join('');
+            const moreCount = (album.images || []).length - 6;
+            const moreHtml  = moreCount > 0 ? `<span style="font-size:11px;color:#94a3b8;align-self:center">+${moreCount} more</span>` : '';
+            return `
+            <div class="album-card ${album.favorited ? 'favorited' : ''}" id="album-${escHtml(album.id)}">
+                <div class="album-head">
+                    <button class="btn-fav ${album.favorited ? 'active' : ''}" title="${album.favorited ? 'Remove from favorites' : 'Mark as favorite'}"
+                            onclick="toggleFavorite('${escHtml(album.id)}',${album.favorited})">${album.favorited ? '★' : '☆'}</button>
+                    <span class="album-name-text">${escHtml(album.name)}</span>
+                    <button class="btn-album-del" title="Delete album"
+                            onclick="deleteAlbum('${escHtml(album.id)}','${escHtml(album.name)}')">&#128465;</button>
+                </div>
+                <div class="album-thumbs">
+                    ${thumbsHtml || `<span class="album-no-images">No images yet</span>`}
+                    ${moreHtml}
+                    <button class="btn-add-imgs" title="Add images"
+                            onclick="openPicker('${escHtml(album.id)}','${escHtml(album.name)}')">+</button>
+                </div>
+            </div>`;
+        }).join('');
+
+        return `
+        <div class="device-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span class="device-name">&#128241; ${escHtml(d.apiKeyName)}</span>
+                <div style="display:flex;align-items:center;gap:6px">
+                    <button class="btn-new-album" onclick="createAlbum('${escHtml(d.apiKeyId)}')">+ New album</button>
+                    <button class="btn-flash-card" title="Flash firmware"${keyAttr}
+                            data-name="${escHtml(d.apiKeyName)}"
+                            onclick="flashFromCard(this)">&#9889; Flash</button>
+                    <button class="btn-delete-card" title="Delete device"
+                            data-id="${escHtml(d.apiKeyId)}" data-name="${escHtml(d.apiKeyName)}"
+                            onclick="deleteDevice(this)">&#128465;</button>
+                    <span class="status-pill ${status.cls}">${status.text}</span>
+                </div>
+            </div>
+            <div class="device-stats">${battHtml}${wifiHtml}</div>
+            ${flashHtml}
+            <div class="device-last-seen">Last seen: ${d.lastSeen ? relTimeAgo(d.lastSeen) : 'Never'}</div>
+            <div class="device-albums">
+                <div class="album-list">${albumsHtml || `<span class="album-no-images">No albums yet.</span>`}</div>
+            </div>
+        </div>`;
+    }
+
+    // ── Data loading ─────────────────────────────────────────────────────────
+    let allDevices = [];
+    let allAlbums  = [];
+
+    async function loadAll() {
+        try {
+            const [dRes, aRes] = await Promise.all([
+                fetch('/api/admin/devices'),
+                fetch('/api/admin/albums'),
+            ]);
+            allDevices = dRes.ok ? await dRes.json() : [];
+            allAlbums  = aRes.ok ? await aRes.json() : [];
+            if (!Array.isArray(allDevices)) allDevices = [];
+            if (!Array.isArray(allAlbums))  allAlbums  = [];
+        } catch {
+            allDevices = allDevices.length ? allDevices : [];
+            allAlbums  = allAlbums.length  ? allAlbums  : [];
+        }
+        render();
+    }
+
+    function render() {
+        const grid  = document.getElementById('deviceGrid');
+        const count = document.getElementById('screenCount');
+        count.textContent = `${allDevices.length} device${allDevices.length !== 1 ? 's' : ''}`;
+        grid.innerHTML = allDevices.length
+            ? allDevices.map(d => `<div class="screen-card"><div class="screen-card-body" style="padding:16px">${deviceCardHtml(d)}</div></div>`).join('')
+            : `<div style="color:#94a3b8;font-size:14px;padding:8px 0">No devices yet — set one up below.</div>`;
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closePicker();
+    });
+
+    // ── Device Setup Wizard ───────────────────────────────────────────────────
+    let _wizardStep    = 1;
+    let _wizardKey     = '';
+    let _wizardKeyName = '';
+    let _wizardMode    = '';
+    let _wizardSsid    = '';
+    let _wizardPass    = '';
+    let _wizardHost    = '';
+    let _wizardPort    = '8080';
+    let _setupType     = 'new';
+
+    const DEVICES = {
+        'waveshare-s3-photopainter': { width: 800, height: 480 },
+    };
+
+    function setSetupType(type) {
+        _setupType = type;
+        document.getElementById('toggleNewBtn').classList.toggle('selected', type === 'new');
+        document.getElementById('toggleReflashBtn').classList.toggle('selected', type === 'reflash');
+        document.getElementById('wzNewFields').style.display     = type === 'new'     ? '' : 'none';
+        document.getElementById('wzExistingFields').style.display = type === 'reflash' ? '' : 'none';
+        document.getElementById('wzKeyReveal').style.display     = 'none';
+        document.getElementById('wzContinueBtn').style.display   = 'none';
+        document.getElementById('wzStep1Btn').style.display      = '';
+        document.getElementById('wzStep1Btn').textContent        = 'Next →';
+        if (type === 'reflash') loadExistingDevices();
+    }
+
+    async function loadExistingDevices() {
+        const sel = document.getElementById('wzExistingKey');
+        sel.innerHTML = '<option value="">— loading… —</option>';
+        try {
+            const res = await fetch('/api/admin/apikeys');
+            if (!res.ok) throw new Error('Failed to load');
+            const keys = await res.json();
+            sel.innerHTML = keys.length
+                ? keys.map(k => `<option value="${k.key}" data-name="${escHtml(k.name)}">${escHtml(k.name)} — ${k.key.slice(0, 8)}…</option>`).join('')
+                : '<option value="">— no devices configured yet —</option>';
+        } catch {
+            sel.innerHTML = '<option value="">— error loading devices —</option>';
+        }
+    }
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function wizardSetStep(step) {
+        _wizardStep = step;
+        for (let i = 1; i <= 4; i++) {
+            document.getElementById(`wizardPanel${i}`).classList.toggle('active', i === step);
+            document.getElementById(`dot${i}`).className =
+                'wizard-step-dot' + (i < step ? ' done' : i === step ? ' active' : '');
+            document.getElementById(`lbl${i}`).className =
+                'wizard-step-label' + (i < step ? ' done' : i === step ? ' active' : '');
+        }
+        for (let i = 1; i <= 3; i++)
+            document.getElementById(`line${i}`).className = 'wizard-step-line' + (i < step ? ' done' : '');
+        if (step === 3) initFlashStep();
+        if (step === 4) initDoneStep();
+    }
+
+    async function wizardStep1Next() {
+        // Reflash path: pick an existing device and skip creation
+        if (_setupType === 'reflash') {
+            const sel = document.getElementById('wzExistingKey');
+            const key = sel.value;
+            if (!key) return showToast('Select a device to reflash', 'error');
+            const opt = sel.options[sel.selectedIndex];
+            _wizardKey     = key;
+            _wizardKeyName = opt.dataset.name || opt.text.split(' —')[0];
+            wizardSetStep(2);
+            return;
+        }
+
+        const name   = document.getElementById('wzName').value.trim();
+        const desc   = document.getElementById('wzDesc').value.trim();
+        const devKey = document.getElementById('wzDeviceType').value;
+        if (!name) return showToast('Please enter a screen name', 'error');
+
+        const device = DEVICES[devKey] || { width: 800, height: 480 };
+        const btn = document.getElementById('wzStep1Btn');
+        btn.disabled = true; btn.textContent = 'Creating…';
+
+        try {
+            const sRes = await fetch('/api/screens', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, description: desc }),
+            });
+            if (!sRes.ok) {
+                const e = await sRes.json().catch(() => ({}));
+                return showToast(e.error || 'Could not create screen', 'error');
+            }
+            const screen = await sRes.json();
+
+            const kRes = await fetch('/api/admin/apikeys', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name, interval: 5, screenId: screen.id,
+                    imageWidth: device.width, imageHeight: device.height,
+                    allowedEndpoints: ['current', 'image'],
+                }),
+            });
+            if (!kRes.ok) {
+                const e = await kRes.json().catch(() => ({}));
+                return showToast(e.error || 'Could not create API key', 'error');
+            }
+            const keyObj   = await kRes.json();
+            _wizardKey     = keyObj.key;
+            _wizardKeyName = name;
+
+            document.getElementById('wzCreatedKeyValue').textContent = keyObj.key;
+            document.getElementById('wzKeyReveal').style.display = 'block';
+            document.getElementById('wzContinueBtn').style.display = '';
+            btn.style.display = 'none';
+            document.getElementById('wzName').disabled = true;
+            document.getElementById('wzDesc').disabled = true;
+            document.getElementById('wzDeviceType').disabled = true;
+
+            await loadAll();
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    function setWizardMode(mode) {
+        _wizardMode = mode;
+        document.getElementById('modeAutoCard').classList.toggle('selected', mode === 'auto');
+        document.getElementById('modeManualCard').classList.toggle('selected', mode === 'manual');
+        document.getElementById('wzAutoFields').style.display = mode === 'auto' ? 'block' : 'none';
+        if (mode === 'auto' && document.getElementById('wzSsidSelect').options.length <= 1) scanWifi();
+    }
+
+    function wizardStep2Next() {
+        if (!_wizardMode) return showToast('Please choose a setup mode', 'error');
+        if (_wizardMode === 'auto') {
+            const ssid = document.getElementById('wzSsidCustom').value.trim()
+                      || document.getElementById('wzSsidSelect').value;
+            const pass = document.getElementById('wzPassword').value;
+            const host = document.getElementById('wzHost').value.trim();
+            if (!ssid) return showToast('Select or enter a WiFi network', 'error');
+            if (!pass)  return showToast('Enter the WiFi password', 'error');
+            if (!host)  return showToast('Enter the server host', 'error');
+            _wizardSsid = ssid; _wizardPass = pass;
+            _wizardHost = host; _wizardPort = document.getElementById('wzPort').value.trim() || '8080';
+        }
+        wizardSetStep(3);
+    }
+
+    async function scanWifi() {
+        const btn = document.getElementById('scanBtn');
+        const sel = document.getElementById('wzSsidSelect');
+        btn.disabled = true; btn.textContent = 'Loading…';
+        sel.innerHTML = '<option value="">Loading saved networks…</option>';
+        try {
+            const res   = await fetch('/api/admin/wifi-scan');
+            const data  = res.ok ? await res.json() : {};
+            const ssids = Array.isArray(data.ssids) ? data.ssids : [];
+            if (ssids.length) {
+                sel.innerHTML = '<option value="">— select a network —</option>'
+                    + ssids.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+            } else {
+                sel.innerHTML = '<option value="">— no saved networks found —</option>';
+                showToast('No saved networks found — type the name below.', 'error');
+            }
+        } catch {
+            sel.innerHTML = '<option value="">— could not load networks —</option>';
+            showToast('Could not load networks — type the name manually.', 'error');
+        } finally {
+            btn.disabled = false; btn.textContent = '⟳ Scan';
+        }
+    }
+
+    function onSsidSelect() {
+        if (document.getElementById('wzSsidSelect').value)
+            document.getElementById('wzSsidCustom').value = '';
+    }
+
+    function copyKey() {
+        navigator.clipboard.writeText(document.getElementById('wzCreatedKeyValue').textContent)
+            .then(() => showToast('API key copied'));
+    }
+
+    function copySetup(id) {
+        navigator.clipboard.writeText(document.getElementById(id).textContent)
+            .then(() => showToast('Copied'));
+    }
+
+    async function initFlashStep() {
+        const statusEl  = document.getElementById('wzFwStatus');
+        const buildCtrl = document.getElementById('wzBuildControls');
+        const flashCtrl = document.getElementById('wzFlashControls');
+        document.getElementById('wzFlashContinue').style.display = 'none';
+        document.getElementById('wzFlashDone').style.display = 'none';
+
+        if (_wizardMode === 'auto') {
+            statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Build required — your config will be embedded in the firmware</span>`;
+            buildCtrl.style.display = 'block';
+            flashCtrl.style.display = 'none';
+            return;
+        }
+
+        statusEl.innerHTML = '<span style="font-size:13px;color:#94a3b8">Checking firmware…</span>';
+        buildCtrl.style.display = 'none'; flashCtrl.style.display = 'none';
+        try {
+            const res  = await fetch('/api/admin/firmware/status');
+            const data = res.ok ? await res.json() : {};
+            if (data.ready) {
+                const d = data.builtAt ? ` · built ${relTimeAgo(data.builtAt)}` : '';
+                statusEl.innerHTML = `<span class="fw-status-badge ready">&#10003; Generic firmware ready${d}</span>`;
+                flashCtrl.style.display = 'block';
+            } else {
+                statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Firmware not built yet</span>`;
+                buildCtrl.style.display = 'block';
+            }
+        } catch {
+            statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Could not check firmware</span>`;
+            buildCtrl.style.display = 'block';
+        }
+    }
+
+    function initDoneStep() {
+        document.getElementById('wzDoneAuto').style.display   = _wizardMode === 'auto'   ? 'block' : 'none';
+        document.getElementById('wzDoneManual').style.display = _wizardMode === 'manual' ? 'block' : 'none';
+        if (_wizardMode === 'auto') {
+            document.getElementById('wzDoneWifi').textContent   = _wizardSsid || '—';
+            document.getElementById('wzDoneServer').textContent = `${_wizardHost}:${_wizardPort}`;
+            document.getElementById('wzDoneScreen').textContent = _wizardKeyName || '—';
+        } else {
+            const port = location.port || (location.protocol === 'https:' ? '443' : '80');
+            document.getElementById('wzSetupHost').textContent = location.hostname;
+            document.getElementById('wzSetupPort').textContent = port;
+            document.getElementById('wzSetupKey').textContent  = _wizardKey || '—';
+        }
+    }
+
+    function wizardBuild() {
+        const log    = document.getElementById('wzBuildLog');
+        const status = document.getElementById('wzBuildStatus');
+        const btn    = document.getElementById('wzBuildBtn');
+        log.textContent = ''; log.style.display = 'block';
+        btn.disabled = true; status.textContent = 'Building…'; status.style.color = '#888';
+
+        const body = _wizardMode === 'auto'
+            ? { wifi_ssid: _wizardSsid, wifi_password: _wizardPass,
+                server_host: _wizardHost, server_port: _wizardPort, api_key: _wizardKey }
+            : {};
+
+        fetch('/api/admin/firmware/build', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }).then(async res => {
+            if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+                const e = await res.json().catch(() => ({}));
+                status.textContent = '✗ ' + (e.error || 'Build failed'); status.style.color = '#c00';
+                log.textContent = e.error || 'Build failed'; btn.disabled = false; return;
+            }
+            const reader = res.body.getReader();
+            const dec    = new TextDecoder();
+            let buf = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n'); buf = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const msg = JSON.parse(line.slice(5).trim());
+                    if (msg.type === 'log') {
+                        log.textContent += msg.data; log.scrollTop = log.scrollHeight;
+                    } else if (msg.type === 'done') {
+                        status.textContent = '✓ ' + msg.data; status.style.color = '#2e7d32';
+                        btn.disabled = false;
+                        document.getElementById('wzBuildControls').style.display = 'none';
+                        document.getElementById('wzFwStatus').innerHTML =
+                            `<span class="fw-status-badge ready">&#10003; Firmware built — ready to flash</span>`;
+                        document.getElementById('wzFlashControls').style.display = 'block';
+                    } else if (msg.type === 'error') {
+                        status.textContent = '✗ ' + msg.data; status.style.color = '#c00';
+                        btn.disabled = false; log.textContent += '\n' + msg.data;
+                    }
+                }
+            }
+        }).catch(err => {
+            status.textContent = '✗ ' + err.message; status.style.color = '#c00';
+            btn.disabled = false;
+        });
+    }
+
+    document.getElementById('espInstallBtn').addEventListener('state-changed', e => {
+        if (e.detail?.state === 'finished') {
+            document.getElementById('wzFlashDone').style.display = 'block';
+            document.getElementById('wzFlashContinue').style.display = '';
+        }
+    });
+
+    function wizardBack(from) { wizardSetStep(from - 1); }
+
+    function wizardDone() {
+        const name = _wizardKeyName;
+        document.getElementById('wzName').value = ''; document.getElementById('wzName').disabled = false;
+        document.getElementById('wzDesc').value = ''; document.getElementById('wzDesc').disabled = false;
+        document.getElementById('wzDeviceType').disabled = false;
+        document.getElementById('wzKeyReveal').style.display = 'none';
+        document.getElementById('wzContinueBtn').style.display = 'none';
+        document.getElementById('wzStep1Btn').style.display = '';
+        document.getElementById('wzStep1Btn').textContent = 'Next →';
+        document.getElementById('modeAutoCard').classList.remove('selected');
+        document.getElementById('modeManualCard').classList.remove('selected');
+        document.getElementById('wzAutoFields').style.display = 'none';
+        document.getElementById('wzSsidSelect').innerHTML = '<option value="">— click Scan to load saved networks —</option>';
+        document.getElementById('wzSsidCustom').value = '';
+        document.getElementById('wzPassword').value = '';
+        document.getElementById('wzHost').value = location.hostname;
+        // Reset setup type toggle back to "New device"
+        _setupType = 'new';
+        document.getElementById('toggleNewBtn').classList.add('selected');
+        document.getElementById('toggleReflashBtn').classList.remove('selected');
+        document.getElementById('wzNewFields').style.display = '';
+        document.getElementById('wzExistingFields').style.display = 'none';
+        _wizardKey = ''; _wizardKeyName = ''; _wizardMode = '';
+        _wizardSsid = ''; _wizardPass = ''; _wizardHost = ''; _wizardPort = '8080';
+        wizardSetStep(1);
+        if (name) showToast(`"${name}" setup complete!`);
+        document.querySelector('.wizard-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // ── Album management ──────────────────────────────────────────────────────
+    async function createAlbum(deviceId) {
+        const name = prompt('Album name:');
+        if (!name?.trim()) return;
+        const res = await fetch('/api/admin/albums', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), deviceId }),
+        });
+        if (!res.ok) { const e = await res.json().catch(()=>({})); return showToast(e.error || 'Could not create album', 'error'); }
+        await loadAll();
+    }
+
+    async function deleteAlbum(id, name) {
+        if (!confirm(`Delete album "${name}"? Images are not deleted.`)) return;
+        const res = await fetch(`/api/admin/albums/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!res.ok) return showToast('Could not delete album', 'error');
+        await loadAll();
+        showToast(`"${name}" deleted`);
+    }
+
+    async function toggleFavorite(id, currentlyFavorited) {
+        const res = await fetch(`/api/admin/albums/${encodeURIComponent(id)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ favorited: !currentlyFavorited }),
+        });
+        if (!res.ok) return showToast('Could not update album', 'error');
+        await loadAll();
+    }
+
+    async function removeImageFromAlbum(albumId, filename) {
+        if (!confirm(`Remove "${filename}" from this album?`)) return;
+        const album = allAlbums.find(a => a.id === albumId);
+        if (!album) return;
+        const images = (album.images || []).filter(f => f !== filename);
+        const res = await fetch(`/api/admin/albums/${encodeURIComponent(albumId)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ images }),
+        });
+        if (!res.ok) return showToast('Could not remove image', 'error');
+        await loadAll();
+    }
+
+    // ── Image picker ──────────────────────────────────────────────────────────
+    let _pickerAlbumId   = null;
+    let _pickerSelected  = new Set();
+
+    async function openPicker(albumId, albumName) {
+        _pickerAlbumId  = albumId;
+        const album = allAlbums.find(a => a.id === albumId);
+        _pickerSelected = new Set(album?.images || []);
+
+        document.getElementById('pickerTitle').textContent = `Add images — ${albumName}`;
+        const grid = document.getElementById('pickerGrid');
+        grid.innerHTML = '<span style="color:#94a3b8;font-size:13px">Loading…</span>';
+        document.getElementById('pickerOverlay').style.display = 'flex';
+
+        const res = await fetch('/api/images');
+        const imgs = res.ok ? await res.json() : [];
+        grid.innerHTML = imgs.length
+            ? imgs.map(img => `
+                <div class="picker-img ${_pickerSelected.has(img.filename) ? 'selected' : ''}"
+                     data-filename="${escHtml(img.filename)}" onclick="togglePickerImg(this,'${escHtml(img.filename)}')">
+                    <img src="/uploads/${escHtml(img.filename)}" loading="lazy" />
+                </div>`).join('')
+            : '<span style="color:#94a3b8;font-size:13px">No images uploaded yet.</span>';
+    }
+
+    function togglePickerImg(el, filename) {
+        if (_pickerSelected.has(filename)) { _pickerSelected.delete(filename); el.classList.remove('selected'); }
+        else { _pickerSelected.add(filename); el.classList.add('selected'); }
+    }
+
+    function closePicker() {
+        document.getElementById('pickerOverlay').style.display = 'none';
+        _pickerAlbumId = null; _pickerSelected = new Set();
+    }
+
+    async function savePickerSelection() {
+        if (!_pickerAlbumId) return;
+        const res = await fetch(`/api/admin/albums/${encodeURIComponent(_pickerAlbumId)}`, {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ images: [..._pickerSelected] }),
+        });
+        if (!res.ok) return showToast('Could not save images', 'error');
+        closePicker();
+        await loadAll();
+        showToast('Album updated');
+    }
+
+    function flashFromCard(btn) {
+        const apiKey = btn.dataset.key;
+        const name   = btn.dataset.name;
+        if (!apiKey) return showToast('API key not available', 'error');
+
+        // Find matching device data for pre-fill
+        const dev = allDevices.find(d => d.apiKey === apiKey);
+        const lf  = dev?.lastFlash;
+
+        // Reset wizard to a clean reflash state
+        wizardDone();
+
+        _wizardKey     = apiKey;
+        _wizardKeyName = name;
+
+        // Pre-fill config from last flash if available
+        if (lf) {
+            if (lf.mode === 'auto') {
+                setWizardMode('auto');
+                document.getElementById('wzSsidCustom').value = lf.wifiSsid || '';
+                document.getElementById('wzHost').value       = lf.serverHost || location.hostname;
+                document.getElementById('wzPort').value       = lf.serverPort || 8080;
+            } else {
+                setWizardMode('manual');
+            }
+        }
+
+        // Jump straight to step 2 (skip name/creation)
+        wizardSetStep(2);
+        document.querySelector('.wizard-card').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function deleteDevice(btn) {
+        const id   = btn.dataset.id;
+        const name = btn.dataset.name;
+        if (!confirm(`Delete "${name}"?\n\nThis removes the API key and all device data. The screen stays.`)) return;
+        btn.disabled = true;
+        try {
+            const res = await fetch(`/api/admin/apikeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (!res.ok) {
+                const e = await res.json().catch(() => ({}));
+                return showToast(e.error || 'Delete failed', 'error');
+            }
+            await loadAll();
+            showToast(`"${name}" deleted`);
+        } catch {
+            showToast('Delete failed', 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // Pre-fill server host
+    document.getElementById('wzHost').value = location.hostname;
+
+    // ── Auto-refresh device status every 30 s ────────────────────────────────
+    loadAll();
+    setInterval(loadAll, 30000);
+</script>
+</body>
+</html>
