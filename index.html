@@ -10,23 +10,24 @@
 
         body {
             font-family: sans-serif;
-            background: #000;
-            height: 100vh;
-            overflow: hidden;
+            background: #0a0a0a;
+            min-height: 100vh;
             color: #fff;
         }
 
         /* ── Header ───────────────────────────────────────────────────── */
         header {
-            position: fixed;
+            position: sticky;
             top: 0; left: 0; right: 0;
             height: 60px;
             padding: 0 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            z-index: 20;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+            z-index: 30;
+            background: rgba(10,10,10,0.92);
+            backdrop-filter: blur(8px);
+            border-bottom: 1px solid rgba(255,255,255,0.07);
         }
 
         header h1 {
@@ -37,21 +38,23 @@
 
         .header-right {
             display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
         }
 
         .btn {
             border: none;
-            padding: 8px 18px;
+            padding: 8px 16px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
             font-weight: 600;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 6px;
             transition: background 0.2s;
+            text-decoration: none;
+            font-family: inherit;
         }
 
         :root { --accent: #06b6d4; --accent-hover: #0891b2; }
@@ -60,276 +63,141 @@
         .btn-primary:disabled { background: #555; cursor: default; }
 
         .btn-ghost {
-            background: rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.1);
             color: #fff;
-            backdrop-filter: blur(4px);
         }
-        .btn-ghost:hover { background: rgba(255,255,255,0.25); }
-        .btn-ghost.active { background: rgba(255,255,255,0.3); }
+        .btn-ghost:hover { background: rgba(255,255,255,0.18); }
 
         input[type="file"] { display: none; }
 
-        /* ── Slideshow ────────────────────────────────────────────────── */
-        .slide {
-            position: fixed;
-            inset: 0;
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            transition: opacity 1s ease;
-            opacity: 0;
-        }
-
-        .slide.active { opacity: 1; }
-
-        /* ── Bottom bar ───────────────────────────────────────────────── */
-        .bottom-bar {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            padding: 16px 24px;
+        /* ── Screen tabs ──────────────────────────────────────────────── */
+        .screen-bar {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+            gap: 8px;
+            padding: 12px 24px;
+            background: rgba(0,0,0,0.4);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            overflow-x: auto;
+            flex-wrap: nowrap;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.15) transparent;
+            position: sticky;
+            top: 60px;
             z-index: 20;
         }
 
-        /* Dots */
-        .dots {
-            display: flex;
-            gap: 7px;
-            flex-wrap: wrap;
-            max-width: 60%;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.4);
-            cursor: pointer;
-            transition: background 0.2s, transform 0.2s;
-        }
-
-        .dot.active {
-            background: #fff;
-            transform: scale(1.3);
-        }
-
-        /* Timer bar */
-        .timer-bar-wrap {
-            position: fixed;
-            bottom: 0; left: 0; right: 0;
-            height: 3px;
-            background: rgba(255,255,255,0.15);
-            z-index: 21;
-        }
-
-        .timer-bar {
-            height: 100%;
-            background: #29c76f;
-            width: 0%;
-            transition: width linear;
-        }
-
-        /* Prev / Next arrows */
-        .arrow {
-            position: fixed;
-            top: 50%;
-            transform: translateY(-50%);
-            background: rgba(0,0,0,0.35);
+        .screen-tab {
+            flex-shrink: 0;
             border: none;
-            color: #fff;
-            font-size: 28px;
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
+            padding: 6px 16px;
+            border-radius: 20px;
             cursor: pointer;
-            z-index: 20;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s;
-            opacity: 0;
-        }
-
-        .arrow:hover { background: rgba(0,0,0,0.6); }
-        .arrow-left  { left:  16px; }
-        .arrow-right { right: 16px; }
-
-        /* ── Hide all UI when idle (no mouse movement) ────────────────── */
-        header,
-        .bottom-bar,
-        .timer-bar-wrap,
-        .arrow {
-            transition: opacity 0.4s;
-        }
-
-        body.idle header,
-        body.idle .bottom-bar,
-        body.idle .timer-bar-wrap,
-        body.idle .arrow {
-            opacity: 0;
-            pointer-events: none;
-        }
-
-        body.idle { cursor: none; }
-
-        /* ── Date overlay ─────────────────────────────────────────────── */
-        .date-overlay {
-            position: fixed;
-            z-index: 30;
-            pointer-events: none;
-            transition: opacity 0.4s;
-        }
-
-        .date-overlay.hidden { opacity: 0; }
-
-        .date-overlay .date-day {
-            font-size: 15px;
-            font-weight: 600;
-            color: #fff;
-            text-shadow: 0 1px 6px rgba(0,0,0,0.7);
-            letter-spacing: 0.03em;
-        }
-
-        .date-overlay .date-time {
             font-size: 13px;
-            color: rgba(255,255,255,0.75);
-            text-shadow: 0 1px 4px rgba(0,0,0,0.6);
-        }
-
-        /* Empty state */
-        .empty-state {
-            position: fixed;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 14px;
-            color: #888;
-            font-size: 18px;
-        }
-
-        .empty-state svg { width: 56px; height: 56px; fill: #555; }
-
-        /* ── Drop overlay ─────────────────────────────────────────────── */
-        .drop-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(74,144,226,0.2);
-            border: 3px dashed #29c76f;
-            z-index: 50;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            font-weight: 600;
-            color: #29c76f;
-        }
-
-        .drop-overlay.active { display: flex; }
-
-        /* ── Toast ────────────────────────────────────────────────────── */
-        .toast {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%) translateY(60px);
-            background: #222;
-            color: #fff;
-            padding: 10px 22px;
-            border-radius: 6px;
-            font-size: 14px;
-            opacity: 0;
-            transition: opacity 0.25s, transform 0.25s;
-            pointer-events: none;
-            z-index: 200;
+            font-weight: 500;
+            background: rgba(255,255,255,0.08);
+            color: rgba(255,255,255,0.65);
+            transition: background 0.15s, color 0.15s;
             white-space: nowrap;
+            font-family: inherit;
         }
+        .screen-tab:hover { background: rgba(255,255,255,0.15); color: #fff; }
+        .screen-tab.active { background: var(--accent); color: #fff; }
 
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .toast.error { background: #c0392b; }
+        .new-screen-btn {
+            flex-shrink: 0;
+            border: 1px dashed rgba(255,255,255,0.25);
+            padding: 5px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            background: transparent;
+            color: rgba(255,255,255,0.45);
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+            font-family: inherit;
+        }
+        .new-screen-btn:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8); border-color: rgba(255,255,255,0.45); }
 
-        /* ── Gallery overlay ──────────────────────────────────────────── */
-        .gallery-overlay {
+        /* ── Select toolbar ───────────────────────────────────────────── */
+        .select-toolbar {
             display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.92);
-            z-index: 80;
-            overflow-y: auto;
-            padding: 80px 24px 40px;
+            position: sticky;
+            top: 112px;
+            z-index: 15;
+            background: rgba(10,10,10,0.95);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding: 8px 24px;
+            align-items: center;
+            gap: 12px;
         }
+        .select-toolbar.visible { display: flex; }
 
-        .gallery-overlay.open { display: block; }
-
-        .gallery-overlay h2 {
-            text-align: center;
-            margin-bottom: 24px;
-            font-size: 18px;
-            color: #ccc;
+        /* ── Gallery ──────────────────────────────────────────────────── */
+        .gallery-container {
+            padding: 24px;
         }
 
         .gallery-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-            gap: 14px;
-            max-width: 960px;
-            margin: 0 auto;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
         }
 
-        .gallery-grid .thumb {
+        .thumb {
             position: relative;
             border-radius: 8px;
             overflow: hidden;
             cursor: pointer;
             border: 2px solid transparent;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, transform 0.15s;
+            background: #111;
         }
+        .thumb:hover { border-color: rgba(255,255,255,0.2); transform: scale(1.02); }
+        .thumb.selected { border-color: var(--accent); }
 
-        .gallery-grid .thumb.current { border-color: #29c76f; }
-
-        .gallery-grid .thumb img {
+        .thumb img {
             width: 100%;
-            height: 130px;
+            height: 160px;
             object-fit: cover;
             display: block;
         }
 
-        .gallery-grid .thumb .del {
+        .thumb .del {
             position: absolute;
             top: 5px; right: 5px;
             background: rgba(0,0,0,0.55);
             color: #fff;
             border: none;
             border-radius: 50%;
-            width: 24px; height: 24px;
+            width: 26px; height: 26px;
             cursor: pointer;
-            font-size: 15px;
-            line-height: 24px;
+            font-size: 16px;
+            line-height: 26px;
             text-align: center;
             display: none;
+            font-family: inherit;
         }
+        .thumb:hover .del { display: block; }
+        .thumb .del:hover { background: rgba(192,57,43,0.85); }
 
-        .gallery-grid .thumb:hover .del { display: block; }
-        .gallery-grid .thumb .del:hover { background: rgba(192,57,43,0.85); }
-
-        .thumb-uploader {
+        .thumb-check {
             position: absolute;
-            bottom: 0; left: 0; right: 0;
-            background: linear-gradient(transparent, rgba(0,0,0,0.65));
-            color: rgba(255,255,255,0.85);
-            font-size: 11px;
-            padding: 14px 7px 5px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            top: 5px; left: 5px;
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.7);
+            background: rgba(0,0,0,0.35);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: #fff;
             pointer-events: none;
         }
+        .select-mode .thumb-check { display: flex; }
+        .thumb.selected .thumb-check { background: var(--accent); border-color: var(--accent); }
 
-        /* ── Favourite heart button ───────────────────────────────────── */
         .thumb-fav {
             position: absolute;
             top: 5px; left: 5px;
@@ -348,157 +216,327 @@
             transition: background 0.15s, color 0.15s;
         }
         .thumb-fav.faved { display: flex; color: #f87171; }
-        .gallery-grid .thumb:hover .thumb-fav { display: flex; }
-        .gallery-overlay.select-mode .thumb-fav { display: none !important; }
+        .thumb:hover .thumb-fav { display: flex; }
         .thumb-fav:hover { background: rgba(0,0,0,0.7); color: #f87171; }
+        .select-mode .thumb-fav { display: none !important; }
 
-        /* ── Multi-select mode ────────────────────────────────────────── */
-        .gallery-overlay.select-mode .gallery-grid .thumb { cursor: pointer; }
-        .gallery-overlay.select-mode .gallery-grid .thumb .del { display: none !important; }
-
-        .gallery-grid .thumb.selected { border-color: var(--accent); }
-
-        .thumb-check {
+        .thumb-uploader {
             position: absolute;
-            top: 5px; left: 5px;
-            width: 20px; height: 20px;
-            border-radius: 50%;
-            border: 2px solid rgba(255,255,255,0.7);
-            background: rgba(0,0,0,0.35);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            color: #fff;
+            bottom: 0; left: 0; right: 0;
+            background: linear-gradient(transparent, rgba(0,0,0,0.65));
+            color: rgba(255,255,255,0.85);
+            font-size: 11px;
+            padding: 14px 7px 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             pointer-events: none;
         }
-        .gallery-overlay.select-mode .thumb-check { display: flex; }
-        .thumb.selected .thumb-check {
-            background: var(--accent);
-            border-color: var(--accent);
+
+        .thumb-screen-badge {
+            position: absolute;
+            bottom: 5px; right: 5px;
+            background: rgba(6,182,212,0.8);
+            color: #fff;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            pointer-events: none;
+            max-width: 90px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .gallery-toolbar {
+        .thumb-assign {
+            position: absolute;
+            bottom: 5px; left: 5px;
+            background: rgba(0,0,0,0.6);
+            color: rgba(255,255,255,0.75);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 10px;
+            cursor: pointer;
+            display: none;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+        .thumb:hover .thumb-assign { display: block; }
+        .thumb-assign:hover { background: rgba(0,0,0,0.85); color: #fff; }
+
+        /* ── Empty state ──────────────────────────────────────────────── */
+        .empty-state {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            color: #888;
+            font-size: 18px;
+            padding: 80px 24px;
+            text-align: center;
+        }
+        .empty-state svg { width: 56px; height: 56px; fill: #555; }
+
+        /* ── Upload dropdown ──────────────────────────────────────────── */
+        .upload-wrap { position: relative; }
+
+        .upload-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            background: #1c1c1c;
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            min-width: 190px;
+            z-index: 200;
+            overflow: hidden;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+        }
+        .upload-menu.open { display: block; }
+
+        .upload-menu-item {
+            padding: 10px 14px;
+            font-size: 13px;
+            cursor: pointer;
+            color: #ddd;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            font-family: inherit;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        .upload-menu-item:last-child { border-bottom: none; }
+        .upload-menu-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+        /* ── Slideshow overlay ────────────────────────────────────────── */
+        .slideshow-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: #000;
+            z-index: 100;
+        }
+        .slideshow-overlay.open { display: block; }
+
+        .slide {
+            position: absolute;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            transition: opacity 1s ease;
+            opacity: 0;
+        }
+        .slide.active { opacity: 1; }
+
+        .ss-header {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 60px;
+            padding: 0 24px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            max-width: 960px;
-            margin: 0 auto 20px;
+            z-index: 20;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+            transition: opacity 0.4s;
         }
 
-        .gallery-toolbar h2 { margin: 0; }
-
-        .gallery-select-btn {
-            background: rgba(255,255,255,0.12);
-            color: #ccc;
-            border: 1px solid rgba(255,255,255,0.2);
-            padding: 6px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 13px;
-            font-family: inherit;
-        }
-        .gallery-select-btn:hover,
-        .gallery-overlay.select-mode .gallery-select-btn {
-            background: var(--accent);
-            color: #fff;
-            border-color: var(--accent);
+        .ss-bottom {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+            z-index: 20;
+            transition: opacity 0.4s;
         }
 
-        .gallery-delete-bar {
+        .dots { display: flex; gap: 7px; flex-wrap: wrap; max-width: 60%; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.4); cursor: pointer; transition: background 0.2s, transform 0.2s; }
+        .dot.active { background: #fff; transform: scale(1.3); }
+
+        .timer-bar-wrap { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: rgba(255,255,255,0.15); z-index: 21; transition: opacity 0.4s; }
+        .timer-bar { height: 100%; background: #29c76f; width: 0%; }
+
+        .arrow { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.35); border: none; color: #fff; font-size: 28px; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; z-index: 20; display: flex; align-items: center; justify-content: center; transition: background 0.2s, opacity 0.4s; }
+        .arrow:hover { background: rgba(0,0,0,0.6); }
+        .arrow-left  { left:  16px; }
+        .arrow-right { right: 16px; }
+
+        .slideshow-overlay.idle .ss-header,
+        .slideshow-overlay.idle .ss-bottom,
+        .slideshow-overlay.idle .timer-bar-wrap,
+        .slideshow-overlay.idle .arrow { opacity: 0; pointer-events: none; }
+        .slideshow-overlay.idle { cursor: none; }
+
+        /* Date overlay (inside slideshow) */
+        .date-overlay { position: absolute; z-index: 30; pointer-events: none; transition: opacity 0.4s; }
+        .date-overlay.hidden { opacity: 0; }
+        .date-overlay .date-day { font-size: 15px; font-weight: 600; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.7); letter-spacing: 0.03em; }
+        .date-overlay .date-time { font-size: 13px; color: rgba(255,255,255,0.75); text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+
+        /* ── Drop overlay ─────────────────────────────────────────────── */
+        .drop-overlay {
             display: none;
-            position: sticky;
-            bottom: 20px;
-            justify-content: center;
-            margin-top: 24px;
-        }
-        .gallery-delete-bar.visible { display: flex; }
-
-        .gallery-delete-btn {
-            background: #c0392b;
-            color: #fff;
-            border: none;
-            padding: 10px 28px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: inherit;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-        }
-        .gallery-delete-btn:hover { background: #a93226; }
-
-        .gallery-close {
             position: fixed;
-            top: 16px; right: 24px;
-            font-size: 36px;
-            cursor: pointer;
-            z-index: 81;
-            color: #fff;
-            line-height: 1;
-            user-select: none;
+            inset: 0;
+            background: rgba(74,144,226,0.2);
+            border: 3px dashed #29c76f;
+            z-index: 50;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            font-weight: 600;
+            color: #29c76f;
         }
+        .drop-overlay.active { display: flex; }
+
+        /* ── Toast ────────────────────────────────────────────────────── */
+        .toast {
+            position: fixed;
+            bottom: 30px; left: 50%;
+            transform: translateX(-50%) translateY(60px);
+            background: #222; color: #fff;
+            padding: 10px 22px; border-radius: 6px;
+            font-size: 14px; opacity: 0;
+            transition: opacity 0.25s, transform 0.25s;
+            pointer-events: none; z-index: 300; white-space: nowrap;
+        }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.error { background: #c0392b; }
+
+        /* ── Modal ────────────────────────────────────────────────────── */
+        .modal-backdrop {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 200;
+            align-items: center; justify-content: center;
+        }
+        .modal-backdrop.open { display: flex; }
+
+        .modal {
+            background: #1a1a1a; border-radius: 12px; padding: 28px;
+            width: 360px; border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+        }
+        .modal h3 { font-size: 16px; margin-bottom: 20px; }
+        .modal .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+        .modal label { font-size: 13px; color: #aaa; }
+        .modal input, .modal select {
+            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+            color: #fff; border-radius: 6px; padding: 9px 12px; font-size: 14px; outline: none;
+            font-family: inherit; width: 100%;
+        }
+        .modal input:focus, .modal select:focus { border-color: var(--accent); }
+        .modal select option { background: #1a1a1a; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+        .btn-cancel { background: rgba(255,255,255,0.08); color: #ccc; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 14px; font-family: inherit; }
+        .btn-cancel:hover { background: rgba(255,255,255,0.15); }
     </style>
 </head>
 <body>
 
     <!-- Header -->
     <header>
-        <h1>My Images</h1>
+        <h1>My Photos</h1>
         <div class="header-right">
             <a href="/admin.html" class="btn btn-ghost" style="text-decoration:none" data-admin>&#9881; Settings</a>
             <form method="POST" action="/logout" style="margin:0">
                 <button class="btn btn-ghost" type="submit">Log out</button>
             </form>
-            <button class="btn btn-ghost" id="galleryBtn">All Images</button>
-            <button class="btn btn-primary" id="uploadBtn" onclick="document.getElementById('fileInput').click()">
-                &#8679; Upload
-            </button>
+            <button class="btn btn-ghost" id="slideshowBtn">&#9654; Slideshow</button>
+            <div class="upload-wrap">
+                <button class="btn btn-primary" id="uploadMenuBtn">&#8679; Upload &#9662;</button>
+                <div class="upload-menu" id="uploadMenu"></div>
+            </div>
             <input type="file" id="fileInput" accept="image/*,.heic,.heif" multiple>
         </div>
     </header>
 
-    <!-- Slides rendered here -->
-    <div id="slides"></div>
-
-    <!-- Empty state -->
-    <div class="empty-state" id="emptyState">
-        <svg viewBox="0 0 24 24"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zm-9-2l-3-4-2 2.5L5 19h14l-4-5.5-3 3.5z"/></svg>
-        No images yet — click Upload to add some.
+    <!-- Screen tabs -->
+    <div class="screen-bar" id="screenBar">
+        <button class="screen-tab active" id="tabAll">All Photos</button>
+        <!-- screen tabs injected here -->
+        <button class="new-screen-btn" id="newScreenBtn">+ New Screen</button>
     </div>
 
-    <!-- Prev / Next -->
-    <button class="arrow arrow-left"  id="arrowLeft">&#8249;</button>
-    <button class="arrow arrow-right" id="arrowRight">&#8250;</button>
-
-    <!-- Bottom bar -->
-    <div class="bottom-bar">
-        <div class="dots" id="dots"></div>
-        <button class="btn btn-ghost" id="pauseBtn">&#9646;&#9646; Pause</button>
+    <!-- Select toolbar -->
+    <div class="select-toolbar" id="selectToolbar">
+        <span id="selectCount" style="font-size:14px;color:#ccc">0 selected</span>
+        <button class="btn btn-ghost" id="cancelSelectBtn" style="font-size:13px;padding:6px 14px">Cancel</button>
+        <button class="btn" id="deleteSelectedBtn" style="background:#c0392b;color:#fff;font-size:13px;padding:6px 14px" data-delete>Delete selected</button>
     </div>
 
-    <!-- Timer bar -->
-    <div class="timer-bar-wrap"><div class="timer-bar" id="timerBar"></div></div>
-
-    <!-- Date overlay -->
-    <div class="date-overlay hidden" id="dateOverlay">
-        <div class="date-day" id="dateDay"></div>
-        <div class="date-time" id="dateTime"></div>
+    <!-- Gallery -->
+    <div class="gallery-container">
+        <div class="gallery-grid" id="galleryGrid"></div>
+        <div class="empty-state" id="emptyState">
+            <svg viewBox="0 0 24 24"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zm-9-2l-3-4-2 2.5L5 19h14l-4-5.5-3 3.5z"/></svg>
+            No images yet — click Upload to add some.
+        </div>
     </div>
 
-    <!-- Gallery overlay -->
-    <div class="gallery-overlay" id="galleryOverlay">
-        <span class="gallery-close" id="galleryClose">&times;</span>
-        <div class="gallery-toolbar">
-            <h2 id="galleryTitle">All Images</h2>
+    <!-- Slideshow overlay -->
+    <div class="slideshow-overlay" id="slideshowOverlay">
+        <div class="ss-header">
+            <span style="font-size:15px;font-weight:600;opacity:0.8" id="ssLabel">Slideshow</span>
             <div style="display:flex;gap:8px">
-                <button class="gallery-select-btn" id="galleryFavBtn">&#9829; Favourites</button>
-                <button class="gallery-select-btn" id="gallerySelectBtn" data-delete>Select</button>
+                <button class="btn btn-ghost" id="pauseBtn">&#9646;&#9646; Pause</button>
+                <button class="btn btn-ghost" id="slideshowCloseBtn">&#10005; Close</button>
             </div>
         </div>
-        <div class="gallery-grid" id="galleryGrid"></div>
-        <div class="gallery-delete-bar" id="galleryDeleteBar">
-            <button class="gallery-delete-btn" id="galleryDeleteBtn" data-delete>Delete selected (0)</button>
+        <div id="slides"></div>
+        <button class="arrow arrow-left"  id="arrowLeft">&#8249;</button>
+        <button class="arrow arrow-right" id="arrowRight">&#8250;</button>
+        <div class="ss-bottom">
+            <div class="dots" id="dots"></div>
+        </div>
+        <div class="timer-bar-wrap"><div class="timer-bar" id="timerBar"></div></div>
+        <div class="date-overlay hidden" id="dateOverlay">
+            <div class="date-day" id="dateDay"></div>
+            <div class="date-time" id="dateTime"></div>
+        </div>
+    </div>
+
+    <!-- New Screen modal -->
+    <div class="modal-backdrop" id="newScreenModal">
+        <div class="modal">
+            <h3>New Screen</h3>
+            <div class="field">
+                <label>Screen name</label>
+                <input type="text" id="newScreenName" placeholder="e.g. Living Room Display" maxlength="60">
+            </div>
+            <div class="field">
+                <label>Description (optional)</label>
+                <input type="text" id="newScreenDesc" placeholder="Short description" maxlength="120">
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" id="cancelNewScreenBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveNewScreenBtn">Create Screen</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assign screen modal -->
+    <div class="modal-backdrop" id="assignModal">
+        <div class="modal">
+            <h3 id="assignModalTitle">Assign to Screen</h3>
+            <div class="field">
+                <label>Screen</label>
+                <select id="assignScreenSel">
+                    <option value="">No screen (unassigned)</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button class="btn-cancel" id="cancelAssignBtn">Cancel</button>
+                <button class="btn btn-primary" id="saveAssignBtn">Assign</button>
+            </div>
         </div>
     </div>
 
@@ -509,29 +547,29 @@
     <div class="toast" id="toast"></div>
 
     <script>
-        let slideshowInterval = 30000; // ms, updated from /api/settings
+        let slideshowInterval = 30000;
+        let allImages  = [];
+        let ssImages   = []; // images currently in the slideshow
+        let current    = 0;
+        let paused     = false;
+        let favorites  = new Set();
+        let screens    = [];
+        let activeScreen       = null; // null = "All Photos"
+        let uploadTargetScreen = null;
+        let assigningFilename  = null;
+        let selectMode = false;
+        const selected = new Set();
+        let timer = null, timerStart = null, timerBarAnim = null;
 
-        function getInterval() { return slideshowInterval; }
-
-        let images = [];
-        let current = 0;
-        let paused = false;
-        let favorites = new Set();
-        let showFavOnly = false;
-        let timer = null;
-        let timerStart = null;
-        let timerBarAnim = null;
-
-        const slidesEl   = document.getElementById('slides');
-        const dotsEl     = document.getElementById('dots');
-        const emptyState = document.getElementById('emptyState');
-        const timerBar   = document.getElementById('timerBar');
-        const pauseBtn   = document.getElementById('pauseBtn');
-        const uploadBtn  = document.getElementById('uploadBtn');
-        const fileInput  = document.getElementById('fileInput');
-        const galleryOverlay = document.getElementById('galleryOverlay');
-        const galleryGrid    = document.getElementById('galleryGrid');
-        const toastEl        = document.getElementById('toast');
+        const galleryGrid      = document.getElementById('galleryGrid');
+        const emptyState       = document.getElementById('emptyState');
+        const timerBar         = document.getElementById('timerBar');
+        const pauseBtn         = document.getElementById('pauseBtn');
+        const fileInput        = document.getElementById('fileInput');
+        const toastEl          = document.getElementById('toast');
+        const slidesEl         = document.getElementById('slides');
+        const dotsEl           = document.getElementById('dots');
+        const slideshowOverlay = document.getElementById('slideshowOverlay');
 
         // ── Toast ────────────────────────────────────────────────────
         let toastTimer;
@@ -539,96 +577,325 @@
             clearTimeout(toastTimer);
             toastEl.textContent = msg;
             toastEl.className = 'toast show ' + type;
-            toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3000);
+            toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3200);
         }
 
-        // ── Go to slide ──────────────────────────────────────────────
-        function goTo(index, resetTimer = true) {
-            if (images.length === 0) return;
-            const slides = slidesEl.querySelectorAll('.slide');
-            slides[current]?.classList.remove('active');
-            dotsEl.querySelectorAll('.dot')[current]?.classList.remove('active');
-
-            current = (index + images.length) % images.length;
-
-            slides[current]?.classList.add('active');
-            dotsEl.querySelectorAll('.dot')[current]?.classList.add('active');
-
-            // Highlight current in gallery overlay
-            galleryGrid.querySelectorAll('.thumb').forEach((t, i) =>
-                t.classList.toggle('current', i === current));
-
-            if (resetTimer && !paused) startTimer();
+        // ── Screens ──────────────────────────────────────────────────
+        async function loadScreens() {
+            try {
+                const res = await fetch('/api/screens');
+                screens = await res.json();
+            } catch { screens = []; }
+            renderScreenTabs();
+            renderUploadMenu();
         }
 
-        // ── Timer bar ────────────────────────────────────────────────
-        function startTimer() {
-            clearTimeout(timer);
-            cancelAnimationFrame(timerBarAnim);
-
-            timerBar.style.transition = 'none';
-            timerBar.style.width = '0%';
-
-            const interval = getInterval();
-            timerStart = performance.now();
-
-            function animBar(now) {
-                const elapsed = now - timerStart;
-                const pct = Math.min((elapsed / interval) * 100, 100);
-                timerBar.style.transition = 'none';
-                timerBar.style.width = pct + '%';
-                if (pct < 100) timerBarAnim = requestAnimationFrame(animBar);
-            }
-            timerBarAnim = requestAnimationFrame(animBar);
-
-            timer = setTimeout(() => {
-                goTo(current + 1);
-            }, interval);
+        function renderScreenTabs() {
+            const bar    = document.getElementById('screenBar');
+            const newBtn = document.getElementById('newScreenBtn');
+            bar.querySelectorAll('.screen-tab[data-screen-id]').forEach(el => el.remove());
+            screens.forEach(s => {
+                const tab = document.createElement('button');
+                tab.className = 'screen-tab' + (activeScreen === s.id ? ' active' : '');
+                tab.dataset.screenId = s.id;
+                tab.textContent = s.name + (s.imageCount !== undefined ? ` (${s.imageCount})` : '');
+                tab.onclick = () => { activeScreen = s.id; refreshTabs(); renderGallery(); updateSsLabel(); };
+                bar.insertBefore(tab, newBtn);
+            });
+            document.getElementById('tabAll').classList.toggle('active', activeScreen === null);
         }
 
-        // ── Pause / Resume ───────────────────────────────────────────
-        pauseBtn.onclick = () => {
-            paused = !paused;
-            if (paused) {
-                clearTimeout(timer);
-                cancelAnimationFrame(timerBarAnim);
-                pauseBtn.innerHTML = '&#9654; Play';
-            } else {
-                pauseBtn.innerHTML = '&#9646;&#9646; Pause';
-                startTimer();
-            }
+        function refreshTabs() {
+            document.getElementById('tabAll').classList.toggle('active', activeScreen === null);
+            document.querySelectorAll('.screen-tab[data-screen-id]').forEach(t =>
+                t.classList.toggle('active', t.dataset.screenId === activeScreen));
+        }
+
+        function updateSsLabel() {
+            const s = screens.find(s => s.id === activeScreen);
+            document.getElementById('ssLabel').textContent = s ? s.name : 'All Photos';
+        }
+
+        document.getElementById('tabAll').onclick = () => {
+            activeScreen = null;
+            refreshTabs();
+            renderGallery();
+            updateSsLabel();
         };
 
-        // ── Arrows ───────────────────────────────────────────────────
-        document.getElementById('arrowLeft').onclick  = () => goTo(current - 1);
-        document.getElementById('arrowRight').onclick = () => goTo(current + 1);
+        function renderUploadMenu() {
+            const menu = document.getElementById('uploadMenu');
+            menu.innerHTML = '';
+            const allItem = document.createElement('button');
+            allItem.className = 'upload-menu-item';
+            allItem.innerHTML = '&#128247; All Photos (no screen)';
+            allItem.onclick = () => triggerUpload(null);
+            menu.appendChild(allItem);
+            screens.forEach(s => {
+                const item = document.createElement('button');
+                item.className = 'upload-menu-item';
+                item.textContent = '&#9632; ' + s.name;
+                item.onclick = () => triggerUpload(s.id);
+                menu.appendChild(item);
+            });
+        }
 
-        // ── Keyboard ─────────────────────────────────────────────────
-        document.addEventListener('keydown', e => {
-            if (galleryOverlay.classList.contains('open')) return;
-            if (e.key === 'ArrowLeft')  goTo(current - 1);
-            if (e.key === 'ArrowRight') goTo(current + 1);
-            if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
+        // ── Upload dropdown ──────────────────────────────────────────
+        document.getElementById('uploadMenuBtn').onclick = e => {
+            e.stopPropagation();
+            if (screens.length === 0) { triggerUpload(activeScreen); return; }
+            document.getElementById('uploadMenu').classList.toggle('open');
+        };
+        document.addEventListener('click', () => document.getElementById('uploadMenu').classList.remove('open'));
+
+        function triggerUpload(screenId) {
+            uploadTargetScreen = screenId;
+            document.getElementById('uploadMenu').classList.remove('open');
+            fileInput.click();
+        }
+
+        // ── New Screen modal ─────────────────────────────────────────
+        document.getElementById('newScreenBtn').onclick = () => {
+            document.getElementById('newScreenModal').classList.add('open');
+            setTimeout(() => document.getElementById('newScreenName').focus(), 50);
+        };
+        document.getElementById('cancelNewScreenBtn').onclick = () =>
+            document.getElementById('newScreenModal').classList.remove('open');
+
+        document.getElementById('saveNewScreenBtn').onclick = async () => {
+            const name = document.getElementById('newScreenName').value.trim();
+            const desc = document.getElementById('newScreenDesc').value.trim();
+            if (!name) { showToast('Screen name is required.', 'error'); return; }
+            try {
+                const res = await fetch('/api/screens', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, description: desc })
+                });
+                if (!res.ok) throw new Error((await res.json()).error);
+                document.getElementById('newScreenName').value = '';
+                document.getElementById('newScreenDesc').value = '';
+                document.getElementById('newScreenModal').classList.remove('open');
+                showToast(`Screen "${name}" created.`);
+                await loadScreens();
+                await renderGallery();
+            } catch (e) { showToast('Could not create screen: ' + e.message, 'error'); }
+        };
+        document.getElementById('newScreenName').addEventListener('keydown', e => {
+            if (e.key === 'Enter') document.getElementById('saveNewScreenBtn').click();
+            if (e.key === 'Escape') document.getElementById('cancelNewScreenBtn').click();
         });
 
-        // ── Render slides & dots ─────────────────────────────────────
-        function renderSlides() {
-            slidesEl.innerHTML = '';
-            dotsEl.innerHTML = '';
+        // ── Assign screen modal ──────────────────────────────────────
+        function openAssignModal(filename) {
+            assigningFilename = filename;
+            const img = allImages.find(i => i.filename === filename);
+            const sel = document.getElementById('assignScreenSel');
+            sel.innerHTML = '<option value="">No screen (unassigned)</option>';
+            screens.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s.id;
+                opt.textContent = s.name;
+                if (img?.screenId === s.id) opt.selected = true;
+                sel.appendChild(opt);
+            });
+            document.getElementById('assignModal').classList.add('open');
+        }
+        document.getElementById('cancelAssignBtn').onclick = () =>
+            document.getElementById('assignModal').classList.remove('open');
+        document.getElementById('saveAssignBtn').onclick = async () => {
+            if (!assigningFilename) return;
+            const screenId = document.getElementById('assignScreenSel').value || null;
+            try {
+                const res = await fetch(`/api/images/${encodeURIComponent(assigningFilename)}/screen`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ screenId })
+                });
+                if (!res.ok) throw new Error((await res.json()).error);
+                document.getElementById('assignModal').classList.remove('open');
+                showToast('Screen assigned.');
+                await loadImages();
+                await loadScreens();
+            } catch (e) { showToast('Error: ' + e.message, 'error'); }
+        };
 
-            if (images.length === 0) {
+        // ── Render gallery ───────────────────────────────────────────
+        function renderGallery() {
+            const galleryEl = document.getElementById('galleryGrid');
+            galleryEl.className = 'gallery-grid' + (selectMode ? ' select-mode' : '');
+            galleryEl.innerHTML = '';
+
+            const visible = activeScreen === null
+                ? allImages
+                : allImages.filter(img => img.screenId === activeScreen);
+
+            if (visible.length === 0) {
                 emptyState.style.display = 'flex';
-                timerBar.style.width = '0%';
                 return;
             }
             emptyState.style.display = 'none';
 
-            images.forEach((img, i) => {
+            visible.forEach(img => {
+                const thumb = document.createElement('div');
+                thumb.className = 'thumb' + (selected.has(img.filename) ? ' selected' : '');
+                thumb.onclick = () => {
+                    if (selectMode) {
+                        selected.has(img.filename) ? selected.delete(img.filename) : selected.add(img.filename);
+                        thumb.classList.toggle('selected', selected.has(img.filename));
+                        check.textContent = selected.has(img.filename) ? '✓' : '';
+                        updateSelectToolbar();
+                        return;
+                    }
+                    openSlideshow(visible.indexOf(img), visible);
+                };
+
+                const image = document.createElement('img');
+                image.src = img.url;
+                image.alt = img.filename;
+                image.loading = 'lazy';
+                thumb.appendChild(image);
+
+                // Fav
+                const fav = document.createElement('button');
+                fav.className = 'thumb-fav' + (favorites.has(img.filename) ? ' faved' : '');
+                fav.title = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
+                fav.textContent = '♥';
+                fav.onclick = async e => {
+                    e.stopPropagation();
+                    const isFav = favorites.has(img.filename);
+                    const r = await fetch(`/api/favorites/${encodeURIComponent(img.filename)}`, { method: isFav ? 'DELETE' : 'POST' });
+                    if (r.ok) {
+                        isFav ? favorites.delete(img.filename) : favorites.add(img.filename);
+                        fav.classList.toggle('faved', !isFav);
+                        fav.title = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
+                    }
+                };
+                thumb.appendChild(fav);
+
+                // Check
+                const check = document.createElement('div');
+                check.className = 'thumb-check';
+                check.textContent = selected.has(img.filename) ? '✓' : '';
+                thumb.appendChild(check);
+
+                // Delete
+                const del = document.createElement('button');
+                del.className = 'del';
+                del.textContent = '×';
+                del.title = 'Delete';
+                del.dataset.delete = '';
+                del.onclick = async e => {
+                    e.stopPropagation();
+                    if (!confirm('Delete this image?')) return;
+                    const r = await fetch(`/api/images/${encodeURIComponent(img.filename)}`, { method: 'DELETE' });
+                    if (r.ok) { favorites.delete(img.filename); showToast('Deleted.'); await loadImages(); await loadScreens(); }
+                    else showToast('Could not delete.', 'error');
+                };
+                thumb.appendChild(del);
+
+                // Uploader label
+                if (img.uploadedBy) {
+                    const lbl = document.createElement('div');
+                    lbl.className = 'thumb-uploader';
+                    lbl.textContent = img.uploadedBy;
+                    thumb.appendChild(lbl);
+                }
+
+                // Screen badge (only in "All" view)
+                if (activeScreen === null && img.screenId) {
+                    const s = screens.find(s => s.id === img.screenId);
+                    if (s) {
+                        const badge = document.createElement('span');
+                        badge.className = 'thumb-screen-badge';
+                        badge.textContent = s.name;
+                        thumb.appendChild(badge);
+                    }
+                }
+
+                // Assign to screen button
+                if (screens.length > 0) {
+                    const assignBtn = document.createElement('button');
+                    assignBtn.className = 'thumb-assign';
+                    assignBtn.textContent = img.screenId ? '⊙ Change screen' : '⊕ Add to screen';
+                    assignBtn.onclick = e => { e.stopPropagation(); openAssignModal(img.filename); };
+                    thumb.appendChild(assignBtn);
+                }
+
+                galleryEl.appendChild(thumb);
+            });
+        }
+
+        // ── Select mode ──────────────────────────────────────────────
+        function updateSelectToolbar() {
+            const n = selected.size;
+            document.getElementById('selectCount').textContent = `${n} selected`;
+            document.getElementById('selectToolbar').classList.toggle('visible', n > 0);
+        }
+
+        document.getElementById('cancelSelectBtn').onclick = () => {
+            selectMode = false;
+            selected.clear();
+            updateSelectToolbar();
+            renderGallery();
+        };
+
+        document.getElementById('deleteSelectedBtn').onclick = async () => {
+            const filenames = [...selected];
+            if (!filenames.length || !confirm(`Delete ${filenames.length} image(s)?`)) return;
+            await Promise.all(filenames.map(f => fetch(`/api/images/${encodeURIComponent(f)}`, { method: 'DELETE' })));
+            showToast(`${filenames.length} image(s) deleted.`);
+            selectMode = false;
+            selected.clear();
+            updateSelectToolbar();
+            await loadImages();
+            await loadScreens();
+        };
+
+        // Long-press on mobile to enter select mode
+        let longPressTimer;
+        document.getElementById('galleryGrid').addEventListener('pointerdown', e => {
+            const thumb = e.target.closest('.thumb');
+            if (!thumb || selectMode) return;
+            longPressTimer = setTimeout(() => {
+                selectMode = true;
+                const img = allImages.find(i => thumb.querySelector('img')?.src.endsWith('/uploads/' + i.filename));
+                if (img) { selected.add(img.filename); updateSelectToolbar(); }
+                renderGallery();
+            }, 600);
+        });
+        document.getElementById('galleryGrid').addEventListener('pointerup', () => clearTimeout(longPressTimer));
+        document.getElementById('galleryGrid').addEventListener('pointermove', () => clearTimeout(longPressTimer));
+
+        // ── Slideshow ────────────────────────────────────────────────
+        function openSlideshow(startIdx, imageSet) {
+            ssImages = imageSet || allImages;
+            current  = Math.max(0, Math.min(startIdx, ssImages.length - 1));
+            renderSlides();
+            slideshowOverlay.classList.add('open');
+            goTo(current, false);
+            if (!paused) startTimer();
+            resetSlideshowIdle();
+        }
+
+        document.getElementById('slideshowBtn').onclick = () => {
+            const visible = activeScreen === null ? allImages : allImages.filter(i => i.screenId === activeScreen);
+            if (visible.length === 0) { showToast('No images to show.', 'error'); return; }
+            openSlideshow(0, visible);
+        };
+
+        document.getElementById('slideshowCloseBtn').onclick = () => {
+            slideshowOverlay.classList.remove('open');
+            clearTimeout(timer);
+            cancelAnimationFrame(timerBarAnim);
+        };
+
+        function renderSlides() {
+            slidesEl.innerHTML = '';
+            dotsEl.innerHTML   = '';
+            ssImages.forEach((img, i) => {
                 const slide = document.createElement('div');
                 slide.className = 'slide' + (i === current ? ' active' : '');
                 slide.style.backgroundImage = `url('${img.url}')`;
                 slidesEl.appendChild(slide);
-
                 const dot = document.createElement('div');
                 dot.className = 'dot' + (i === current ? ' active' : '');
                 dot.onclick = () => goTo(i);
@@ -636,227 +903,122 @@
             });
         }
 
-        // ── Multi-select state ───────────────────────────────────────
-        let selectMode = false;
-        const selected = new Set();
-        const gallerySelectBtn = document.getElementById('gallerySelectBtn');
-        const galleryDeleteBar = document.getElementById('galleryDeleteBar');
-        const galleryDeleteBtn = document.getElementById('galleryDeleteBtn');
-
-        function updateDeleteBar() {
-            const n = selected.size;
-            galleryDeleteBar.classList.toggle('visible', n > 0);
-            galleryDeleteBtn.textContent = `Delete selected (${n})`;
+        function goTo(index, resetTimer = true) {
+            if (ssImages.length === 0) return;
+            const slides = slidesEl.querySelectorAll('.slide');
+            slides[current]?.classList.remove('active');
+            dotsEl.querySelectorAll('.dot')[current]?.classList.remove('active');
+            current = (index + ssImages.length) % ssImages.length;
+            slides[current]?.classList.add('active');
+            dotsEl.querySelectorAll('.dot')[current]?.classList.add('active');
+            if (resetTimer && !paused) startTimer();
         }
 
-        function toggleSelectMode(on) {
-            selectMode = on !== undefined ? on : !selectMode;
-            galleryOverlay.classList.toggle('select-mode', selectMode);
-            gallerySelectBtn.textContent = selectMode ? 'Cancel' : 'Select';
-            if (!selectMode) {
-                selected.clear();
-                galleryGrid.querySelectorAll('.thumb.selected').forEach(t => t.classList.remove('selected'));
-                updateDeleteBar();
-            }
+        function startTimer() {
+            clearTimeout(timer);
+            cancelAnimationFrame(timerBarAnim);
+            timerBar.style.transition = 'none';
+            timerBar.style.width = '0%';
+            timerStart = performance.now();
+            const interval = slideshowInterval;
+            (function animBar(now) {
+                const pct = Math.min(((now - timerStart) / interval) * 100, 100);
+                timerBar.style.width = pct + '%';
+                if (pct < 100) timerBarAnim = requestAnimationFrame(animBar);
+            })(timerStart);
+            timer = setTimeout(() => goTo(current + 1), interval);
         }
 
-        gallerySelectBtn.onclick = () => toggleSelectMode();
-
-        galleryDeleteBtn.onclick = async () => {
-            const filenames = [...selected];
-            if (!filenames.length) return;
-            if (!confirm(`Delete ${filenames.length} image(s)?`)) return;
-            try {
-                await Promise.all(filenames.map(f =>
-                    fetch(`/api/images/${encodeURIComponent(f)}`, { method: 'DELETE' })
-                ));
-                showToast(`${filenames.length} image(s) deleted.`);
-                toggleSelectMode(false);
-                await loadImages();
-            } catch {
-                showToast('Could not delete some images.', 'error');
-            }
+        pauseBtn.onclick = () => {
+            paused = !paused;
+            if (paused) { clearTimeout(timer); cancelAnimationFrame(timerBarAnim); pauseBtn.innerHTML = '&#9654; Play'; }
+            else { pauseBtn.innerHTML = '&#9646;&#9646; Pause'; startTimer(); }
         };
 
-        // ── Render gallery overlay ───────────────────────────────────
-        function renderGallery() {
-            galleryGrid.innerHTML = '';
-            const visible = showFavOnly ? images.filter(img => favorites.has(img.filename)) : images;
+        document.getElementById('arrowLeft').onclick  = () => goTo(current - 1);
+        document.getElementById('arrowRight').onclick = () => goTo(current + 1);
 
-            if (showFavOnly && visible.length === 0) {
-                galleryGrid.innerHTML = '<p style="padding:24px;text-align:center;color:#888;grid-column:1/-1">No favourites yet — click ♥ on any image.</p>';
-                return;
-            }
+        document.addEventListener('keydown', e => {
+            if (!slideshowOverlay.classList.contains('open')) return;
+            if (e.key === 'ArrowLeft')  goTo(current - 1);
+            if (e.key === 'ArrowRight') goTo(current + 1);
+            if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
+            if (e.key === 'Escape') document.getElementById('slideshowCloseBtn').click();
+        });
 
-            visible.forEach((img) => {
-                const i = images.indexOf(img);
-                const thumb = document.createElement('div');
-                thumb.className = 'thumb' + (i === current ? ' current' : '') + (selected.has(img.filename) ? ' selected' : '');
-                thumb.onclick = () => {
-                    if (selectMode) {
-                        selected.has(img.filename) ? selected.delete(img.filename) : selected.add(img.filename);
-                        thumb.classList.toggle('selected', selected.has(img.filename));
-                        check.textContent = selected.has(img.filename) ? '✓' : '';
-                        updateDeleteBar();
-                    } else {
-                        goTo(i);
-                        galleryOverlay.classList.remove('open');
-                    }
-                };
-
-                const image = document.createElement('img');
-                image.src = img.url;
-                image.alt = img.filename;
-
-                // ── Favourite heart ──────────────────────────────────
-                const fav = document.createElement('button');
-                fav.className = 'thumb-fav' + (favorites.has(img.filename) ? ' faved' : '');
-                fav.title     = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
-                fav.textContent = '♥';
-                fav.onclick = async (e) => {
-                    e.stopPropagation();
-                    const isFav = favorites.has(img.filename);
-                    const res = await fetch(`/api/favorites/${encodeURIComponent(img.filename)}`,
-                        { method: isFav ? 'DELETE' : 'POST' });
-                    if (res.ok) {
-                        isFav ? favorites.delete(img.filename) : favorites.add(img.filename);
-                        fav.classList.toggle('faved', !isFav);
-                        fav.title = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
-                        if (showFavOnly) renderGallery(); // refresh filter view
-                    }
-                };
-
-                const check = document.createElement('div');
-                check.className = 'thumb-check';
-                check.textContent = selected.has(img.filename) ? '✓' : '';
-
-                const del = document.createElement('button');
-                del.className = 'del';
-                del.textContent = '×';
-                del.title = 'Delete';
-                del.dataset.delete = '';
-                del.onclick = async (e) => {
-                    e.stopPropagation();
-                    if (!confirm('Delete this image?')) return;
-                    try {
-                        const res = await fetch(`/api/images/${encodeURIComponent(img.filename)}`, { method: 'DELETE' });
-                        if (!res.ok) throw new Error();
-                        favorites.delete(img.filename);
-                        showToast('Image deleted.');
-                        await loadImages();
-                    } catch {
-                        showToast('Could not delete image.', 'error');
-                    }
-                };
-
-                thumb.appendChild(image);
-                if (img.uploadedBy) {
-                    const uploader = document.createElement('div');
-                    uploader.className = 'thumb-uploader';
-                    uploader.textContent = img.uploadedBy;
-                    thumb.appendChild(uploader);
-                }
-                thumb.appendChild(fav);
-                thumb.appendChild(check);
-                thumb.appendChild(del);
-                galleryGrid.appendChild(thumb);
-            });
+        // Idle hide in slideshow
+        let idleTimer;
+        function resetSlideshowIdle() {
+            slideshowOverlay.classList.remove('idle');
+            clearTimeout(idleTimer);
+            idleTimer = setTimeout(() => slideshowOverlay.classList.add('idle'), 3000);
         }
+        slideshowOverlay.addEventListener('mousemove', resetSlideshowIdle);
+        slideshowOverlay.addEventListener('click', resetSlideshowIdle);
 
         // ── Load from server ─────────────────────────────────────────
         async function loadImages() {
             try {
-                const [imgRes, favRes] = await Promise.all([
-                    fetch('/api/images'),
-                    fetch('/api/favorites')
-                ]);
-                images    = await imgRes.json();
+                const [imgRes, favRes] = await Promise.all([fetch('/api/images'), fetch('/api/favorites')]);
+                allImages = await imgRes.json();
                 favorites = new Set(favRes.ok ? await favRes.json() : []);
-                if (current >= images.length) current = 0;
-                renderSlides();
                 renderGallery();
-                if (images.length > 0 && !paused) startTimer();
-            } catch {
-                showToast('Could not connect to server.', 'error');
-            }
+            } catch { showToast('Could not connect to server.', 'error'); }
         }
 
         // ── Upload ───────────────────────────────────────────────────
         async function uploadFiles(files) {
             const ALLOWED_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i;
-            const allFiles  = Array.from(files);
-            const imageFiles = allFiles.filter(f =>
-                f.type.startsWith('image/') || ALLOWED_EXTS.test(f.name)
-            );
-            const rejected = allFiles.filter(f =>
-                !f.type.startsWith('image/') && !ALLOWED_EXTS.test(f.name)
-            );
-            if (rejected.length > 0) {
-                showToast(`Unsupported file type: ${rejected.map(f => f.name).join(', ')}`, 'error');
-            }
-            if (imageFiles.length === 0) return;
+            const all    = Array.from(files);
+            const imgs   = all.filter(f => f.type.startsWith('image/') || ALLOWED_EXTS.test(f.name));
+            const bad    = all.filter(f => !f.type.startsWith('image/') && !ALLOWED_EXTS.test(f.name));
+            if (bad.length) showToast(`Unsupported: ${bad.map(f => f.name).join(', ')}`, 'error');
+            if (!imgs.length) return;
 
-            uploadBtn.disabled = true;
-            uploadBtn.textContent = 'Uploading…';
+            const btn = document.getElementById('uploadMenuBtn');
+            btn.disabled = true;
+            btn.textContent = 'Uploading…';
 
-            const formData = new FormData();
-            imageFiles.forEach(f => formData.append('images', f));
+            const fd = new FormData();
+            imgs.forEach(f => fd.append('images', f));
+            if (uploadTargetScreen) fd.append('screenId', uploadTargetScreen);
 
             try {
-                const res = await fetch('/api/upload', { method: 'POST', body: formData });
+                const res  = await fetch('/api/upload', { method: 'POST', body: fd });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || 'Upload failed');
                 showToast(`${data.uploaded.length} image(s) uploaded.`);
                 await loadImages();
-            } catch (err) {
-                showToast('Upload failed: ' + err.message, 'error');
-            } finally {
-                uploadBtn.disabled = false;
-                uploadBtn.innerHTML = '&#8679; Upload';
+                await loadScreens();
+            } catch (err) { showToast('Upload failed: ' + err.message, 'error'); }
+            finally {
+                btn.disabled = false;
+                btn.innerHTML = '&#8679; Upload &#9662;';
                 fileInput.value = '';
+                uploadTargetScreen = null;
             }
         }
 
         fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
 
-        // ── Gallery overlay ──────────────────────────────────────────
-        document.getElementById('galleryBtn').onclick   = () => galleryOverlay.classList.add('open');
-        document.getElementById('galleryClose').onclick = () => { galleryOverlay.classList.remove('open'); toggleSelectMode(false); };
-
-        document.getElementById('galleryFavBtn').onclick = () => {
-            showFavOnly = !showFavOnly;
-            const btn = document.getElementById('galleryFavBtn');
-            btn.classList.toggle('active', showFavOnly);
-            document.getElementById('galleryTitle').textContent = showFavOnly ? '♥ Favourites' : 'All Images';
-            renderGallery();
-        };
-
         // ── Drag & drop ──────────────────────────────────────────────
         let dragCounter = 0;
         const dropOverlay = document.getElementById('dropOverlay');
-
         document.addEventListener('dragenter', e => {
-            if ([...e.dataTransfer.items].some(i => i.kind === 'file')) {
-                dragCounter++;
-                dropOverlay.classList.add('active');
-            }
+            if ([...e.dataTransfer.items].some(i => i.kind === 'file')) { dragCounter++; dropOverlay.classList.add('active'); }
         });
-        document.addEventListener('dragleave', () => {
-            if (--dragCounter === 0) dropOverlay.classList.remove('active');
-        });
+        document.addEventListener('dragleave', () => { if (--dragCounter === 0) dropOverlay.classList.remove('active'); });
         document.addEventListener('dragover', e => e.preventDefault());
         document.addEventListener('drop', e => {
             e.preventDefault();
             dragCounter = 0;
             dropOverlay.classList.remove('active');
+            uploadTargetScreen = activeScreen;
             uploadFiles(e.dataTransfer.files);
         });
 
         // ── Date overlay ─────────────────────────────────────────────
         const dateOverlay = document.getElementById('dateOverlay');
-        const dateDayEl   = document.getElementById('dateDay');
-        const dateTimeEl  = document.getElementById('dateTime');
-
         let displaySettings = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false };
 
         async function loadDisplaySettings() {
@@ -864,87 +1026,57 @@
                 const res = await fetch('/api/settings');
                 displaySettings = await res.json();
                 slideshowInterval = Math.max(1, displaySettings.slideshowInterval || 30) * 1000;
-                if (!paused) startTimer();
-            } catch { /* use defaults */ }
+                if (displaySettings.accentColor) {
+                    document.documentElement.style.setProperty('--accent', displaySettings.accentColor);
+                }
+            } catch {}
             applyDatePosition();
             updateDate();
         }
 
         function applyDatePosition() {
-            const pos      = displaySettings.datePosition || 'top-right';
-            const isRight  = pos.includes('right');
-            const isBottom = pos.includes('bottom');
-            const isIdle   = document.body.classList.contains('idle');
+            const pos = displaySettings.datePosition || 'top-right';
+            const isRight = pos.includes('right'), isBottom = pos.includes('bottom');
             const el = document.getElementById('dateOverlay');
-            if (isBottom) {
-                el.style.top    = 'auto';
-                el.style.bottom = '24px';
-            } else {
-                el.style.bottom = 'auto';
-                el.style.top    = isIdle ? '20px' : '68px';
-            }
-            el.style.left  = isRight ? 'auto' : '24px';
-            el.style.right = isRight ? '24px' : 'auto';
+            el.style.top    = isBottom ? 'auto' : '70px';
+            el.style.bottom = isBottom ? '24px' : 'auto';
+            el.style.left   = isRight  ? 'auto' : '24px';
+            el.style.right  = isRight  ? '24px' : 'auto';
             el.style.textAlign = isRight ? 'right' : 'left';
         }
 
         function updateDate() {
-            const s   = displaySettings;
-            const tz  = s.timezone || 'Europe/Amsterdam';
-            const now = new Date();
+            const s = displaySettings, tz = s.timezone || 'Europe/Amsterdam', now = new Date();
             const parts = [];
-
-            if (s.showDayName) {
-                parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, weekday: 'long' }));
-            }
-            if (s.showDate) {
-                parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric', month: 'long', year: 'numeric' }));
-            }
-            dateDayEl.textContent = parts.join(' ');
-
-            if (s.showTime) {
-                dateTimeEl.textContent = now.toLocaleTimeString('en-GB', {
-                    timeZone: tz,
-                    hour: '2-digit', minute: '2-digit',
-                    second: s.showSeconds ? '2-digit' : undefined
-                });
-            } else {
-                dateTimeEl.textContent = '';
-            }
-
-            // Hide overlay completely if nothing is configured to show
+            if (s.showDayName) parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, weekday: 'long' }));
+            if (s.showDate)    parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric', month: 'long', year: 'numeric' }));
+            document.getElementById('dateDay').textContent = parts.join(' ');
+            document.getElementById('dateTime').textContent = s.showTime
+                ? now.toLocaleTimeString('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', ...(s.showSeconds ? { second: '2-digit' } : {}) })
+                : '';
             const hasContent = s.showDayName || s.showDate || s.showTime;
             dateOverlay.style.display = hasContent ? '' : 'none';
         }
 
         loadDisplaySettings();
         dateOverlay.classList.remove('hidden');
-        setInterval(updateDate, 1000); // refresh every second (for seconds display)
-
-        // ── Hide UI when mouse is idle ───────────────────────────────
-        let idleTimer;
-        function resetIdle() {
-            document.body.classList.remove('idle');
-            applyDatePosition();
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => { document.body.classList.add('idle'); applyDatePosition(); }, 3000);
-        }
-        document.addEventListener('mousemove', resetIdle);
-        resetIdle();
+        setInterval(updateDate, 1000);
 
         // ── Role-based UI ─────────────────────────────────────────────
         async function applyRole() {
-            const res  = await fetch('/api/me');
-            const user = await res.json();
-            const p    = user.permissions || {};
-            if (!p.canManage) document.querySelectorAll('[data-admin]').forEach(el => el.style.display = 'none');
-            if (!p.canUpload) document.getElementById('uploadBtn').style.display = 'none';
-            if (!p.canDelete) document.querySelectorAll('[data-delete]').forEach(el => el.style.display = 'none');
+            try {
+                const res  = await fetch('/api/me');
+                const user = await res.json();
+                const p    = user.permissions || {};
+                if (!p.canManage) document.querySelectorAll('[data-admin]').forEach(el => el.style.display = 'none');
+                if (!p.canUpload) document.getElementById('uploadMenuBtn').style.display = 'none';
+                if (!p.canDelete) document.querySelectorAll('[data-delete]').forEach(el => el.style.display = 'none');
+            } catch {}
         }
 
         // ── Init ─────────────────────────────────────────────────────
         applyRole();
-        loadImages();
+        loadScreens().then(() => loadImages());
     </script>
 </body>
 </html>

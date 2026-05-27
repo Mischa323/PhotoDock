@@ -1369,6 +1369,40 @@
         </div></div>
     </section>
 
+    <!-- Screens -->
+    <section id="sec-screens">
+        <div class="section-header">
+            <h2>Screens <span class="help" data-tip="Screens are named collections of photos. Each screen can be assigned to an API key so a specific display only shows its own photos.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th style="white-space:nowrap;width:80px">Photos</th>
+                    <th style="white-space:nowrap">Created</th>
+                    <th style="width:64px">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="screenTableBody">
+                <tr class="empty-row"><td colspan="5">Loading…</td></tr>
+            </tbody>
+        </table>
+        <div class="add-form">
+            <div class="field">
+                <label>Screen name</label>
+                <input type="text" id="newScreenName" placeholder="Living Room Display" maxlength="60">
+            </div>
+            <div class="field">
+                <label>Description (optional)</label>
+                <input type="text" id="newScreenDesc" placeholder="Short description" maxlength="120">
+            </div>
+            <button class="btn-add" onclick="createScreen()">Add Screen</button>
+        </div>
+        </div></div>
+    </section>
+
     <!-- API Keys -->
     <section id="sec-api-keys">
         <div class="section-header">
@@ -1421,6 +1455,12 @@
                     <option value="">Global</option>
                     <option value="1">On</option>
                     <option value="0">Off</option>
+                </select>
+            </div>
+            <div class="field" style="max-width:160px">
+                <label>Screen (optional)</label>
+                <select id="newKeyScreen" style="border:1px solid #ddd;border-radius:4px;padding:5px 6px;font-size:13px;outline:none;width:100%">
+                    <option value="">All photos</option>
                 </select>
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
@@ -1649,6 +1689,66 @@
     }
 
     // ── API Keys ───────────────────────────────────────────────────────────
+    // ── Screens ────────────────────────────────────────────────────────────
+    let allScreens = [];
+
+    async function loadScreens() {
+        const res = await fetch('/api/screens');
+        allScreens = res.ok ? await res.json() : [];
+        renderScreenTable();
+        // Refresh screen dropdowns in API key form
+        const newKeyScreen = document.getElementById('newKeyScreen');
+        if (newKeyScreen) {
+            newKeyScreen.innerHTML = '<option value="">All photos</option>' +
+                allScreens.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('');
+        }
+    }
+
+    function renderScreenTable() {
+        const tbody = document.getElementById('screenTableBody');
+        if (!tbody) return;
+        if (allScreens.length === 0) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="5">No screens — add one below.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = allScreens.map(s => `
+            <tr>
+                <td style="font-weight:500">${escHtml(s.name)}</td>
+                <td style="font-size:13px;color:#888">${escHtml(s.description || '')}</td>
+                <td style="font-size:13px">${s.imageCount ?? 0}</td>
+                <td style="font-size:12px;color:#888;white-space:nowrap">${s.createdAt ? new Date(s.createdAt).toLocaleDateString() : '—'}</td>
+                <td>
+                    <div class="actions">
+                        <button class="icon-btn danger" title="Delete screen" onclick="deleteScreen('${s.id}', '${escHtml(s.name)}')">&#128465;</button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function createScreen() {
+        const name = document.getElementById('newScreenName').value.trim();
+        const desc = document.getElementById('newScreenDesc').value.trim();
+        if (!name) return showToast('Screen name is required', 'error');
+        const res  = await fetch('/api/screens', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, description: desc })
+        });
+        if (!res.ok) return showToast((await res.json()).error, 'error');
+        document.getElementById('newScreenName').value = '';
+        document.getElementById('newScreenDesc').value = '';
+        showToast(`Screen "${name}" created.`);
+        await loadScreens();
+    }
+
+    async function deleteScreen(id, name) {
+        if (!confirm(`Delete screen "${name}"? Photos will become unassigned.`)) return;
+        const res = await fetch(`/api/screens/${id}`, { method: 'DELETE' });
+        if (!res.ok) return showToast('Could not delete screen.', 'error');
+        showToast(`Screen "${name}" deleted.`);
+        await loadScreens();
+    }
+
     async function loadApiKeys() {
         const res  = await fetch('/api/admin/apikeys');
         const keys = await res.json();
@@ -1724,6 +1824,15 @@
                             </select>
                         </div>
                         <div>
+                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Screen</div>
+                            <select id="screen-${k.id}"
+                                style="border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
+                                onchange="saveKeySettings('${k.id}')">
+                                <option value="" ${!k.screenId ? 'selected' : ''}>All photos</option>
+                                ${allScreens.map(s => `<option value="${s.id}" ${k.screenId === s.id ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
                             <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Created</div>
                             <div style="font-size:13px">${new Date(k.createdAt).toLocaleDateString()}</div>
                         </div>
@@ -1741,11 +1850,12 @@
             document.getElementById(`ep-${ep}-${id}`)?.checked
         );
         const showDateVal = document.getElementById(`showdate-${id}`)?.value;
-        const showDate = showDateVal === '1' ? true : showDateVal === '0' ? false : null;
+        const showDate    = showDateVal === '1' ? true : showDateVal === '0' ? false : null;
+        const screenId    = document.getElementById(`screen-${id}`)?.value || null;
         const res = await fetch(`/api/admin/apikeys/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ interval, imageWidth, imageHeight, allowedEndpoints, showDate })
+            body: JSON.stringify({ interval, imageWidth, imageHeight, allowedEndpoints, showDate, screenId })
         });
         if (!res.ok) showToast('Could not save key settings', 'error');
         else showToast('Key updated.');
@@ -1763,10 +1873,11 @@
 
         const newShowDateVal = document.getElementById('newKeyShowDate')?.value;
         const showDate = newShowDateVal === '1' ? true : newShowDateVal === '0' ? false : null;
+        const screenId = document.getElementById('newKeyScreen')?.value || null;
         const res  = await fetch('/api/admin/apikeys', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, interval, imageWidth, imageHeight, allowedEndpoints, showDate })
+            body: JSON.stringify({ name, interval, imageWidth, imageHeight, allowedEndpoints, showDate, screenId })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
@@ -2476,7 +2587,7 @@
     loadDisplaySettings();
     loadActivityLog();
     loadRoles().then(() => loadUsers());
-    loadApiKeys();
+    loadScreens().then(() => loadApiKeys());
     initApiDocs();
     loadVersion();
     initCollapsible();
@@ -2507,6 +2618,7 @@
         'sec-users':     'full',
         'sec-roles':     'half',
         'sec-api-ref':   'half',
+        'sec-screens':   'full',
         'sec-api-keys':  'full',
         'sec-version':   'half',
     };
