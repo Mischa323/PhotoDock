@@ -8,17 +8,20 @@ const QRCode      = require('qrcode');
 const nodemailer  = require('nodemailer');
 const sharp       = require('sharp');
 const heicConvert = require('heic-convert');
-const { version: pkgVersion } = require('./package.json');
+const { version: pkgVersion } = require('../package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
+
+const ROOT_DIR    = path.join(__dirname, '..');
+const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
 const HTTPS_PORT  = process.env.HTTPS_PORT  !== undefined ? process.env.HTTPS_PORT : '8081';
 const SSL_CERT    = process.env.SSL_CERT    || null; // path to certificate file (auto-generated if absent)
 const SSL_KEY     = process.env.SSL_KEY     || null; // path to private key file (auto-generated if absent)
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
-const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data.json');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(ROOT_DIR, 'uploads');
+const DATA_FILE   = process.env.DATA_FILE   || path.join(ROOT_DIR, 'data.json');
 const TOKEN_DAYS  = 30; // login cookie lifetime
 const COOKIE_NAME = 'auth_token';
 
@@ -392,7 +395,7 @@ app.use(requireAuth);
 // ── First-run setup ────────────────────────────────────────────────────────
 app.get('/setup', (_req, res) => {
     if (appData.users.length > 0) return res.redirect('/');
-    res.sendFile(path.join(__dirname, 'setup.html'));
+    res.sendFile(path.join(FRONTEND_DIR, 'setup.html'));
 });
 
 app.post('/api/setup', async (req, res) => {
@@ -411,7 +414,7 @@ app.post('/api/setup', async (req, res) => {
 // ── Auth routes ────────────────────────────────────────────────────────────
 app.get('/login', (req, res) => {
     if (req.currentUser) return res.redirect('/');
-    res.sendFile(path.join(__dirname, 'login.html'));
+    res.sendFile(path.join(FRONTEND_DIR, 'login.html'));
 });
 
 app.post('/login', async (req, res) => {
@@ -486,7 +489,7 @@ app.post('/logout', (req, res) => {
 });
 
 // ── 2FA — login completion (unauthenticated) ───────────────────────────────
-app.get('/2fa', (_req, res) => res.sendFile(path.join(__dirname, '2fa.html')));
+app.get('/2fa', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, '2fa.html')));
 
 app.post('/api/2fa/complete', express.json(), (req, res) => {
     if (!check2FARateLimit(req.ip)) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
@@ -1000,7 +1003,7 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
 app.get('/api/version', (_req, res) => res.json({ version: appVersion, changelog }));
 
 // ── Static files ───────────────────────────────────────────────────────────
-app.use(express.static(__dirname));
+app.use(express.static(FRONTEND_DIR));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ── Images API ─────────────────────────────────────────────────────────────
