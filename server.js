@@ -220,6 +220,7 @@ let appData = loadData();
 if (!appData.tokens)        { appData.tokens        = []; saveData(appData); }
 if (!appData.logs)          { appData.logs          = []; saveData(appData); }
 if (!appData.imageMetadata) { appData.imageMetadata = {}; saveData(appData); }
+if (!appData.screens)       { appData.screens       = []; saveData(appData); }
 
 const MAX_LOGS = 500;
 function addLog(event, { user, keyName, ip, detail } = {}) {
@@ -765,13 +766,14 @@ app.get('/api/admin/apikeys', requireAdmin, (_req, res) => res.json(appData.apiK
 const VALID_ENDPOINTS = ['current', 'all', 'image'];
 
 app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
-    const { name, interval, imageWidth, imageHeight, allowedEndpoints, showDate } = req.body;
+    const { name, interval, imageWidth, imageHeight, allowedEndpoints, showDate, screenId } = req.body;
     if (!name) return res.status(400).json({ error: 'Name required' });
     const apiKey = { id: crypto.randomUUID(), name, key: crypto.randomBytes(24).toString('base64url'), intervalMinutes: Math.max(1, parseInt(interval) || 5), createdAt: new Date().toISOString() };
     const w = parseInt(imageWidth);  if (w > 0) apiKey.imageWidth  = Math.min(7680, w);
     const h = parseInt(imageHeight); if (h > 0) apiKey.imageHeight = Math.min(4320, h);
     if (Array.isArray(allowedEndpoints)) apiKey.allowedEndpoints = allowedEndpoints.filter(e => VALID_ENDPOINTS.includes(e));
     if (showDate === true || showDate === false) apiKey.showDate = showDate;
+    if (screenId && (appData.screens || []).find(s => s.id === screenId)) apiKey.screenId = screenId;
     appData.apiKeys.push(apiKey);
     saveData(appData);
     res.json(apiKey);
@@ -780,10 +782,11 @@ app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
 app.put('/api/admin/apikeys/:id', requireAdmin, (req, res) => {
     const apiKey = appData.apiKeys.find(k => k.id === req.params.id);
     if (!apiKey) return res.status(404).json({ error: 'Key not found' });
-    const { name, interval, imageWidth, imageHeight, allowedEndpoints, showDate } = req.body;
+    const { name, interval, imageWidth, imageHeight, allowedEndpoints, showDate, screenId } = req.body;
     if (name) apiKey.name = name;
     if (interval !== undefined) apiKey.intervalMinutes = Math.max(1, parseInt(interval) || 5);
     if ('showDate' in req.body) apiKey.showDate = showDate === true || showDate === false ? showDate : null;
+    if ('screenId' in req.body) apiKey.screenId = screenId && (appData.screens || []).find(s => s.id === screenId) ? screenId : null;
     // imageWidth/imageHeight: positive number = override, 0/null/'' = use global default
     if (imageWidth !== undefined) {
         const w = parseInt(imageWidth);
@@ -883,10 +886,18 @@ app.put('/api/settings', requireAdmin, (req, res) => {
 });
 
 // ── Slideshow API (external) ───────────────────────────────────────────────
+function getScreenFiles(keyRecord) {
+    const screenId = keyRecord?.screenId || null;
+    const meta     = appData.imageMetadata || {};
+    const all      = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
+    if (!screenId) return all;
+    return all.filter(f => (meta[f]?.screenId || null) === screenId);
+}
+
 app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
-    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
+    const files      = getScreenFiles(keyRecord);
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
     const slot     = Math.floor(Date.now() / intervalMs);
     const index    = slot % files.length;
@@ -897,8 +908,9 @@ app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (re
 });
 
 app.get('/api/slideshow/all', requireApiKey, requireEndpoint('all'), (req, res) => {
-    const files   = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const keyRecord = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
+    const files     = getScreenFiles(keyRecord);
+    const baseUrl   = `${req.protocol}://${req.get('host')}`;
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
 });
 
@@ -956,7 +968,7 @@ function buildDateOverlaySvg(w, h, settings) {
 app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
-    const files      = fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).sort();
+    const files      = getScreenFiles(keyRecord);
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
     const slot     = Math.floor(Date.now() / intervalMs);
     const filename = files[slot % files.length];
@@ -992,13 +1004,21 @@ app.use(express.static(__dirname));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ── Images API ─────────────────────────────────────────────────────────────
-app.get('/api/images', (_req, res) => {
+app.get('/api/images', (req, res) => {
     const meta  = appData.imageMetadata || {};
-    const files = fs.readdirSync(UPLOADS_DIR).map(filename => ({
-        filename, url: `/uploads/${filename}`,
-        uploadedAt: meta[filename]?.uploadedAt || fs.statSync(path.join(UPLOADS_DIR, filename)).mtime,
-        uploadedBy: meta[filename]?.uploadedBy || null,
-    }));
+    const { screenId } = req.query;
+    let files = fs.readdirSync(UPLOADS_DIR)
+        .filter(f => IMAGE_EXTS.test(f))
+        .map(filename => ({
+            filename, url: `/uploads/${filename}`,
+            uploadedAt: meta[filename]?.uploadedAt || fs.statSync(path.join(UPLOADS_DIR, filename)).mtime,
+            uploadedBy: meta[filename]?.uploadedBy || null,
+            screenId:   meta[filename]?.screenId   || null,
+        }));
+    if (screenId !== undefined) {
+        const filterVal = screenId === '' ? null : screenId;
+        files = files.filter(f => f.screenId === filterVal);
+    }
     files.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
     res.json(files);
 });
@@ -1035,11 +1055,12 @@ app.post('/api/upload', requireUpload, (req, res) => {
         }
     }
 
-    const uploader  = req.currentUser?.username || null;
+    const uploader   = req.currentUser?.username || null;
     const uploadedAt = new Date().toISOString();
+    const screenId   = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
     if (!appData.imageMetadata) appData.imageMetadata = {};
     for (const f of processed) {
-        appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt };
+        appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt, screenId };
     }
     saveData(appData);
     addLog('upload', { user: uploader, ip: req.ip, detail: `${processed.length} file(s)` });
@@ -1081,6 +1102,72 @@ app.delete('/api/favorites/:filename', (req, res) => {
     const user = appData.users.find(u => u.id === req.currentUser.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     user.favorites = (user.favorites || []).filter(f => f !== path.basename(req.params.filename));
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// ── Screens ────────────────────────────────────────────────────────────────
+app.get('/api/screens', (_req, res) => {
+    const meta = appData.imageMetadata || {};
+    const screens = (appData.screens || []).map(s => ({
+        ...s,
+        imageCount: Object.values(meta).filter(m => m.screenId === s.id).length,
+    }));
+    res.json(screens);
+});
+
+app.post('/api/screens', (req, res) => {
+    const { name, description } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Screen name is required' });
+    if (!appData.screens) appData.screens = [];
+    const screen = {
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        description: (description || '').trim(),
+        createdAt: new Date().toISOString(),
+        createdBy: req.currentUser?.username || null,
+    };
+    appData.screens.push(screen);
+    saveData(appData);
+    res.json(screen);
+});
+
+app.put('/api/screens/:id', (req, res) => {
+    const screen = (appData.screens || []).find(s => s.id === req.params.id);
+    if (!screen) return res.status(404).json({ error: 'Screen not found' });
+    const { name, description } = req.body;
+    if (name !== undefined) screen.name = name.trim();
+    if (description !== undefined) screen.description = description.trim();
+    saveData(appData);
+    res.json(screen);
+});
+
+app.delete('/api/screens/:id', requireAdmin, (req, res) => {
+    const idx = (appData.screens || []).findIndex(s => s.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Screen not found' });
+    const screenId = req.params.id;
+    appData.screens.splice(idx, 1);
+    const meta = appData.imageMetadata || {};
+    for (const filename of Object.keys(meta)) {
+        if (meta[filename].screenId === screenId) meta[filename].screenId = null;
+    }
+    // Unlink API keys that were tied to this screen
+    for (const k of (appData.apiKeys || [])) {
+        if (k.screenId === screenId) k.screenId = null;
+    }
+    saveData(appData);
+    res.json({ deleted: screenId });
+});
+
+app.put('/api/images/:filename/screen', (req, res) => {
+    const filename = path.basename(req.params.filename);
+    const { screenId } = req.body;
+    if (screenId && !(appData.screens || []).find(s => s.id === screenId)) {
+        return res.status(400).json({ error: 'Screen not found' });
+    }
+    if (!appData.imageMetadata) appData.imageMetadata = {};
+    if (!appData.imageMetadata[filename]) appData.imageMetadata[filename] = {};
+    appData.imageMetadata[filename].screenId = screenId || null;
     saveData(appData);
     res.json({ ok: true });
 });
