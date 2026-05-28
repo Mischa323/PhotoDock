@@ -98,6 +98,12 @@
         .screen-card-title { font-size: 15px; font-weight: 600; color: #0f172a; }
         .screen-card-meta { font-size: 12px; color: #94a3b8; margin-top: 3px; }
         .screen-card-body { padding: 14px 20px 18px; display: flex; flex-direction: column; gap: 10px; }
+        .screen-card[data-screen-color] { border-left: 4px solid var(--screen-color); }
+        .device-screen-dot { display:inline-block; width:9px; height:9px; border-radius:50%; background:var(--screen-color,#94a3b8); margin-right:6px; vertical-align:middle; }
+        .wz-colors { display:flex; flex-wrap:wrap; gap:9px; }
+        .wz-swatch { width:30px; height:30px; border-radius:50%; cursor:pointer; border:2px solid transparent; padding:0; transition:.12s; }
+        .wz-swatch.selected { border-color:#0f172a; box-shadow:0 0 0 2px var(--sw); }
+        [data-theme="dark"] .wz-swatch.selected { border-color:#fff; }
 
         .icon-btn {
             background: none;
@@ -574,6 +580,10 @@
                         <input type="text" id="wzDesc" placeholder="Short description" maxlength="120">
                     </div>
                     <div class="wz-field">
+                        <label>Colour</label>
+                        <div class="wz-colors" id="wzColors"></div>
+                    </div>
+                    <div class="wz-field">
                         <label>Device type</label>
                         <select id="wzDeviceType">
                             <option value="waveshare-s3-photopainter">Waveshare ESP32-S3-PhotoPainter (7.3&quot; ACeP 7-color, 800×480)</option>
@@ -942,17 +952,37 @@
     }
 
     // ── Data loading ─────────────────────────────────────────────────────────
+    const SCREEN_COLORS = ['#06b6d4','#d97706','#22c55e','#a855f7','#f43f5e','#3b82f6','#eab308','#ec4899'];
+    let wzSelectedColor = SCREEN_COLORS[0];
+    function renderWzColors() {
+        const wrap = document.getElementById('wzColors');
+        if (!wrap) return;
+        wrap.innerHTML = '';
+        SCREEN_COLORS.forEach(c => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'wz-swatch' + (c === wzSelectedColor ? ' selected' : '');
+            b.style.background = c; b.style.setProperty('--sw', c);
+            b.onclick = () => { wzSelectedColor = c; renderWzColors(); };
+            wrap.appendChild(b);
+        });
+    }
+
     let allDevices = [];
     let allAlbums  = [];
+    let allScreens = [];
 
     async function loadAll() {
         try {
-            const [dRes, aRes] = await Promise.all([
+            const [dRes, aRes, sRes] = await Promise.all([
                 fetch('/api/admin/devices'),
                 fetch('/api/admin/albums'),
+                fetch('/api/screens'),
             ]);
             allDevices = dRes.ok ? await dRes.json() : [];
             allAlbums  = aRes.ok ? await aRes.json() : [];
+            allScreens = sRes.ok ? await sRes.json() : [];
+            if (!Array.isArray(allScreens)) allScreens = [];
             if (!Array.isArray(allDevices)) allDevices = [];
             if (!Array.isArray(allAlbums))  allAlbums  = [];
         } catch {
@@ -967,7 +997,11 @@
         const count = document.getElementById('screenCount');
         count.textContent = `${allDevices.length} device${allDevices.length !== 1 ? 's' : ''}`;
         grid.innerHTML = allDevices.length
-            ? allDevices.map(d => `<div class="screen-card"><div class="screen-card-body" style="padding:16px">${deviceCardHtml(d)}</div></div>`).join('')
+            ? allDevices.map(d => {
+                const sc = allScreens.find(x => x.id === d.screenId);
+                const colorAttr = sc ? ` data-screen-color style="--screen-color:${sc.color}"` : '';
+                return `<div class="screen-card"${colorAttr}><div class="screen-card-body" style="padding:16px">${deviceCardHtml(d)}</div></div>`;
+              }).join('')
             : `<div style="color:#94a3b8;font-size:14px;padding:8px 0">No devices yet — set one up below.</div>`;
     }
 
@@ -1063,7 +1097,7 @@
             const sRes = await fetch('/api/screens', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, description: desc }),
+                body: JSON.stringify({ name, description: desc, color: wzSelectedColor }),
             });
             if (!sRes.ok) {
                 const e = await sRes.json().catch(() => ({}));
@@ -1271,6 +1305,8 @@
         if (e.detail?.state === 'finished') {
             document.getElementById('wzFlashDone').style.display = 'block';
             document.getElementById('wzFlashContinue').style.display = '';
+            // Auto-advance after a short delay so the user sees the ✓ banner
+            setTimeout(() => wizardSetStep(4), 1200);
         }
     });
 
@@ -1280,6 +1316,7 @@
         const name = _wizardKeyName;
         document.getElementById('wzName').value = ''; document.getElementById('wzName').disabled = false;
         document.getElementById('wzDesc').value = ''; document.getElementById('wzDesc').disabled = false;
+        wzSelectedColor = SCREEN_COLORS[(allScreens.length) % SCREEN_COLORS.length]; renderWzColors();
         document.getElementById('wzDeviceType').disabled = false;
         document.getElementById('wzKeyReveal').style.display = 'none';
         document.getElementById('wzContinueBtn').style.display = 'none';
@@ -1451,6 +1488,7 @@
 
     // ── Auto-refresh device status every 30 s ────────────────────────────────
     loadAll();
+    renderWzColors();
     setInterval(loadAll, 30000);
 </script>
 </body>
