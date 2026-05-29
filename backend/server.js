@@ -8,12 +8,15 @@ const QRCode      = require('qrcode');
 const nodemailer  = require('nodemailer');
 const sharp       = require('sharp');
 const heicConvert = require('heic-convert');
+const { spawn, execSync, exec } = require('child_process');
 const { version: pkgVersion } = require('../package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
 
 const ROOT_DIR    = path.join(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
+const ESP32_DIR    = path.join(ROOT_DIR, 'esp32');
+const FIRMWARE_DIR = path.join(ROOT_DIR, 'firmware_build');
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
@@ -466,7 +469,164 @@ app.get('/api/devices/pair/:token', (req, res) => {
     res.json({ status: 'complete', apiKey: key?.key || null, screenName: scr?.name || null });
 });
 
+// Serve built firmware files for esp-web-tools (no auth — browser fetches directly during flash)
+app.use('/firmware', express.static(FIRMWARE_DIR));
+
 app.use(requireAuth);
+
+// ── Firmware build state ───────────────────────────────────────────────────
+let buildInProgress = false;
+
+function findPio() {
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    if (process.platform === 'win32') {
+        const candidates = [
+            path.join(home, '.platformio', 'penv', 'Scripts', 'pio.exe'),
+        ];
+        const pythonRoots = ['C:\\Python314','C:\\Python313','C:\\Python312','C:\\Python311','C:\\Python310',
+            path.join(home,'AppData','Local','Programs','Python','Python314'),
+            path.join(home,'AppData','Local','Programs','Python','Python313'),
+        ];
+        for (const r of pythonRoots) candidates.push(path.join(r,'Scripts','pio.exe'));
+        const appData = process.env.APPDATA || path.join(home,'AppData','Roaming');
+        for (const ver of ['Python314','Python313','Python312','Python311','Python310'])
+            candidates.push(path.join(appData,'Python',ver,'Scripts','pio.exe'));
+        for (const p of candidates) { if (fs.existsSync(p)) return p; }
+    } else {
+        const candidates = [
+            path.join(home,'.platformio','penv','bin','pio'),
+            '/usr/local/bin/pio',
+            '/usr/bin/pio',
+        ];
+        for (const p of candidates) { if (fs.existsSync(p)) return p; }
+    }
+    return 'pio';
+}
+
+function findBoot0() {
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    const pkgsDir = path.join(home,'.platformio','packages');
+    try {
+        for (const pkg of fs.readdirSync(pkgsDir)) {
+            if (!pkg.startsWith('framework-arduino')) continue;
+            const candidate = path.join(pkgsDir, pkg, 'tools', 'partitions', 'boot_app0.bin');
+            if (fs.existsSync(candidate)) return candidate;
+        }
+    } catch {}
+    if (process.platform !== 'win32') {
+        try {
+            const p = execSync('find /root/.platformio -name boot_app0.bin 2>/dev/null | head -1').toString().trim();
+            if (p) return p;
+        } catch {}
+    }
+    return null;
+}
+
+app.get('/api/admin/firmware/status', requireAdmin, (_req, res) => {
+    const manifest = path.join(FIRMWARE_DIR, 'manifest.json');
+    const firmware  = path.join(FIRMWARE_DIR, 'firmware.bin');
+    const ready     = fs.existsSync(manifest) && fs.existsSync(firmware);
+    let builtAt     = null;
+    if (ready) { try { builtAt = fs.statSync(firmware).mtime.toISOString(); } catch {} }
+    res.json({ ready, builtAt, buildInProgress });
+});
+
+app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) => {
+    if (buildInProgress) return res.status(409).json({ error: 'A build is already in progress' });
+
+    const { wifi_ssid='', wifi_password='', server_host='', server_port=8080 } = req.body || {};
+
+    const esc = s => String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    const configContent = [
+        '#pragma once',
+        '#define DEFAULT_SLEEP_S         (5 * 60)',
+        '#define BATTERY_ADC_PIN         4',
+        '#define BATTERY_DIVIDER_RATIO   2.0f',
+        '#define JPEG_BUF_SIZE           (512 * 1024)',
+        `#define DEFAULT_WIFI_SSID       "${esc(wifi_ssid)}"`,
+        `#define DEFAULT_WIFI_PASS       "${esc(wifi_password)}"`,
+        `#define DEFAULT_SERVER_HOST     "${esc(server_host)}"`,
+        `#define DEFAULT_SERVER_PORT     ${parseInt(server_port) || 8080}`,
+        `#define DEFAULT_API_KEY         ""`,
+    ].join('\n') + '\n';
+
+    try { fs.mkdirSync(path.join(ESP32_DIR, 'src'), { recursive: true }); } catch {}
+    fs.writeFileSync(path.join(ESP32_DIR, 'src', 'config.h'), configContent);
+
+    const pioBin = findPio();
+    const pioOk = pioBin !== 'pio'
+        ? fs.existsSync(pioBin)
+        : (() => { try { execSync(process.platform==='win32'?'where pio':'which pio',{stdio:'ignore',timeout:3000}); return true; } catch { return false; } })();
+
+    if (!pioOk) {
+        return res.status(500).json({
+            error: `PlatformIO not found. Install with: pip install platformio, then restart the server.`
+        });
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.socket?.setTimeout(0);
+    res.flushHeaders();
+
+    const send = (type, data) => { try { res.write(`data: ${JSON.stringify({type,data})}\n\n`); } catch {} };
+
+    buildInProgress = true;
+    send('log', `▶ PlatformIO: ${pioBin}\n▶ Starting build…\n`);
+
+    const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 15000);
+
+    const pio = spawn(pioBin, ['run', '-e', 'esp32s3-photopainter'], {
+        cwd: ESP32_DIR,
+        env: { ...process.env, CI:'1', PLATFORMIO_DISABLE_AUTO_CHECK_UPDATES:'1' },
+        shell: process.platform === 'win32',
+    });
+
+    pio.stdout.on('data', d => send('log', d.toString()));
+    pio.stderr.on('data', d => send('log', d.toString()));
+
+    pio.on('error', err => {
+        clearInterval(keepalive);
+        buildInProgress = false;
+        send('error', `Cannot start PlatformIO: ${err.message}\n\nInstall with: pip install platformio`);
+        res.end();
+    });
+
+    pio.on('close', (code, signal) => {
+        clearInterval(keepalive);
+        buildInProgress = false;
+        if (code !== 0) {
+            send('error', `Build failed (${signal ? 'killed by signal ' + signal : 'exit code ' + code})`);
+            res.end();
+            return;
+        }
+        try {
+            const buildDir = path.join(ESP32_DIR, '.pio', 'build', 'esp32s3-photopainter');
+            fs.mkdirSync(FIRMWARE_DIR, { recursive: true });
+            for (const f of ['bootloader.bin', 'partitions.bin', 'firmware.bin'])
+                fs.copyFileSync(path.join(buildDir, f), path.join(FIRMWARE_DIR, f));
+            const boot0 = findBoot0();
+            if (boot0) fs.copyFileSync(boot0, path.join(FIRMWARE_DIR, 'boot_app0.bin'));
+            else send('log', '⚠ boot_app0.bin not found — flash may require a full erase\n');
+            const manifest = {
+                name: 'Photo Display Firmware',
+                version: '1.0.0',
+                builds: [{ chipFamily: 'ESP32-S3', parts: [
+                    { path: '/firmware/bootloader.bin', offset: 0 },
+                    { path: '/firmware/partitions.bin', offset: 32768 },
+                    { path: '/firmware/boot_app0.bin',  offset: 57344 },
+                    { path: '/firmware/firmware.bin',   offset: 65536 },
+                ]}],
+            };
+            fs.writeFileSync(path.join(FIRMWARE_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
+            send('done', 'Build succeeded — firmware is ready to flash');
+        } catch (e) {
+            send('error', `Post-build copy failed: ${e.message}`);
+        }
+        res.end();
+    });
+});
 
 // ── Device pairing — link endpoint (requires user session) ────────────────
 app.post('/api/devices/pair/:token/link', express.json(), (req, res) => {

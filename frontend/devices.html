@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/glass.css">
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
     body { min-height: 100vh; overflow-y: auto; }
     #app { position: relative; min-height: 100vh; max-width: 1200px; margin: 0 auto; padding: 0 20px 80px; }
@@ -380,6 +381,70 @@
         Device linked! It will fetch its API key on the next poll and start displaying photos.
       </div>
       <button class="glass-btn" style="margin-top:14px" onclick="cancelPair()">Done</button>
+    </div>
+
+  </div>
+
+  <!-- ── Flash firmware ─────────────────────────────────────── -->
+  <div class="section-heading" style="margin-top:20px">Flash firmware</div>
+  <div class="glass-dark" id="flashCard" style="border-radius:16px;padding:24px;margin-bottom:36px">
+
+    <div id="flashIdle">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px">
+        <div>
+          <h2 style="font-size:1rem;font-weight:600;color:#fff;margin:0 0 4px">Flash PhotoPainter firmware</h2>
+          <p style="font-size:0.8rem;color:rgba(255,255,255,0.45);margin:0">Build and install firmware on a new device via USB. Requires Chrome or Edge.</p>
+        </div>
+        <button class="cyan-btn" onclick="openFlash()">Configure &amp; build</button>
+      </div>
+      <div id="flashReady" style="display:none;margin-top:16px;padding:14px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.25);border-radius:10px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <div style="font-size:0.875rem;font-weight:600;color:#86efac">Firmware ready to flash</div>
+            <div id="flashBuiltAt" style="font-size:0.75rem;color:rgba(255,255,255,0.4);margin-top:2px"></div>
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <esp-web-install-button id="espInstallBtn" manifest="/firmware/manifest.json">
+              <button slot="activate" class="cyan-btn">⚡ Flash device</button>
+              <span slot="unsupported" style="font-size:0.8rem;color:rgba(255,255,255,0.4)">Use Chrome or Edge to flash</span>
+            </esp-web-install-button>
+            <button class="glass-btn" onclick="openFlash()">Rebuild</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="flashForm" style="display:none">
+      <p class="section-heading" style="margin-bottom:14px">Build configuration</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:20px">
+        <div>
+          <label class="field-label" for="fWifiSsid">Wi-Fi network name</label>
+          <input id="fWifiSsid" class="glass-input" type="text" placeholder="MyWiFi" autocomplete="off">
+        </div>
+        <div>
+          <label class="field-label" for="fWifiPass">Wi-Fi password</label>
+          <input id="fWifiPass" class="glass-input" type="password" placeholder="••••••••" autocomplete="off">
+        </div>
+        <div>
+          <label class="field-label" for="fServerHost">Server host</label>
+          <input id="fServerHost" class="glass-input" type="text" placeholder="192.168.1.100" autocomplete="off">
+        </div>
+        <div>
+          <label class="field-label" for="fServerPort">Server port</label>
+          <input id="fServerPort" class="glass-input" type="number" value="8080" min="1" max="65535">
+        </div>
+      </div>
+      <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin:0 0 16px">Leave Wi-Fi and server blank to use the captive portal flow — the device will prompt for these on first boot.</p>
+      <div style="display:flex;gap:10px">
+        <button id="buildBtn" class="cyan-btn" onclick="startBuild()">Build firmware</button>
+        <button class="glass-btn" onclick="cancelFlash()">Cancel</button>
+      </div>
+    </div>
+
+    <div id="flashBuilding" style="display:none">
+      <p class="section-heading" style="margin-bottom:10px">Building…</p>
+      <pre id="buildLog" style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;font-family:'Courier New',monospace;font-size:0.72rem;color:rgba(255,255,255,0.7);max-height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></pre>
+      <button class="glass-btn" style="margin-top:12px" onclick="cancelFlash()">Cancel</button>
     </div>
 
   </div>
@@ -896,10 +961,114 @@ document.addEventListener('keydown', e => {
 });
 
 // ─────────────────────────────────────────────────────────
+// Flash firmware
+// ─────────────────────────────────────────────────────────
+function showFlashState(id) {
+  ['flashIdle','flashForm','flashBuilding'].forEach(s => {
+    document.getElementById(s).style.display = s === id ? '' : 'none';
+  });
+}
+
+async function checkFirmwareReady() {
+  try {
+    const r = await fetch('/api/admin/firmware/status');
+    if (!r.ok) return;
+    const { ready, builtAt } = await r.json();
+    const el = document.getElementById('flashReady');
+    el.style.display = ready ? '' : 'none';
+    if (ready && builtAt) {
+      document.getElementById('flashBuiltAt').textContent = `Built ${new Date(builtAt).toLocaleString()}`;
+    }
+  } catch {}
+}
+
+function openFlash() {
+  // Pre-fill server host from current URL
+  const hostInput = document.getElementById('fServerHost');
+  if (!hostInput.value) hostInput.value = location.hostname;
+  const portInput = document.getElementById('fServerPort');
+  if (!portInput.value || portInput.value === '8080') {
+    portInput.value = location.port || '8080';
+  }
+  showFlashState('flashForm');
+}
+
+function cancelFlash() {
+  showFlashState('flashIdle');
+  checkFirmwareReady();
+}
+
+async function startBuild() {
+  const body = {
+    wifi_ssid:    document.getElementById('fWifiSsid').value.trim(),
+    wifi_password:document.getElementById('fWifiPass').value,
+    server_host:  document.getElementById('fServerHost').value.trim(),
+    server_port:  parseInt(document.getElementById('fServerPort').value) || 8080,
+  };
+
+  showFlashState('flashBuilding');
+  const log = document.getElementById('buildLog');
+  log.textContent = '';
+
+  let es;
+  try {
+    // POST the config first — SSE doesn't support POST body, so we post via fetch with SSE response
+    const r = await fetch('/api/admin/firmware/build', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({ error: 'Build failed' }));
+      log.textContent = `Error: ${err.error}`;
+      return;
+    }
+
+    // Read the SSE stream from the response body
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let done = false;
+
+    while (!done) {
+      const { value, done: streamDone } = await reader.read();
+      done = streamDone;
+      if (value) buf += decoder.decode(value, { stream: true });
+
+      // Parse SSE lines
+      const lines = buf.split('\n');
+      buf = lines.pop(); // keep incomplete line
+
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const { type, data } = JSON.parse(line.slice(5).trim());
+          if (type === 'log') {
+            log.textContent += data;
+            log.scrollTop = log.scrollHeight;
+          } else if (type === 'done') {
+            log.textContent += `\n✓ ${data}\n`;
+            log.scrollTop = log.scrollHeight;
+            setTimeout(() => { showFlashState('flashIdle'); checkFirmwareReady(); }, 1200);
+          } else if (type === 'error') {
+            log.textContent += `\n✗ ${data}\n`;
+            log.scrollTop = log.scrollHeight;
+          }
+        } catch {}
+      }
+    }
+  } catch (e) {
+    log.textContent += `\nNetwork error: ${e.message}`;
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 // Init — handle ?token= from QR scan
 // ─────────────────────────────────────────────────────────
 (async function init() {
   loadDevices();
+  checkFirmwareReady();
   const token = new URLSearchParams(location.search).get('token');
   if (token) {
     pairToken = token;
