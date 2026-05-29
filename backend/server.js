@@ -96,12 +96,29 @@ function verifyTotp(secret, token) {
 const pending2FA = new Map();
 
 // Device pairing sessions (in-memory, 10-min TTL)
-const pendingPairings = new Map(); // token -> { hwId, model, requestedAt, status, apiKeyId, screenId }
+const pendingPairings = new Map(); // token -> { code, hwId, model, requestedAt, status, apiKeyId, screenId }
 
 function cleanPairings() {
     const cut = Date.now() - 10 * 60 * 1000;
     for (const [t, p] of pendingPairings)
         if (new Date(p.requestedAt).getTime() < cut) pendingPairings.delete(t);
+}
+
+// Short, human-typeable pairing code (no ambiguous chars: 0/O, 1/I, etc.)
+const PAIR_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generatePairCode() {
+    let code;
+    do {
+        code = Array.from({ length: 6 }, () =>
+            PAIR_CODE_ALPHABET[crypto.randomInt(PAIR_CODE_ALPHABET.length)]).join('');
+    } while ([...pendingPairings.values()].some(p => p.code === code));
+    return code;
+}
+function findPairingByCode(code) {
+    const norm = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    for (const [token, p] of pendingPairings)
+        if (p.code === norm) return { token, pairing: p };
+    return null;
 }
 
 function createPending2FA(userId, emailOtp = null) {
@@ -412,7 +429,9 @@ app.post('/api/devices/pair/request', express.json(), (req, res) => {
     cleanPairings();
     const { hwId, model } = req.body || {};
     const token = crypto.randomBytes(16).toString('hex');
+    const code  = generatePairCode();
     pendingPairings.set(token, {
+        code,
         hwId:        (hwId  || '').slice(0, 64),
         model:       (model || 'PhotoPainter').slice(0, 64),
         requestedAt: new Date().toISOString(),
@@ -421,7 +440,15 @@ app.post('/api/devices/pair/request', express.json(), (req, res) => {
         screenId:    null,
     });
     const pairUrl = `${req.protocol}://${req.get('host')}/pair?token=${token}`;
-    res.json({ token, pairUrl });
+    res.json({ token, code, pairUrl });
+});
+
+// Resolve a short pairing code (typed by a user) to its token
+app.get('/api/devices/pair/code/:code', (req, res) => {
+    cleanPairings();
+    const found = findPairingByCode(req.params.code);
+    if (!found) return res.status(404).json({ error: 'No device found for that code' });
+    res.json({ token: found.token });
 });
 
 // Device polls this to check if pairing completed

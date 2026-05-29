@@ -184,6 +184,27 @@ select.glass-input option {
         </div>
     </div>
 
+    <!-- Manual code-entry state (no token in URL) -->
+    <div id="stateCode" style="display:none">
+        <h1>Pair a Device</h1>
+        <p class="subtitle">Enter the pairing code shown on your device's screen, or scan its QR code.</p>
+
+        <div id="codeError" class="error-banner"></div>
+
+        <div>
+            <label class="field-label" for="codeInput">Pairing code</label>
+            <input id="codeInput" class="glass-input" type="text" inputmode="latin"
+                   autocomplete="off" autocapitalize="characters" spellcheck="false"
+                   maxlength="7" placeholder="ABC123"
+                   style="text-transform:uppercase;letter-spacing:.3em;font-family:'Courier New',monospace;text-align:center;font-size:1.3rem">
+        </div>
+
+        <div class="actions">
+            <button id="codeBtn" class="cyan-btn" disabled>Continue</button>
+            <a href="/" class="glass-btn" style="display:block;text-align:center;text-decoration:none">Cancel</a>
+        </div>
+    </div>
+
     <!-- Expired / invalid state -->
     <div id="stateExpired" style="display:none">
         <h1>Link Expired</h1>
@@ -238,10 +259,10 @@ select.glass-input option {
 
 <script>
 const params = new URLSearchParams(location.search);
-const token  = params.get('token');
+let token    = params.get('token');
 
 function showState(id) {
-    ['stateLoading','stateExpired','stateAlready','stateForm','stateSuccess'].forEach(s => {
+    ['stateLoading','stateCode','stateExpired','stateAlready','stateForm','stateSuccess'].forEach(s => {
         document.getElementById(s).style.display = s === id ? '' : 'none';
     });
 }
@@ -252,8 +273,52 @@ function showError(msg) {
     el.style.display = 'block';
 }
 
+function showCodeError(msg) {
+    const el = document.getElementById('codeError');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function initCodeEntry() {
+    showState('stateCode');
+    const input = document.getElementById('codeInput');
+    const btn   = document.getElementById('codeBtn');
+
+    input.addEventListener('input', () => {
+        input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        btn.disabled = input.value.length < 6;
+        document.getElementById('codeError').style.display = 'none';
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && !btn.disabled) submitCode(); });
+    btn.addEventListener('click', submitCode);
+    input.focus();
+
+    async function submitCode() {
+        btn.disabled = true;
+        btn.textContent = 'Checking…';
+        try {
+            const r = await fetch(`/api/devices/pair/code/${encodeURIComponent(input.value)}`);
+            if (r.ok) {
+                const { token: t } = await r.json();
+                token = t;
+                // Reflect token in URL so a login redirect can carry it back
+                history.replaceState(null, '', `/pair?token=${encodeURIComponent(t)}`);
+                init();          // re-run the flow with the resolved token
+                return;
+            }
+            showCodeError('No device found for that code. Check the code on your device and try again.');
+        } catch {
+            showCodeError('Network error. Please try again.');
+        }
+        btn.disabled = false;
+        btn.textContent = 'Continue';
+    }
+}
+
 async function init() {
-    if (!token) { showState('stateExpired'); return; }
+    if (!token) { initCodeEntry(); return; }
+
+    showState('stateLoading');
 
     // Check token status
     let pairInfo;
