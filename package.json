@@ -2,9 +2,9 @@
   "name": "image-upload-site",
   "version": "1.17.0",
   "description": "Image upload site with backend",
-  "main": "server.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node backend/server.js"
   },
   "dependencies": {
     "express": "^4.18.2",

@@ -34,4 +34,4 @@ ENV PORT=8080 \
 ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 
-CMD ["node", "server.js"]
+CMD ["node", "backend/server.js"]

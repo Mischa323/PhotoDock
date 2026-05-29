@@ -7,3 +7,4 @@ ssl/
 .env
 esp32/.pio/
 firmware_build/
+.claude/worktrees/
