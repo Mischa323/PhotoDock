@@ -698,6 +698,35 @@ const SCREEN_COLORS = ['#06b6d4','#d97706','#22c55e','#a855f7','#f43f5e','#3b82f
 const HEALTH_COLOR = { good: '#22c55e', warn: '#f59e0b', bad: '#ef4444' };
 const STATUS_DOT   = { online: '#22c55e', recent: '#f59e0b', offline: '#6b7280' };
 
+// Human-readable labels for firmware-reported states
+const FW_STATE_LABELS = {
+  setup:       'Setting up',
+  connecting:  'Connecting',
+  wifi_failed: 'Wi-Fi failed',
+  server:      'Server unreachable',
+  low_batt:    'Low battery',
+  updating:    'Updating',
+  empty:       'No photos',
+  paired:      'Just paired',
+  sleeping:    'Sleeping',
+  error:       'Error',
+  online:      null, // use connection status label instead
+};
+
+function fwStateDisplay(state) {
+  return FW_STATE_LABELS[state] ?? null;
+}
+
+function relativeTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m <  1) return 'just now';
+  if (m <  60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+
 // State
 let screens   = [];
 let albums    = [];
@@ -822,22 +851,25 @@ function renderScreensView() {
 
     let healthHtml = '';
     if (s.device && s.deviceInfo) {
-      const d = s.deviceInfo;
+      const d  = s.deviceInfo;
       const hc = HEALTH_COLOR[d.level] || '#22c55e';
-      const dc = STATUS_DOT[d.status] || '#6b7280';
+      const dc = STATUS_DOT[d.status]  || '#6b7280';
+      const fwStateLabel = fwStateDisplay(d.deviceStatus);
+      const lastSeenStr  = d.lastSeen ? relativeTime(d.lastSeen) : '';
       healthHtml = `<div class="health-strip">
         <div style="display:flex;align-items:center;gap:5px">
           <div class="health-batt-shell">
-            <div class="health-batt-fill" style="width:${d.batt}%;background:${hc}"></div>
+            <div class="health-batt-fill" style="width:${d.batt ?? 0}%;background:${hc}"></div>
             <div class="health-batt-nub"></div>
           </div>
-          <span>${d.batt}%</span>
+          <span>${d.batt ?? '—'}%</span>
         </div>
         <div class="divider-v"></div>
         <div style="display:flex;align-items:center;gap:5px">
           <span class="status-dot" style="background:${dc};box-shadow:0 0 6px ${dc}"></span>
-          <span>${esc(d.statusLabel)}</span>
+          <span>${esc(fwStateLabel || d.statusLabel)}</span>
         </div>
+        ${lastSeenStr ? `<div class="divider-v"></div><span style="font-size:10px;color:rgba(255,255,255,0.4)">${esc(lastSeenStr)}</span>` : ''}
       </div>`;
     }
 
@@ -1236,6 +1268,14 @@ function esc(s) {
 }
 
 init();
+
+// Refresh screen health data every 30 seconds while on the screens view
+setInterval(async () => {
+  if (curView === 'screens') {
+    await loadScreens();
+    renderScreensView();
+  }
+}, 30000);
 </script>
 </body>
 </html>
