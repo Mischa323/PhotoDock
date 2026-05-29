@@ -1681,9 +1681,20 @@ app.delete('/api/screens/:id', requireAdmin, (req, res) => {
     for (const filename of Object.keys(meta)) {
         if (meta[filename].screenId === screenId) meta[filename].screenId = null;
     }
-    // Unlink API keys that were tied to this screen
-    for (const k of (appData.apiKeys || [])) {
-        if (k.screenId === screenId) k.screenId = null;
+    // Delete the device(s) tied to this screen — the API key, its live status,
+    // and its albums. Uploaded images stay in the library, just unassigned.
+    const removedKeyIds = (appData.apiKeys || []).filter(k => k.screenId === screenId).map(k => k.id);
+    if (removedKeyIds.length) {
+        appData.apiKeys = appData.apiKeys.filter(k => k.screenId !== screenId);
+        // Clear both live-status maps: deviceStates is keyed by key id,
+        // deviceStatus is keyed by device id with an apiKeyId field.
+        for (const keyId of removedKeyIds) delete (appData.deviceStates || {})[keyId];
+        if (appData.deviceStatus) {
+            for (const [devId, d] of Object.entries(appData.deviceStatus)) {
+                if (removedKeyIds.includes(d.apiKeyId)) delete appData.deviceStatus[devId];
+            }
+        }
+        appData.albums = (appData.albums || []).filter(a => !removedKeyIds.includes(a.deviceId));
     }
     saveData(appData);
     res.json({ deleted: screenId });
