@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pair Device — Terminal Photo Display</title>
+<link rel="stylesheet" href="/glass.css">
+<style>
+body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.pair-card {
+    width: 100%;
+    max-width: 480px;
+    animation: fadeIn 0.4s ease both;
+}
+
+.pair-card h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #fff;
+    margin: 0 0 6px;
+    letter-spacing: -0.02em;
+}
+
+.pair-card .subtitle {
+    font-size: 0.875rem;
+    color: rgba(255,255,255,0.5);
+    margin: 0 0 28px;
+}
+
+.device-info {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.device-info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.device-info-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.35);
+}
+
+.device-info-value {
+    font-size: 0.9rem;
+    color: rgba(255,255,255,0.85);
+    font-family: 'Courier New', monospace;
+    word-break: break-all;
+}
+
+.field-label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255,255,255,0.45);
+    margin-bottom: 6px;
+}
+
+select.glass-input {
+    width: 100%;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='rgba(255,255,255,0.4)' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: calc(100% - 14px) center;
+    padding-right: 36px;
+}
+
+select.glass-input option {
+    background: #1a1a2e;
+    color: #fff;
+}
+
+.actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 24px;
+}
+
+.error-banner, .success-banner {
+    display: none;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 0.875rem;
+    margin-bottom: 16px;
+}
+
+.error-banner {
+    background: rgba(244,63,94,0.15);
+    border: 1px solid rgba(244,63,94,0.3);
+    color: #fda4af;
+}
+
+.success-banner {
+    background: rgba(34,197,94,0.12);
+    border: 1px solid rgba(34,197,94,0.25);
+    color: #86efac;
+    text-align: center;
+}
+
+.success-icon {
+    font-size: 2.5rem;
+    margin-bottom: 8px;
+    display: block;
+}
+
+.expired-state {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.expired-icon {
+    font-size: 2.5rem;
+    margin-bottom: 12px;
+    display: block;
+    opacity: 0.6;
+}
+
+.expired-state p {
+    color: rgba(255,255,255,0.5);
+    font-size: 0.9rem;
+    margin: 0;
+}
+
+.spinner-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 24px;
+}
+
+.dot-spinner {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.dot-spinner span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(6,182,212,0.6);
+    animation: ddblink 1.2s steps(1,end) infinite;
+}
+
+.dot-spinner span:nth-child(2) { animation-delay: 0.4s; }
+.dot-spinner span:nth-child(3) { animation-delay: 0.8s; }
+
+#linkBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+</style>
+</head>
+<body class="space-bg">
+
+<div class="pair-card glass-dark">
+    <!-- Loading state -->
+    <div id="stateLoading">
+        <h1>Pairing Device</h1>
+        <p class="subtitle">Verifying pairing token…</p>
+        <div class="spinner-wrap">
+            <div class="dot-spinner">
+                <span></span><span></span><span></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Manual code-entry state (no token in URL) -->
+    <div id="stateCode" style="display:none">
+        <h1>Pair a Device</h1>
+        <p class="subtitle">Enter the pairing code shown on your device's screen, or scan its QR code.</p>
+
+        <div id="codeError" class="error-banner"></div>
+
+        <div>
+            <label class="field-label" for="codeInput">Pairing code</label>
+            <input id="codeInput" class="glass-input" type="text" inputmode="latin"
+                   autocomplete="off" autocapitalize="characters" spellcheck="false"
+                   maxlength="7" placeholder="ABC123"
+                   style="text-transform:uppercase;letter-spacing:.3em;font-family:'Courier New',monospace;text-align:center;font-size:1.3rem">
+        </div>
+
+        <div class="actions">
+            <button id="codeBtn" class="cyan-btn" disabled>Continue</button>
+            <a href="/" class="glass-btn" style="display:block;text-align:center;text-decoration:none">Cancel</a>
+        </div>
+    </div>
+
+    <!-- Expired / invalid state -->
+    <div id="stateExpired" style="display:none">
+        <h1>Link Expired</h1>
+        <div class="expired-state">
+            <span class="expired-icon">⏱</span>
+            <p>This pairing link has expired or is invalid.<br>Restart the setup on your device to generate a new QR code.</p>
+        </div>
+    </div>
+
+    <!-- Already complete state -->
+    <div id="stateAlready" style="display:none">
+        <h1>Already Linked</h1>
+        <div class="success-banner" style="display:block">
+            <span class="success-icon">✓</span>
+            This device has already been linked to a screen.
+        </div>
+        <a href="/" class="glass-btn" style="display:block;text-align:center;margin-top:4px;text-decoration:none">Back to Library</a>
+    </div>
+
+    <!-- Link form state -->
+    <div id="stateForm" style="display:none">
+        <h1>Link Device</h1>
+        <p class="subtitle">Connect this device to a screen in your library.</p>
+
+        <div id="errorBanner" class="error-banner"></div>
+
+        <div id="deviceInfo" class="device-info"></div>
+
+        <div>
+            <label class="field-label" for="screenSelect">Assign to screen</label>
+            <select id="screenSelect" class="glass-input">
+                <option value="">— choose a screen —</option>
+            </select>
+        </div>
+
+        <div class="actions">
+            <button id="linkBtn" class="cyan-btn" disabled>Link Device</button>
+            <a href="/" class="glass-btn" style="display:block;text-align:center;text-decoration:none">Cancel</a>
+        </div>
+    </div>
+
+    <!-- Success state -->
+    <div id="stateSuccess" style="display:none">
+        <h1>Device Linked!</h1>
+        <div class="success-banner" style="display:block">
+            <span class="success-icon">✓</span>
+            Your device has been successfully linked.<br>It will now receive its API key and start displaying photos.
+        </div>
+        <a href="/" class="glass-btn" style="display:block;text-align:center;margin-top:4px;text-decoration:none">Back to Library</a>
+    </div>
+</div>
+
+<script>
+const params = new URLSearchParams(location.search);
+let token    = params.get('token');
+
+function showState(id) {
+    ['stateLoading','stateCode','stateExpired','stateAlready','stateForm','stateSuccess'].forEach(s => {
+        document.getElementById(s).style.display = s === id ? '' : 'none';
+    });
+}
+
+function showError(msg) {
+    const el = document.getElementById('errorBanner');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function showCodeError(msg) {
+    const el = document.getElementById('codeError');
+    el.textContent = msg;
+    el.style.display = 'block';
+}
+
+function initCodeEntry() {
+    showState('stateCode');
+    const input = document.getElementById('codeInput');
+    const btn   = document.getElementById('codeBtn');
+
+    input.addEventListener('input', () => {
+        input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        btn.disabled = input.value.length < 6;
+        document.getElementById('codeError').style.display = 'none';
+    });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && !btn.disabled) submitCode(); });
+    btn.addEventListener('click', submitCode);
+    input.focus();
+
+    async function submitCode() {
+        btn.disabled = true;
+        btn.textContent = 'Checking…';
+        try {
+            const r = await fetch(`/api/devices/pair/code/${encodeURIComponent(input.value)}`);
+            if (r.ok) {
+                const { token: t } = await r.json();
+                token = t;
+                // Reflect token in URL so a login redirect can carry it back
+                history.replaceState(null, '', `/pair?token=${encodeURIComponent(t)}`);
+                init();          // re-run the flow with the resolved token
+                return;
+            }
+            showCodeError('No device found for that code. Check the code on your device and try again.');
+        } catch {
+            showCodeError('Network error. Please try again.');
+        }
+        btn.disabled = false;
+        btn.textContent = 'Continue';
+    }
+}
+
+async function init() {
+    if (!token) { initCodeEntry(); return; }
+
+    showState('stateLoading');
+
+    // Check token status
+    let pairInfo;
+    try {
+        const r = await fetch(`/api/devices/pair/${token}`);
+        pairInfo = await r.json();
+    } catch {
+        showState('stateExpired');
+        return;
+    }
+
+    if (pairInfo.status === 'expired' || pairInfo.error) { showState('stateExpired'); return; }
+    if (pairInfo.status === 'complete')                   { showState('stateAlready'); return; }
+
+    // Pending — show the link form
+    showState('stateForm');
+
+    // Populate device info
+    const info = document.getElementById('deviceInfo');
+    const rows = [
+        ['Model',    pairInfo.model  || 'Unknown'],
+        ['Hardware ID', pairInfo.hwId || 'Unknown'],
+        ['Requested',   new Date(pairInfo.requestedAt).toLocaleString()],
+    ];
+    info.innerHTML = rows.map(([l,v]) => `
+        <div class="device-info-row">
+            <span class="device-info-label">${l}</span>
+            <span class="device-info-value">${v}</span>
+        </div>`).join('');
+
+    // Load screens (requires auth — redirect to login if not logged in)
+    let screens = [];
+    try {
+        const r = await fetch('/api/screens');
+        if (r.status === 401) {
+            location.href = `/login?redirect=${encodeURIComponent(location.href)}`;
+            return;
+        }
+        screens = await r.json();
+    } catch { /* ignore */ }
+
+    const sel = document.getElementById('screenSelect');
+    screens.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = s.name;
+        sel.appendChild(opt);
+    });
+
+    sel.addEventListener('change', () => {
+        document.getElementById('linkBtn').disabled = !sel.value;
+    });
+
+    document.getElementById('linkBtn').addEventListener('click', async () => {
+        const screenId = sel.value;
+        if (!screenId) return;
+        document.getElementById('linkBtn').disabled = true;
+        document.getElementById('linkBtn').textContent = 'Linking…';
+
+        try {
+            const r = await fetch(`/api/devices/pair/${token}/link`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ screenId }),
+            });
+            if (r.status === 401) {
+                location.href = `/login?redirect=${encodeURIComponent(location.href)}`;
+                return;
+            }
+            const data = await r.json();
+            if (data.ok) {
+                showState('stateSuccess');
+            } else {
+                showError(data.error || 'Linking failed. Please try again.');
+                document.getElementById('linkBtn').disabled = false;
+                document.getElementById('linkBtn').textContent = 'Link Device';
+            }
+        } catch {
+            showError('Network error. Please try again.');
+            document.getElementById('linkBtn').disabled = false;
+            document.getElementById('linkBtn').textContent = 'Link Device';
+        }
+    });
+}
+
+init();
+</script>
+</body>
+</html>

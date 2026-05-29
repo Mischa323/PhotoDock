@@ -9,20 +9,22 @@ const QRCode      = require('qrcode');
 const nodemailer  = require('nodemailer');
 const sharp       = require('sharp');
 const heicConvert = require('heic-convert');
-const { version: pkgVersion } = require('./package.json');
+const { version: pkgVersion } = require('../package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
 
-const ESP32_DIR    = path.join(__dirname, 'esp32');
-const FIRMWARE_DIR = path.join(__dirname, 'firmware_build');
+const ROOT_DIR    = path.join(__dirname, '..');
+const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
+const ESP32_DIR    = path.join(ROOT_DIR, 'esp32');
+const FIRMWARE_DIR = path.join(ROOT_DIR, 'firmware_build');
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
 const HTTPS_PORT  = process.env.HTTPS_PORT  !== undefined ? process.env.HTTPS_PORT : '8081';
 const SSL_CERT    = process.env.SSL_CERT    || null; // path to certificate file (auto-generated if absent)
 const SSL_KEY     = process.env.SSL_KEY     || null; // path to private key file (auto-generated if absent)
-const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
-const DATA_FILE   = process.env.DATA_FILE   || path.join(__dirname, 'data.json');
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(ROOT_DIR, 'uploads');
+const DATA_FILE   = process.env.DATA_FILE   || path.join(ROOT_DIR, 'data.json');
 const TOKEN_DAYS  = 30; // login cookie lifetime
 const COOKIE_NAME = 'auth_token';
 
@@ -95,6 +97,32 @@ function verifyTotp(secret, token) {
 
 // Pending 2FA login sessions (in-memory, 5-min TTL)
 const pending2FA = new Map();
+
+// Device pairing sessions (in-memory, 10-min TTL)
+const pendingPairings = new Map(); // token -> { code, hwId, model, requestedAt, status, apiKeyId, screenId }
+
+function cleanPairings() {
+    const cut = Date.now() - 10 * 60 * 1000;
+    for (const [t, p] of pendingPairings)
+        if (new Date(p.requestedAt).getTime() < cut) pendingPairings.delete(t);
+}
+
+// Short, human-typeable pairing code (no ambiguous chars: 0/O, 1/I, etc.)
+const PAIR_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generatePairCode() {
+    let code;
+    do {
+        code = Array.from({ length: 6 }, () =>
+            PAIR_CODE_ALPHABET[crypto.randomInt(PAIR_CODE_ALPHABET.length)]).join('');
+    } while ([...pendingPairings.values()].some(p => p.code === code));
+    return code;
+}
+function findPairingByCode(code) {
+    const norm = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    for (const [token, p] of pendingPairings)
+        if (p.code === norm) return { token, pairing: p };
+    return null;
+}
 
 function createPending2FA(userId, emailOtp = null) {
     const token = crypto.randomBytes(16).toString('hex');
@@ -226,6 +254,8 @@ if (!appData.logs)          { appData.logs          = []; saveData(appData); }
 if (!appData.imageMetadata) { appData.imageMetadata = {}; saveData(appData); }
 if (!appData.screens)       { appData.screens       = []; saveData(appData); }
 if (!appData.albums)        { appData.albums        = []; saveData(appData); }
+if (!appData.deviceStates)  { appData.deviceStates  = {}; saveData(appData); }
+if (!appData.deviceStatus)  { appData.deviceStatus  = {}; saveData(appData); }
 
 const MAX_LOGS = 500;
 function addLog(event, { user, keyName, ip, detail } = {}) {
@@ -336,6 +366,9 @@ function requireAuth(req, res, next) {
     if (req.path === '/api/2fa/complete') return next();
     if (req.path === '/api/2fa/email/resend') return next();
     if (req.path.startsWith('/api/slideshow/')) return next();
+    if (req.path === '/pair') return next();
+    if (req.path === '/api/devices/pair/request') return next();
+    if (req.method === 'GET' && req.path.startsWith('/api/devices/pair/')) return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -392,12 +425,77 @@ function requireEndpoint(name) {
     };
 }
 
+// ── Device pairing (unauthenticated — device + QR landing page) ───────────
+app.get('/pair', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'pair.html')));
+
+// Device requests a pairing token on boot
+app.post('/api/devices/pair/request', express.json(), (req, res) => {
+    cleanPairings();
+    const { hwId, model } = req.body || {};
+    const token = crypto.randomBytes(16).toString('hex');
+    const code  = generatePairCode();
+    pendingPairings.set(token, {
+        code,
+        hwId:        (hwId  || '').slice(0, 64),
+        model:       (model || 'PhotoPainter').slice(0, 64),
+        requestedAt: new Date().toISOString(),
+        status:      'pending',
+        apiKeyId:    null,
+        screenId:    null,
+    });
+    const pairUrl = `${req.protocol}://${req.get('host')}/pair?token=${token}`;
+    res.json({ token, code, pairUrl });
+});
+
+// Resolve a short pairing code (typed by a user) to its token
+app.get('/api/devices/pair/code/:code', (req, res) => {
+    cleanPairings();
+    const found = findPairingByCode(req.params.code);
+    if (!found) return res.status(404).json({ error: 'No device found for that code' });
+    res.json({ token: found.token });
+});
+
+// Device polls this to check if pairing completed
+app.get('/api/devices/pair/:token', (req, res) => {
+    const p = pendingPairings.get(req.params.token);
+    if (!p) return res.json({ status: 'expired' });
+    if (p.status === 'pending') return res.json({ status: 'pending', hwId: p.hwId, model: p.model, requestedAt: p.requestedAt });
+    // complete — return the API key so device can store it
+    const key = (appData.apiKeys || []).find(k => k.id === p.apiKeyId);
+    const scr = (appData.screens  || []).find(s => s.id === p.screenId);
+    res.json({ status: 'complete', apiKey: key?.key || null, screenName: scr?.name || null });
+});
+
 app.use(requireAuth);
+
+// ── Device pairing — link endpoint (requires user session) ────────────────
+app.post('/api/devices/pair/:token/link', express.json(), (req, res) => {
+    cleanPairings();
+    const p = pendingPairings.get(req.params.token);
+    if (!p || p.status !== 'pending') return res.status(400).json({ error: 'Invalid or expired token' });
+    const { screenId } = req.body || {};
+    if (!screenId || !(appData.screens || []).find(s => s.id === screenId))
+        return res.status(400).json({ error: 'Screen not found' });
+    const apiKey = {
+        id: crypto.randomUUID(),
+        label: `${p.model} (${p.hwId || 'unknown'})`,
+        key: crypto.randomBytes(32).toString('hex'),
+        screenId,
+        createdAt: new Date().toISOString(),
+        intervalMinutes: 5,
+    };
+    appData.apiKeys.push(apiKey);
+    saveData(appData);
+    p.status = 'complete';
+    p.apiKeyId = apiKey.id;
+    p.screenId = screenId;
+    res.json({ ok: true });
+});
 
 // ── First-run setup ────────────────────────────────────────────────────────
 app.get('/setup', (_req, res) => {
     if (appData.users.length > 0) return res.redirect('/');
-    res.sendFile(path.join(__dirname, 'setup.html'));
+    res.sendFile(path.join(FRONTEND_DIR, 'setup.html'));
 });
 
 app.post('/api/setup', async (req, res) => {
@@ -416,7 +514,7 @@ app.post('/api/setup', async (req, res) => {
 // ── Auth routes ────────────────────────────────────────────────────────────
 app.get('/login', (req, res) => {
     if (req.currentUser) return res.redirect('/');
-    res.sendFile(path.join(__dirname, 'login.html'));
+    res.sendFile(path.join(FRONTEND_DIR, 'login.html'));
 });
 
 app.post('/login', async (req, res) => {
@@ -490,11 +588,12 @@ app.post('/logout', (req, res) => {
     res.redirect('/login');
 });
 
-app.get('/screens', requireAuth, (_req, res) => res.sendFile(path.join(__dirname, 'screens.html')));
-app.get('/admin',   requireAuth, (_req, res) => res.sendFile(path.join(__dirname, 'admin.html')));
+app.get('/screens', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'screens.html')));
+app.get('/admin',   requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'admin.html')));
 
 // ── 2FA — login completion (unauthenticated) ───────────────────────────────
-app.get('/2fa', (_req, res) => res.sendFile(path.join(__dirname, '2fa.html')));
+app.get('/2fa',     (_req, res) => res.sendFile(path.join(FRONTEND_DIR, '2fa.html')));
+app.get('/devices', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'devices.html')));
 
 app.post('/api/2fa/complete', express.json(), (req, res) => {
     if (!check2FARateLimit(req.ip)) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
@@ -960,6 +1059,47 @@ function getScreenFiles(keyRecord) {
     return all.filter(f => (meta[f]?.screenId || null) === screenId);
 }
 
+// ── Device ping ────────────────────────────────────────────────────────────
+// Firmware calls this on every wake cycle to report its current health.
+// batt: 0-100, wifi: 0-4 (RSSI buckets), fw: firmware version string, status: string
+app.post('/api/devices/ping', requireApiKey, (req, res) => {
+    const keyRecord = req.apiKey;
+    const screenId  = keyRecord.screenId || null;
+    const { batt, wifi, fw, status } = req.body || {};
+
+    const battNum  = Number(batt);
+    const wifiNum  = Number(wifi);
+    const level    = battNum <= 15 ? 'bad' : battNum <= 30 ? 'warn' : 'good';
+    const wlabels  = ['No signal', 'Weak', 'Fair', 'Good', 'Excellent'];
+    const wlabel   = wlabels[Math.min(Math.max(Math.round(wifiNum), 0), 4)] || 'Unknown';
+
+    if (!appData.deviceStates) appData.deviceStates = {};
+    appData.deviceStates[keyRecord.id] = {
+        keyId:    keyRecord.id,
+        screenId,
+        batt:     isNaN(battNum) ? null : battNum,
+        wifi:     isNaN(wifiNum) ? null : wifiNum,
+        level,
+        wlabel,
+        fw:       fw || null,
+        status:   status || 'online',
+        lastSeen: new Date().toISOString(),
+    };
+    saveData(appData);
+
+    // Return next image info so the device can immediately decide what to show
+    const files    = getScreenFiles(keyRecord);
+    const interval = (keyRecord.intervalMinutes || 5) * 60 * 1000;
+    const slot     = Math.floor(Date.now() / interval);
+    const filename = files.length ? files[slot % files.length] : null;
+    const baseUrl  = `${req.protocol}://${req.get('host')}`;
+    res.json({
+        ok: true,
+        imageUrl:         filename ? `${baseUrl}/uploads/${filename}` : null,
+        intervalMinutes:  keyRecord.intervalMinutes || 5,
+    });
+});
+
 app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
@@ -1268,13 +1408,14 @@ app.post('/api/admin/firmware/build', requireAdmin, (req, res) => {
 app.use('/firmware', express.static(FIRMWARE_DIR));
 
 // ── Static files ───────────────────────────────────────────────────────────
-app.use(express.static(__dirname));
+app.use(express.static(FRONTEND_DIR));
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 // ── Images API ─────────────────────────────────────────────────────────────
 app.get('/api/images', (req, res) => {
     const meta  = appData.imageMetadata || {};
     const { screenId } = req.query;
+    const { albumId } = req.query;
     let files = fs.readdirSync(UPLOADS_DIR)
         .filter(f => IMAGE_EXTS.test(f))
         .map(filename => ({
@@ -1282,10 +1423,15 @@ app.get('/api/images', (req, res) => {
             uploadedAt: meta[filename]?.uploadedAt || fs.statSync(path.join(UPLOADS_DIR, filename)).mtime,
             uploadedBy: meta[filename]?.uploadedBy || null,
             screenId:   meta[filename]?.screenId   || null,
+            albumId:    meta[filename]?.albumId    || null,
         }));
     if (screenId !== undefined) {
         const filterVal = screenId === '' ? null : screenId;
         files = files.filter(f => f.screenId === filterVal);
+    }
+    if (albumId !== undefined) {
+        const filterVal = albumId === '' ? null : albumId;
+        files = files.filter(f => f.albumId === filterVal);
     }
     files.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
     res.json(files);
@@ -1326,9 +1472,10 @@ app.post('/api/upload', requireUpload, (req, res) => {
     const uploader   = req.currentUser?.username || null;
     const uploadedAt = new Date().toISOString();
     const screenId   = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    const albumId    = req.body.albumId  && (appData.albums  || []).find(a => a.id === req.body.albumId)  ? req.body.albumId  : null;
     if (!appData.imageMetadata) appData.imageMetadata = {};
     for (const f of processed) {
-        appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt, screenId };
+        appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt, screenId, albumId };
     }
     saveData(appData);
     addLog('upload', { user: uploader, ip: req.ip, detail: `${processed.length} file(s)` });
@@ -1456,22 +1603,56 @@ app.get('/api/admin/wifi-scan', requireAdmin, (_req, res) => {
 
 // ── Screens ────────────────────────────────────────────────────────────────
 app.get('/api/screens', (_req, res) => {
-    const meta = appData.imageMetadata || {};
-    const screens = (appData.screens || []).map(s => ({
-        ...s,
-        imageCount: Object.values(meta).filter(m => m.screenId === s.id).length,
-    }));
+    const meta   = appData.imageMetadata || {};
+    const states = appData.deviceStates  || {};
+    const now    = Date.now();
+
+    const screens = (appData.screens || []).map(s => {
+        // Find the most recent ping for any API key tied to this screen
+        const linkedKey = (appData.apiKeys || []).find(k => k.screenId === s.id);
+        let deviceInfo  = null;
+        if (linkedKey && states[linkedKey.id]) {
+            const d = states[linkedKey.id];
+            const ageMs = now - new Date(d.lastSeen).getTime();
+            const status = ageMs < 5 * 60 * 1000 ? 'online'
+                         : ageMs < 24 * 60 * 60 * 1000 ? 'recent'
+                         : 'offline';
+            const statusLabel = status === 'online' ? 'Online'
+                              : status === 'recent' ? 'Recently seen'
+                              : 'Offline';
+            deviceInfo = {
+                id:          linkedKey.label || linkedKey.id,
+                batt:        d.batt ?? null,
+                level:       d.level || 'good',
+                wifi:        d.wifi ?? null,
+                wlabel:      d.wlabel || '',
+                status,
+                statusLabel,
+                lastSeen:    d.lastSeen,
+                fw:          d.fw || null,
+                deviceStatus: d.status || null,
+            };
+        }
+        return {
+            ...s,
+            imageCount:  Object.values(meta).filter(m => m.screenId === s.id).length,
+            albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
+            device:      !!deviceInfo,
+            deviceInfo,
+        };
+    });
     res.json(screens);
 });
 
 app.post('/api/screens', (req, res) => {
-    const { name, description } = req.body;
+    const { name, description, color } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Screen name is required' });
     if (!appData.screens) appData.screens = [];
     const screen = {
         id: crypto.randomUUID(),
         name: name.trim(),
         description: (description || '').trim(),
+        color: color || '#06b6d4',
         createdAt: new Date().toISOString(),
         createdBy: req.currentUser?.username || null,
     };
@@ -1483,9 +1664,10 @@ app.post('/api/screens', (req, res) => {
 app.put('/api/screens/:id', (req, res) => {
     const screen = (appData.screens || []).find(s => s.id === req.params.id);
     if (!screen) return res.status(404).json({ error: 'Screen not found' });
-    const { name, description } = req.body;
+    const { name, description, color } = req.body;
     if (name !== undefined) screen.name = name.trim();
     if (description !== undefined) screen.description = description.trim();
+    if (color !== undefined) screen.color = color;
     saveData(appData);
     res.json(screen);
 });
@@ -1505,6 +1687,62 @@ app.delete('/api/screens/:id', requireAdmin, (req, res) => {
     }
     saveData(appData);
     res.json({ deleted: screenId });
+});
+
+// ── Albums ─────────────────────────────────────────────────────────────────
+app.get('/api/screens/:screenId/albums', (req, res) => {
+    const { screenId } = req.params;
+    if (!(appData.screens || []).find(s => s.id === screenId))
+        return res.status(404).json({ error: 'Screen not found' });
+    const meta = appData.imageMetadata || {};
+    const albums = (appData.albums || [])
+        .filter(a => a.screenId === screenId)
+        .map(a => ({ ...a, photoCount: Object.values(meta).filter(m => m.albumId === a.id).length }));
+    res.json(albums);
+});
+
+app.post('/api/screens/:screenId/albums', (req, res) => {
+    const { screenId } = req.params;
+    if (!(appData.screens || []).find(s => s.id === screenId))
+        return res.status(404).json({ error: 'Screen not found' });
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Album name is required' });
+    if (!appData.albums) appData.albums = [];
+    const album = {
+        id: crypto.randomUUID(),
+        screenId,
+        name: name.trim(),
+        fav: false,
+        createdAt: new Date().toISOString(),
+        createdBy: req.currentUser?.username || null,
+    };
+    appData.albums.push(album);
+    saveData(appData);
+    res.json(album);
+});
+
+app.put('/api/screens/:screenId/albums/:albumId', (req, res) => {
+    const album = (appData.albums || []).find(a => a.id === req.params.albumId && a.screenId === req.params.screenId);
+    if (!album) return res.status(404).json({ error: 'Album not found' });
+    const { name, fav } = req.body;
+    if (name !== undefined) album.name = name.trim();
+    if (fav !== undefined) album.fav = !!fav;
+    saveData(appData);
+    res.json(album);
+});
+
+app.delete('/api/screens/:screenId/albums/:albumId', requireAdmin, (req, res) => {
+    const idx = (appData.albums || []).findIndex(a => a.id === req.params.albumId && a.screenId === req.params.screenId);
+    if (idx === -1) return res.status(404).json({ error: 'Album not found' });
+    const albumId = req.params.albumId;
+    appData.albums.splice(idx, 1);
+    // Unlink images from this album
+    const meta = appData.imageMetadata || {};
+    for (const f of Object.keys(meta)) {
+        if (meta[f].albumId === albumId) meta[f].albumId = null;
+    }
+    saveData(appData);
+    res.json({ deleted: albumId });
 });
 
 app.put('/api/images/:filename/screen', (req, res) => {

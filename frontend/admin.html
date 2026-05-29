@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <title>Settings — Photo Display for TNMLS</title>
+    <title>Settings — Photo Display</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/glass.css">
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <style>
         :root {
@@ -837,15 +838,202 @@
         [data-theme="dark"] #activityLog table tbody tr:hover { background: #243447; }
         [data-theme="dark"] #activityLog table tbody tr { border-bottom-color: #2d3f52; }
 
+        /* ── Glass override theme ──────────────────────────────────── */
+        body { background: #000 !important; color: #fff; }
+        body::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          z-index: -1;
+          background:
+            radial-gradient(ellipse 80% 60% at 20% 30%, #0c1a2e, transparent),
+            radial-gradient(ellipse 60% 80% at 80% 70%, #06111a, transparent),
+            radial-gradient(ellipse 100% 100% at 50% 50%, #0a0f1e, #000);
+        }
+
+        header {
+          background: rgba(0,0,0,0.35) !important;
+          backdrop-filter: blur(40px) saturate(180%) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 48px rgba(0,0,0,0.5) !important;
+        }
+
+        header h1 { color: rgba(255,255,255,0.9) !important; font-size: 16px !important; font-weight: 600 !important; }
+
+        .back-btn {
+          background: rgba(255,255,255,0.1) !important;
+          border: 1px solid rgba(255,255,255,0.16) !important;
+          color: #fff !important;
+          border-radius: 10px !important;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.17) !important; }
+
+        .theme-btn { background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.14) !important; }
+        .theme-btn:hover { background: rgba(255,255,255,0.15) !important; }
+
+        section {
+          background: rgba(255,255,255,0.07) !important;
+          backdrop-filter: blur(40px) saturate(180%) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.3) !important;
+          color: #fff;
+        }
+
+        .section-header {
+          background: rgba(255,255,255,0.04) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          border-radius: 16px 16px 0 0 !important;
+        }
+        section.collapsed .section-header { border-radius: 16px !important; }
+
+        .section-header h2 {
+          color: rgba(255,255,255,0.55) !important;
+          font-size: 11px !important;
+          letter-spacing: 0.08em !important;
+        }
+
+        .section-header::after { color: rgba(255,255,255,0.4) !important; }
+
+        thead th {
+          background: rgba(255,255,255,0.04) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          color: rgba(255,255,255,0.45) !important;
+          font-size: 11px !important;
+        }
+
+        tbody tr { border-bottom: 1px solid rgba(255,255,255,0.07) !important; }
+        tbody tr:last-child { border-bottom: none !important; }
+        tbody tr:hover { background: rgba(255,255,255,0.05) !important; }
+        tbody td { color: rgba(255,255,255,0.85) !important; }
+
+        .role-block { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+        .role-block h3 { color: rgba(255,255,255,0.9) !important; }
+        .perm-row label { color: rgba(255,255,255,0.75) !important; }
+        .perm-row label small { color: rgba(255,255,255,0.4) !important; }
+        .settings-row label { color: rgba(255,255,255,0.75) !important; }
+        .settings-row label small { color: rgba(255,255,255,0.4) !important; }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="number"],
+        input[type="password"],
+        input[type="search"],
+        .tz-input, .edit-input {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-family: 'Inter', sans-serif !important;
+        }
+        input::placeholder { color: rgba(255,255,255,0.3) !important; }
+        input:focus {
+          border-color: rgba(6,182,212,0.6) !important;
+          box-shadow: 0 0 0 3px rgba(6,182,212,0.15) !important;
+          background: rgba(255,255,255,0.1) !important;
+          outline: none !important;
+        }
+
+        select {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-family: 'Inter', sans-serif !important;
+        }
+        select:focus { border-color: rgba(6,182,212,0.6) !important; outline: none !important; }
+        select option { background: #1a1a2e; color: #fff; }
+
+        .btn-save-settings, .btn-add {
+          background: linear-gradient(135deg, rgba(6,182,212,0.9), rgba(8,145,178,0.9)) !important;
+          border: 1px solid rgba(6,182,212,0.5) !important;
+          border-radius: 10px !important;
+          box-shadow: 0 0 20px rgba(6,182,212,0.25) !important;
+          color: #fff !important;
+          font-weight: 600 !important;
+        }
+        .btn-save-settings:hover, .btn-add:hover {
+          background: linear-gradient(135deg, rgba(34,211,238,0.9), rgba(6,182,212,0.9)) !important;
+          box-shadow: 0 0 28px rgba(6,182,212,0.4) !important;
+        }
+
+        .btn-cancel {
+          background: rgba(255,255,255,0.1) !important;
+          border: 1px solid rgba(255,255,255,0.16) !important;
+          color: #fff !important;
+          border-radius: 10px !important;
+        }
+        .btn-cancel:hover { background: rgba(255,255,255,0.17) !important; }
+        .btn-save {
+          background: linear-gradient(135deg, rgba(6,182,212,0.9), rgba(8,145,178,0.9)) !important;
+          border: 1px solid rgba(6,182,212,0.5) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-weight: 600 !important;
+        }
+
+        .add-form {
+          background: rgba(255,255,255,0.03) !important;
+          border-top: 1px solid rgba(255,255,255,0.08) !important;
+          border-radius: 0 0 16px 16px !important;
+        }
+        .add-form label { color: rgba(255,255,255,0.4) !important; }
+
+        .icon-btn { color: rgba(255,255,255,0.5) !important; }
+        .icon-btn:hover { background: rgba(255,255,255,0.1) !important; color: #fff !important; }
+        .icon-btn.danger:hover { background: rgba(239,68,68,0.15) !important; color: #f87171 !important; }
+
+        .empty-row td { color: rgba(255,255,255,0.25) !important; }
+
+        .modal { background: rgba(15,15,25,0.9) !important; border: 1px solid rgba(255,255,255,0.14) !important; backdrop-filter: blur(40px) !important; border-radius: 18px !important; }
+        .modal h3 { color: rgba(255,255,255,0.9) !important; }
+        .modal label { color: rgba(255,255,255,0.4) !important; }
+
+        .badge-admin { background: rgba(6,182,212,0.15) !important; color: #22d3ee !important; }
+        .badge-standard { background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.6) !important; }
+
+        .key-cell { color: rgba(255,255,255,0.6) !important; }
+        .key-masked { color: rgba(255,255,255,0.3) !important; }
+
+        .api-block {
+          background: rgba(255,255,255,0.05) !important;
+          border: 1px solid rgba(255,255,255,0.12) !important;
+          color: rgba(255,255,255,0.8) !important;
+        }
+        .api-label { color: rgba(255,255,255,0.35) !important; }
+
+        .cl-entry { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+        .cl-date { color: rgba(255,255,255,0.3) !important; }
+        .cl-changes li { color: rgba(255,255,255,0.65) !important; }
+        .cl-changes li::before { color: rgba(255,255,255,0.3) !important; }
+        .cl-version { color: #22d3ee !important; }
+
+        .log-filter {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          color: rgba(255,255,255,0.6) !important;
+          border-radius: 20px !important;
+        }
+        .log-filter:hover { background: rgba(6,182,212,0.1) !important; border-color: rgba(6,182,212,0.4) !important; color: #22d3ee !important; }
+        .log-filter.active { background: rgba(6,182,212,0.15) !important; border-color: rgba(6,182,212,0.4) !important; color: #22d3ee !important; }
+
+        .toast { background: rgba(20,20,40,0.95) !important; border: 1px solid rgba(255,255,255,0.14) !important; }
+        .toast.error { background: rgba(239,68,68,0.9) !important; }
+
+        /* Remove old dark mode - we're always dark now */
+        [data-theme="dark"] section { background: rgba(255,255,255,0.07) !important; }
+        [data-theme="dark"] body { background: #000 !important; }
     </style>
 </head>
 <body>
 
 <header>
-    <h1>Settings</h1>
-    <div style="display:flex;align-items:center;gap:0">
+    <div style="display:flex;align-items:center;gap:10px">
+        <img src="/favicon.svg" width="22" height="22" alt="">
+        <h1>Settings</h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
         <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
-        <a href="/" class="back-btn">&#8592; Back</a>
+        <a href="/" class="back-btn">&#8592; Back to Library</a>
     </div>
 </header>
 
@@ -1364,6 +1552,45 @@
             <div>
                 <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Example (curl)</p>
                 <pre class="api-response" id="curlExample">curl -H "x-api-key: YOUR_KEY" https://your-server/api/slideshow/current</pre>
+            </div>
+
+        </div>
+        </div></div>
+    </section>
+
+    <!-- Device Setup -->
+    <section id="sec-device-setup">
+        <div class="section-header">
+            <h2>Device Setup <span class="help" data-tip="How to connect a new e-ink display. The device cannot reach the server until you tell it the server URL during first-time Wi-Fi setup.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px">
+
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Server URL</p>
+                <p style="font-size:14px;color:#444;margin-bottom:10px">When a new device boots for the first time, it creates its own Wi-Fi hotspot and shows a setup screen. Connect your phone to that hotspot and enter your home Wi-Fi details <strong>plus the server URL below</strong> so the device knows where to reach this server.</p>
+                <div class="api-block">
+                    <span class="api-label">Server</span>
+                    <code id="deviceServerUrl"></code>
+                    <button class="icon-btn" title="Copy" onclick="copyText(document.getElementById('deviceServerUrl').textContent)">&#128203;</button>
+                </div>
+                <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                    <a href="/pair" class="btn-add" style="display:inline-block;text-decoration:none">Pair a device</a>
+                    <a href="/screens" class="btn-cancel" style="display:inline-block;text-decoration:none">Flash firmware / device manager</a>
+                </div>
+                <p style="font-size:13px;color:#888;margin-top:8px">Already see a QR code or pairing code on the device? Use <strong>Pair a device</strong>. To build and flash firmware onto a brand-new device, use the <strong>device manager</strong>.</p>
+            </div>
+
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Pairing steps</p>
+                <ol style="font-size:14px;color:#444;line-height:1.7;margin:0;padding-left:20px">
+                    <li>Power on the device — it shows a <strong>Setup</strong> screen and starts a <code>PhotoPainter-Setup</code> Wi-Fi hotspot.</li>
+                    <li>Connect your phone to that hotspot; a setup page opens automatically.</li>
+                    <li>Enter your home Wi-Fi name &amp; password and the <strong>Server URL</strong> shown above, then save.</li>
+                    <li>The device reboots, joins your Wi-Fi, and displays a <strong>QR code</strong>.</li>
+                    <li>Scan the QR code with your phone (you must be logged in here), pick a screen, and tap <strong>Link Device</strong>.</li>
+                    <li>The device receives its API key automatically and starts showing that screen's photos.</li>
+                </ol>
             </div>
 
         </div>
@@ -2056,6 +2283,8 @@
         document.getElementById('urlImage').textContent     = `${base}/api/slideshow/image`;
         document.getElementById('exampleQuery').textContent = `${base}/api/slideshow/current?key=YOUR_KEY`;
         document.getElementById('curlExample').textContent  = `curl -H "x-api-key: YOUR_KEY" ${base}/api/slideshow/current`;
+        const devUrl = document.getElementById('deviceServerUrl');
+        if (devUrl) devUrl.textContent = base;
     }
 
     async function copyText(text) {
@@ -2540,6 +2769,7 @@
         'sec-users':     'full',
         'sec-roles':     'half',
         'sec-api-ref':   'half',
+        'sec-device-setup': 'full',
         'sec-api-keys':  'full',
         'sec-version':   'half',
     };
