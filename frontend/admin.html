@@ -1558,6 +1558,40 @@
         </div></div>
     </section>
 
+    <!-- Device Setup -->
+    <section id="sec-device-setup">
+        <div class="section-header">
+            <h2>Device Setup <span class="help" data-tip="How to connect a new e-ink display. The device cannot reach the server until you tell it the server URL during first-time Wi-Fi setup.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px">
+
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Server URL</p>
+                <p style="font-size:14px;color:#444;margin-bottom:10px">When a new device boots for the first time, it creates its own Wi-Fi hotspot and shows a setup screen. Connect your phone to that hotspot and enter your home Wi-Fi details <strong>plus the server URL below</strong> so the device knows where to reach this server.</p>
+                <div class="api-block">
+                    <span class="api-label">Server</span>
+                    <code id="deviceServerUrl"></code>
+                    <button class="icon-btn" title="Copy" onclick="copyText(document.getElementById('deviceServerUrl').textContent)">&#128203;</button>
+                </div>
+            </div>
+
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Pairing steps</p>
+                <ol style="font-size:14px;color:#444;line-height:1.7;margin:0;padding-left:20px">
+                    <li>Power on the device — it shows a <strong>Setup</strong> screen and starts a <code>PhotoPainter-Setup</code> Wi-Fi hotspot.</li>
+                    <li>Connect your phone to that hotspot; a setup page opens automatically.</li>
+                    <li>Enter your home Wi-Fi name &amp; password and the <strong>Server URL</strong> shown above, then save.</li>
+                    <li>The device reboots, joins your Wi-Fi, and displays a <strong>QR code</strong>.</li>
+                    <li>Scan the QR code with your phone (you must be logged in here), pick a screen, and tap <strong>Link Device</strong>.</li>
+                    <li>The device receives its API key automatically and starts showing that screen's photos.</li>
+                </ol>
+            </div>
+
+        </div>
+        </div></div>
+    </section>
+
     <!-- Screens -->
     <section id="sec-screens">
         <div class="section-header">
@@ -2324,6 +2358,8 @@
         document.getElementById('urlImage').textContent     = `${base}/api/slideshow/image`;
         document.getElementById('exampleQuery').textContent = `${base}/api/slideshow/current?key=YOUR_KEY`;
         document.getElementById('curlExample').textContent  = `curl -H "x-api-key: YOUR_KEY" ${base}/api/slideshow/current`;
+        const devUrl = document.getElementById('deviceServerUrl');
+        if (devUrl) devUrl.textContent = base;
     }
 
     async function copyText(text) {
@@ -2807,6 +2843,7 @@
         'sec-users':     'full',
         'sec-roles':     'half',
         'sec-api-ref':   'half',
+        'sec-device-setup': 'full',
         'sec-screens':   'full',
         'sec-api-keys':  'full',
         'sec-version':   'half',
