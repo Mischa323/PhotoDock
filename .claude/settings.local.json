@@ -3,7 +3,20 @@
     "allow": [
       "Bash(node -e 'const src = require\\(\\\\\"fs\\\\\"\\).readFileSync\\(\\\\\"server.js\\\\\",\\\\\"utf8\\\\\"\\); const m = src.match\\(/function generateSelfSignedCert[\\\\s\\\\S]*?^}/m\\); console.log\\(m ? \\\\\"found\\\\\" : \\\\\"not found\\\\\"\\)')",
       "Bash(node -e ':*)",
-      "Bash(node --check server.js)"
+      "Bash(node --check server.js)",
+      "Bash(cd \"C:\\\\Users\\\\MischavanLeuffen\\\\Downloads\\\\Terminal Photo Display — Design System\\\\design_handoff_photo_display\" && grep -in \"screen setting\\\\|screen-setting\\\\|settings\\\\|delete\\\\|edit screen\" index.html DeviceDisplays.jsx README.md | head -40)",
+      "Read(//c/Users/MischavanLeuffen/Downloads/Terminal Photo Display — Design System/design_handoff_photo_display/**)",
+      "Bash(git mv *)",
+      "Bash(node -e \"require\\('./backend/server.js'\\)\")",
+      "Bash(curl -s -o /dev/null -w \"screens:%{http_code} flash:%{http_code}\\\\n\" http://localhost:3000/screens)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:3000/flash)",
+      "Bash(kill %1)",
+      "PowerShell(Get-ChildItem \"$env:USERPROFILE\\\\.platformio\\\\penv\" -ErrorAction SilentlyContinue; Write-Output \"---python pkgs---\"; pip show platformio 2>$null | Select-String \"Version\"; Write-Output \"---where py---\"; \\(Get-Command python -ErrorAction SilentlyContinue\\).Source)",
+      "WebFetch(domain:www.waveshare.com)",
+      "WebSearch",
+      "Bash(cd /tmp/eppt && grep -rniE \"PIN_NUM|_PIN|GPIO_NUM_|EPD_\\(RST|DC|CS|BUSY|CLK|SCK|MOSI|DIN|PWR\\)|spi.*sclk|busy\" 05_ArduinoExample 03_Firmware 2>/dev/null | grep -iE \"rst|dc|cs|busy|sck|clk|mosi|din|pwr|power|sclk\" | grep -iE \"[0-9]\" | head -50)",
+      "Read(//tmp/**)",
+      "Bash(grep -iE \"\\\\.\\(c|h|cpp|ino\\)$\")"
     ]
   }
 }
