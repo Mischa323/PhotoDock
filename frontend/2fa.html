@@ -1,125 +1,134 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <title>Two-Factor Auth — Photo Display for TNMLS</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        :root { --accent: #06b6d4; --accent-hover: #0891b2; }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Two-Factor Auth — Photo Display</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <style>
+    body {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background: #0d2218;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+    .glow {
+      position: absolute;
+      width: 400px; height: 400px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(6,182,212,0.12), transparent 70%);
+      pointer-events: none;
+      z-index: 1;
+    }
 
-        .card {
-            background: #122b1c;
-            border-radius: 14px;
-            padding: 40px 36px;
-            width: 100%;
-            max-width: 360px;
-            box-shadow: 0 8px 40px rgba(0,0,0,0.5);
-            border: 1px solid #1e3d28;
-        }
+    .card {
+      position: relative;
+      z-index: 2;
+      border-radius: 24px;
+      padding: 44px 40px;
+      width: 360px;
+      max-width: 90vw;
+    }
 
-        .icon {
-            font-size: 36px;
-            text-align: center;
-            margin-bottom: 12px;
-        }
+    .icon-row {
+      font-size: 36px;
+      text-align: center;
+      margin-bottom: 12px;
+    }
 
-        h1 {
-            color: #fff;
-            font-size: 22px;
-            font-weight: 700;
-            text-align: center;
-            margin-bottom: 8px;
-        }
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: -0.02em;
+      color: rgba(255,255,255,0.95);
+      margin-bottom: 8px;
+    }
 
-        p.sub {
-            color: #8892a4;
-            font-size: 14px;
-            text-align: center;
-            margin-bottom: 28px;
-            line-height: 1.5;
-        }
+    .sub {
+      font-size: 14px;
+      color: rgba(255,255,255,0.45);
+      text-align: center;
+      margin-bottom: 28px;
+      line-height: 1.5;
+    }
 
-        .code-input {
-            width: 100%;
-            background: #1a3526;
-            border: 2px solid #265c37;
-            border-radius: 10px;
-            color: #fff;
-            font-size: 28px;
-            font-family: monospace;
-            letter-spacing: 8px;
-            text-align: center;
-            padding: 14px 10px;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
-            -moz-appearance: textfield;
-        }
+    .code-input {
+      width: 100%;
+      background: rgba(255,255,255,0.07);
+      border: 2px solid rgba(255,255,255,0.14);
+      border-radius: 12px;
+      color: #fff;
+      font-size: 28px;
+      font-family: ui-monospace, monospace;
+      letter-spacing: 8px;
+      text-align: center;
+      padding: 14px 10px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      -moz-appearance: textfield;
+    }
 
-        .code-input::-webkit-outer-spin-button,
-        .code-input::-webkit-inner-spin-button { -webkit-appearance: none; }
+    .code-input::-webkit-outer-spin-button,
+    .code-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
-        .code-input:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px rgba(41,199,111,0.15);
-        }
+    .code-input:focus {
+      border-color: rgba(6,182,212,0.6);
+      box-shadow: 0 0 0 3px rgba(6,182,212,0.15);
+      background: rgba(255,255,255,0.1);
+    }
 
-        .btn {
-            width: 100%;
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            padding: 14px;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 700;
-            font-family: 'Inter', sans-serif;
-            cursor: pointer;
-            margin-top: 16px;
-            transition: background 0.2s, box-shadow 0.2s;
-        }
+    .submit-btn {
+      width: 100%;
+      padding: 14px;
+      font-size: 15px;
+      border-radius: 12px;
+      margin-top: 16px;
+    }
 
-        .btn:hover {
-            background: var(--accent-hover);
-            box-shadow: 0 4px 16px rgba(41,199,111,0.3);
-        }
-        .btn:disabled { background: #1a4a2a; cursor: default; box-shadow: none; }
+    .resend-btn {
+      width: 100%;
+      padding: 10px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 10px;
+      margin-top: 8px;
+    }
 
-        .error {
-            color: #e74c3c;
-            font-size: 13px;
-            text-align: center;
-            margin-top: 12px;
-            min-height: 18px;
-        }
+    .error-text {
+      font-size: 13px;
+      text-align: center;
+      margin-top: 12px;
+      min-height: 18px;
+      color: #f87171;
+    }
 
-        .back {
-            display: block;
-            text-align: center;
-            color: #8892a4;
-            font-size: 13px;
-            margin-top: 20px;
-            text-decoration: none;
-        }
+    .error-text.ok { color: #4ade80; }
 
-        .back:hover { color: #fff; }
-    </style>
+    .back-link {
+      display: block;
+      text-align: center;
+      color: rgba(255,255,255,0.35);
+      font-size: 13px;
+      margin-top: 20px;
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+
+    .back-link:hover { color: rgba(255,255,255,0.7); }
+  </style>
 </head>
 <body>
-<div class="card">
-    <div class="icon" id="icon">&#128274;</div>
+  <div class="space-bg"></div>
+  <div class="glow"></div>
+
+  <div class="card glass-dark fade-in">
+    <div class="icon-row" id="icon">🔐</div>
     <h1>Two-Factor Auth</h1>
     <p class="sub" id="subMsg">Enter the 6-digit code from your authenticator app.</p>
 
@@ -127,25 +136,13 @@
            placeholder="000000" maxlength="6" autofocus
            oninput="onInput()" onkeydown="onKey(event)">
 
-    <button class="btn" id="submitBtn" onclick="submit()">Verify</button>
-    <button class="btn" id="resendBtn" onclick="resend()"
-        style="display:none;margin-top:8px;background:rgba(255,255,255,0.08);font-size:13px;font-weight:500;padding:10px">
-        Resend code
-    </button>
-    <p class="error" id="errorMsg"></p>
-    <a href="/login" class="back">&#8592; Back to login</a>
-</div>
+    <button class="cyan-btn submit-btn" id="submitBtn" onclick="submit()">Verify</button>
+    <button class="glass-btn resend-btn" id="resendBtn" onclick="resend()" style="display:none">Resend code</button>
+    <p class="error-text" id="errorMsg"></p>
+    <a href="/login" class="back-link">← Back to login</a>
+  </div>
 
-<script>
-    fetch('/api/settings').then(r=>r.json()).then(s=>{
-        if(!s.accentColor) return;
-        const c=s.accentColor, n=parseInt(c.replace('#',''),16);
-        const cl=v=>Math.min(255,Math.max(0,v));
-        const shade=p=>'#'+[cl((n>>16)+Math.round(255*p/100)),cl(((n>>8)&255)+Math.round(255*p/100)),cl((n&255)+Math.round(255*p/100))].map(v=>v.toString(16).padStart(2,'0')).join('');
-        document.documentElement.style.setProperty('--accent',c);
-        document.documentElement.style.setProperty('--accent-hover',shade(-15));
-    }).catch(()=>{});
-
+  <script>
     const params       = new URLSearchParams(location.search);
     const pendingToken = params.get('t');
     const method       = params.get('method') || 'totp';
@@ -153,66 +150,65 @@
     if (!pendingToken) location.href = '/login';
 
     if (method === 'email') {
-        document.getElementById('icon').textContent    = '📧';
-        document.getElementById('subMsg').textContent  = 'Check your email for a 6-digit code and enter it below.';
-        document.getElementById('resendBtn').style.display = '';
+      document.getElementById('icon').textContent   = '📧';
+      document.getElementById('subMsg').textContent = 'Check your email for a 6-digit code and enter it below.';
+      document.getElementById('resendBtn').style.display = '';
     }
 
     function onInput() {
-        const v = document.getElementById('codeInput').value;
-        if (v.length > 6) document.getElementById('codeInput').value = v.slice(0, 6);
-        document.getElementById('errorMsg').textContent = '';
+      const v = document.getElementById('codeInput').value;
+      if (v.length > 6) document.getElementById('codeInput').value = v.slice(0, 6);
+      document.getElementById('errorMsg').textContent = '';
     }
 
-    function onKey(e) {
-        if (e.key === 'Enter') submit();
-    }
+    function onKey(e) { if (e.key === 'Enter') submit(); }
 
     async function submit() {
-        const code = document.getElementById('codeInput').value.trim();
-        if (code.length !== 6) {
-            document.getElementById('errorMsg').textContent = 'Enter a 6-digit code.';
-            return;
-        }
+      const code = document.getElementById('codeInput').value.trim();
+      if (code.length !== 6) {
+        document.getElementById('errorMsg').textContent = 'Enter a 6-digit code.';
+        return;
+      }
 
-        const btn = document.getElementById('submitBtn');
-        btn.disabled = true;
-        btn.textContent = 'Verifying…';
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Verifying…';
 
-        const res  = await fetch('/api/2fa/complete', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pendingToken, code })
-        });
-        const data = await res.json();
+      const res  = await fetch('/api/2fa/complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pendingToken, code })
+      });
+      const data = await res.json();
 
-        if (res.ok) {
-            location.href = '/';
-        } else {
-            document.getElementById('errorMsg').textContent = data.error || 'Verification failed.';
-            document.getElementById('codeInput').value = '';
-            btn.disabled = false;
-            btn.textContent = 'Verify';
-        }
+      if (res.ok) {
+        location.href = '/';
+      } else {
+        document.getElementById('errorMsg').textContent = data.error || 'Verification failed.';
+        document.getElementById('codeInput').value = '';
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+      }
     }
 
     async function resend() {
-        const btn = document.getElementById('resendBtn');
-        btn.disabled = true;
-        btn.textContent = 'Sending…';
-        const res  = await fetch('/api/2fa/email/resend', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ pendingToken })
-        });
-        const data = await res.json();
-        document.getElementById('errorMsg').style.color = res.ok ? '#4caf50' : '#e74c3c';
-        document.getElementById('errorMsg').textContent = res.ok
-            ? `Code resent to ${data.email}.`
-            : (data.error || 'Could not resend.');
-        btn.disabled = false;
-        btn.textContent = 'Resend code';
+      const btn = document.getElementById('resendBtn');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      const res  = await fetch('/api/2fa/email/resend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pendingToken })
+      });
+      const data = await res.json();
+      const msg  = document.getElementById('errorMsg');
+      msg.className = 'error-text' + (res.ok ? ' ok' : '');
+      msg.textContent = res.ok
+        ? `Code resent to ${data.email}.`
+        : (data.error || 'Could not resend.');
+      btn.disabled = false;
+      btn.textContent = 'Resend code';
     }
-</script>
+  </script>
 </body>
 </html>

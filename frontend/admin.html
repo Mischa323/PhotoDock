@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <title>Settings — Photo Display for TNMLS</title>
+    <title>Settings — Photo Display</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/glass.css">
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <style>
         :root {
@@ -836,15 +837,203 @@
         [data-theme="dark"] #activityLog table thead th { background: #162032; border-bottom-color: #2d3f52; color: #94a3b8; }
         [data-theme="dark"] #activityLog table tbody tr:hover { background: #243447; }
         [data-theme="dark"] #activityLog table tbody tr { border-bottom-color: #2d3f52; }
+
+        /* ── Glass override theme ──────────────────────────────────── */
+        body { background: #000 !important; color: #fff; }
+        body::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          z-index: -1;
+          background:
+            radial-gradient(ellipse 80% 60% at 20% 30%, #0c1a2e, transparent),
+            radial-gradient(ellipse 60% 80% at 80% 70%, #06111a, transparent),
+            radial-gradient(ellipse 100% 100% at 50% 50%, #0a0f1e, #000);
+        }
+
+        header {
+          background: rgba(0,0,0,0.35) !important;
+          backdrop-filter: blur(40px) saturate(180%) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 48px rgba(0,0,0,0.5) !important;
+        }
+
+        header h1 { color: rgba(255,255,255,0.9) !important; font-size: 16px !important; font-weight: 600 !important; }
+
+        .back-btn {
+          background: rgba(255,255,255,0.1) !important;
+          border: 1px solid rgba(255,255,255,0.16) !important;
+          color: #fff !important;
+          border-radius: 10px !important;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.17) !important; }
+
+        .theme-btn { background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.14) !important; }
+        .theme-btn:hover { background: rgba(255,255,255,0.15) !important; }
+
+        section {
+          background: rgba(255,255,255,0.07) !important;
+          backdrop-filter: blur(40px) saturate(180%) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.3) !important;
+          color: #fff;
+        }
+
+        .section-header {
+          background: rgba(255,255,255,0.04) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          border-radius: 16px 16px 0 0 !important;
+        }
+        section.collapsed .section-header { border-radius: 16px !important; }
+
+        .section-header h2 {
+          color: rgba(255,255,255,0.55) !important;
+          font-size: 11px !important;
+          letter-spacing: 0.08em !important;
+        }
+
+        .section-header::after { color: rgba(255,255,255,0.4) !important; }
+
+        thead th {
+          background: rgba(255,255,255,0.04) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          color: rgba(255,255,255,0.45) !important;
+          font-size: 11px !important;
+        }
+
+        tbody tr { border-bottom: 1px solid rgba(255,255,255,0.07) !important; }
+        tbody tr:last-child { border-bottom: none !important; }
+        tbody tr:hover { background: rgba(255,255,255,0.05) !important; }
+        tbody td { color: rgba(255,255,255,0.85) !important; }
+
+        .role-block { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+        .role-block h3 { color: rgba(255,255,255,0.9) !important; }
+        .perm-row label { color: rgba(255,255,255,0.75) !important; }
+        .perm-row label small { color: rgba(255,255,255,0.4) !important; }
+        .settings-row label { color: rgba(255,255,255,0.75) !important; }
+        .settings-row label small { color: rgba(255,255,255,0.4) !important; }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="number"],
+        input[type="password"],
+        input[type="search"],
+        .tz-input, .edit-input {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-family: 'Inter', sans-serif !important;
+        }
+        input::placeholder { color: rgba(255,255,255,0.3) !important; }
+        input:focus {
+          border-color: rgba(6,182,212,0.6) !important;
+          box-shadow: 0 0 0 3px rgba(6,182,212,0.15) !important;
+          background: rgba(255,255,255,0.1) !important;
+          outline: none !important;
+        }
+
+        select {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-family: 'Inter', sans-serif !important;
+        }
+        select:focus { border-color: rgba(6,182,212,0.6) !important; outline: none !important; }
+        select option { background: #1a1a2e; color: #fff; }
+
+        .btn-save-settings, .btn-add {
+          background: linear-gradient(135deg, rgba(6,182,212,0.9), rgba(8,145,178,0.9)) !important;
+          border: 1px solid rgba(6,182,212,0.5) !important;
+          border-radius: 10px !important;
+          box-shadow: 0 0 20px rgba(6,182,212,0.25) !important;
+          color: #fff !important;
+          font-weight: 600 !important;
+        }
+        .btn-save-settings:hover, .btn-add:hover {
+          background: linear-gradient(135deg, rgba(34,211,238,0.9), rgba(6,182,212,0.9)) !important;
+          box-shadow: 0 0 28px rgba(6,182,212,0.4) !important;
+        }
+
+        .btn-cancel {
+          background: rgba(255,255,255,0.1) !important;
+          border: 1px solid rgba(255,255,255,0.16) !important;
+          color: #fff !important;
+          border-radius: 10px !important;
+        }
+        .btn-cancel:hover { background: rgba(255,255,255,0.17) !important; }
+        .btn-save {
+          background: linear-gradient(135deg, rgba(6,182,212,0.9), rgba(8,145,178,0.9)) !important;
+          border: 1px solid rgba(6,182,212,0.5) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-weight: 600 !important;
+        }
+
+        .add-form {
+          background: rgba(255,255,255,0.03) !important;
+          border-top: 1px solid rgba(255,255,255,0.08) !important;
+          border-radius: 0 0 16px 16px !important;
+        }
+        .add-form label { color: rgba(255,255,255,0.4) !important; }
+
+        .icon-btn { color: rgba(255,255,255,0.5) !important; }
+        .icon-btn:hover { background: rgba(255,255,255,0.1) !important; color: #fff !important; }
+        .icon-btn.danger:hover { background: rgba(239,68,68,0.15) !important; color: #f87171 !important; }
+
+        .empty-row td { color: rgba(255,255,255,0.25) !important; }
+
+        .modal { background: rgba(15,15,25,0.9) !important; border: 1px solid rgba(255,255,255,0.14) !important; backdrop-filter: blur(40px) !important; border-radius: 18px !important; }
+        .modal h3 { color: rgba(255,255,255,0.9) !important; }
+        .modal label { color: rgba(255,255,255,0.4) !important; }
+
+        .badge-admin { background: rgba(6,182,212,0.15) !important; color: #22d3ee !important; }
+        .badge-standard { background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.6) !important; }
+
+        .key-cell { color: rgba(255,255,255,0.6) !important; }
+        .key-masked { color: rgba(255,255,255,0.3) !important; }
+
+        .api-block {
+          background: rgba(255,255,255,0.05) !important;
+          border: 1px solid rgba(255,255,255,0.12) !important;
+          color: rgba(255,255,255,0.8) !important;
+        }
+        .api-label { color: rgba(255,255,255,0.35) !important; }
+
+        .cl-entry { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+        .cl-date { color: rgba(255,255,255,0.3) !important; }
+        .cl-changes li { color: rgba(255,255,255,0.65) !important; }
+        .cl-changes li::before { color: rgba(255,255,255,0.3) !important; }
+        .cl-version { color: #22d3ee !important; }
+
+        .log-filter {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          color: rgba(255,255,255,0.6) !important;
+          border-radius: 20px !important;
+        }
+        .log-filter:hover { background: rgba(6,182,212,0.1) !important; border-color: rgba(6,182,212,0.4) !important; color: #22d3ee !important; }
+        .log-filter.active { background: rgba(6,182,212,0.15) !important; border-color: rgba(6,182,212,0.4) !important; color: #22d3ee !important; }
+
+        .toast { background: rgba(20,20,40,0.95) !important; border: 1px solid rgba(255,255,255,0.14) !important; }
+        .toast.error { background: rgba(239,68,68,0.9) !important; }
+
+        /* Remove old dark mode - we're always dark now */
+        [data-theme="dark"] section { background: rgba(255,255,255,0.07) !important; }
+        [data-theme="dark"] body { background: #000 !important; }
     </style>
 </head>
 <body>
 
 <header>
-    <h1>Settings</h1>
-    <div style="display:flex;align-items:center;gap:0">
+    <div style="display:flex;align-items:center;gap:10px">
+        <img src="/favicon.svg" width="22" height="22" alt="">
+        <h1>Settings</h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
         <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
-        <a href="/" class="back-btn">&#8592; Back</a>
+        <a href="/" class="back-btn">&#8592; Back to Library</a>
     </div>
 </header>
 
