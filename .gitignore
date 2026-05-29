@@ -5,3 +5,4 @@ data/*
 data.json
 ssl/
 .env
+.claude/worktrees/

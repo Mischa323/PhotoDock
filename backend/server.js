@@ -95,6 +95,15 @@ function verifyTotp(secret, token) {
 // Pending 2FA login sessions (in-memory, 5-min TTL)
 const pending2FA = new Map();
 
+// Device pairing sessions (in-memory, 10-min TTL)
+const pendingPairings = new Map(); // token -> { hwId, model, requestedAt, status, apiKeyId, screenId }
+
+function cleanPairings() {
+    const cut = Date.now() - 10 * 60 * 1000;
+    for (const [t, p] of pendingPairings)
+        if (new Date(p.requestedAt).getTime() < cut) pendingPairings.delete(t);
+}
+
 function createPending2FA(userId, emailOtp = null) {
     const token = crypto.randomBytes(16).toString('hex');
     pending2FA.set(token, { userId, expiresAt: Date.now() + 5 * 60 * 1000, emailOtp });
@@ -336,6 +345,9 @@ function requireAuth(req, res, next) {
     if (req.path === '/api/2fa/complete') return next();
     if (req.path === '/api/2fa/email/resend') return next();
     if (req.path.startsWith('/api/slideshow/')) return next();
+    if (req.path === '/pair') return next();
+    if (req.path === '/api/devices/pair/request') return next();
+    if (req.method === 'GET' && req.path.startsWith('/api/devices/pair/')) return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -392,7 +404,62 @@ function requireEndpoint(name) {
     };
 }
 
+// ── Device pairing (unauthenticated — device + QR landing page) ───────────
+app.get('/pair', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'pair.html')));
+
+// Device requests a pairing token on boot
+app.post('/api/devices/pair/request', express.json(), (req, res) => {
+    cleanPairings();
+    const { hwId, model } = req.body || {};
+    const token = crypto.randomBytes(16).toString('hex');
+    pendingPairings.set(token, {
+        hwId:        (hwId  || '').slice(0, 64),
+        model:       (model || 'PhotoPainter').slice(0, 64),
+        requestedAt: new Date().toISOString(),
+        status:      'pending',
+        apiKeyId:    null,
+        screenId:    null,
+    });
+    const pairUrl = `${req.protocol}://${req.get('host')}/pair?token=${token}`;
+    res.json({ token, pairUrl });
+});
+
+// Device polls this to check if pairing completed
+app.get('/api/devices/pair/:token', (req, res) => {
+    const p = pendingPairings.get(req.params.token);
+    if (!p) return res.json({ status: 'expired' });
+    if (p.status === 'pending') return res.json({ status: 'pending', hwId: p.hwId, model: p.model, requestedAt: p.requestedAt });
+    // complete — return the API key so device can store it
+    const key = (appData.apiKeys || []).find(k => k.id === p.apiKeyId);
+    const scr = (appData.screens  || []).find(s => s.id === p.screenId);
+    res.json({ status: 'complete', apiKey: key?.key || null, screenName: scr?.name || null });
+});
+
 app.use(requireAuth);
+
+// ── Device pairing — link endpoint (requires user session) ────────────────
+app.post('/api/devices/pair/:token/link', express.json(), (req, res) => {
+    cleanPairings();
+    const p = pendingPairings.get(req.params.token);
+    if (!p || p.status !== 'pending') return res.status(400).json({ error: 'Invalid or expired token' });
+    const { screenId } = req.body || {};
+    if (!screenId || !(appData.screens || []).find(s => s.id === screenId))
+        return res.status(400).json({ error: 'Screen not found' });
+    const apiKey = {
+        id: crypto.randomUUID(),
+        label: `${p.model} (${p.hwId || 'unknown'})`,
+        key: crypto.randomBytes(32).toString('hex'),
+        screenId,
+        createdAt: new Date().toISOString(),
+        intervalMinutes: 5,
+    };
+    appData.apiKeys.push(apiKey);
+    saveData(appData);
+    p.status = 'complete';
+    p.apiKeyId = apiKey.id;
+    p.screenId = screenId;
+    res.json({ ok: true });
+});
 
 // ── First-run setup ────────────────────────────────────────────────────────
 app.get('/setup', (_req, res) => {
