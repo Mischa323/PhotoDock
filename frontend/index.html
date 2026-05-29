@@ -1,1082 +1,1241 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <title>Photo Display for TNMLS</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Photo Display</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <style>
+    body { min-height: 100vh; overflow-y: auto; }
 
-        body {
-            font-family: sans-serif;
-            background: #0a0a0a;
-            min-height: 100vh;
-            color: #fff;
-        }
+    #app { position: relative; min-height: 100vh; }
 
-        /* ── Header ───────────────────────────────────────────────────── */
-        header {
-            position: sticky;
-            top: 0; left: 0; right: 0;
-            height: 60px;
-            padding: 0 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 30;
-            background: rgba(10,10,10,0.92);
-            backdrop-filter: blur(8px);
-            border-bottom: 1px solid rgba(255,255,255,0.07);
-        }
+    /* ── Header ─────────────────────────────────────── */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      margin: 12px 16px 0;
+      border-radius: 16px;
+      padding: 0 16px;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
 
-        header h1 {
-            font-size: 20px;
-            font-weight: 600;
-            letter-spacing: 0.03em;
-        }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
 
-        .header-right {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-        }
+    .header-logo span {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: rgba(255,255,255,0.9);
+    }
 
-        .btn {
-            border: none;
-            padding: 8px 16px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            transition: background 0.2s;
-            text-decoration: none;
-            font-family: inherit;
-        }
+    .header-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
 
-        :root { --accent: #06b6d4; --accent-hover: #0891b2; }
-        .btn-primary { background: var(--accent); color: #fff; }
-        .btn-primary:hover { background: var(--accent-hover); }
-        .btn-primary:disabled { background: #555; cursor: default; }
+    .hbtn {
+      padding: 6px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      border: none;
+      cursor: pointer;
+    }
 
-        .btn-ghost {
-            background: rgba(255,255,255,0.1);
-            color: #fff;
-        }
-        .btn-ghost:hover { background: rgba(255,255,255,0.18); }
+    /* ── Upload dropdown ─────────────────────────────── */
+    .upload-wrap { position: relative; }
+    .upload-dropdown {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 200px;
+      border-radius: 12px;
+      padding: 6px;
+      z-index: 100;
+    }
+    .upload-dropdown.open { display: block; }
+    .upload-item {
+      width: 100%;
+      text-align: left;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: rgba(255,255,255,0.8);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+      display: block;
+    }
+    .upload-item:hover { background: rgba(255,255,255,0.08); }
 
-        input[type="file"] { display: none; }
+    /* ── Breadcrumb ──────────────────────────────────── */
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 20px 6px;
+      position: relative;
+      z-index: 5;
+    }
 
-        /* ── Screen tabs ──────────────────────────────────────────────── */
-        .screen-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 12px 24px;
-            background: rgba(0,0,0,0.4);
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-            overflow-x: auto;
-            flex-wrap: nowrap;
-            scrollbar-width: thin;
-            scrollbar-color: rgba(255,255,255,0.15) transparent;
-            position: sticky;
-            top: 60px;
-            z-index: 20;
-        }
+    .breadcrumb-title {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: rgba(255,255,255,0.92);
+    }
 
-        .screen-tab {
-            flex-shrink: 0;
-            border: none;
-            padding: 6px 16px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            background: rgba(255,255,255,0.08);
-            color: rgba(255,255,255,0.65);
-            transition: background 0.15s, color 0.15s;
-            white-space: nowrap;
-            font-family: inherit;
-        }
-        .screen-tab:hover { background: rgba(255,255,255,0.15); color: #fff; }
-        .screen-tab.active { background: var(--accent); color: #fff; }
+    .breadcrumb-count {
+      font-size: 13px;
+      color: rgba(255,255,255,0.4);
+    }
 
-        .new-screen-btn {
-            flex-shrink: 0;
-            border: 1px dashed rgba(255,255,255,0.25);
-            padding: 5px 14px;
-            border-radius: 20px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            background: transparent;
-            color: rgba(255,255,255,0.45);
-            transition: background 0.15s, color 0.15s, border-color 0.15s;
-            font-family: inherit;
-        }
-        .new-screen-btn:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.8); border-color: rgba(255,255,255,0.45); }
+    .color-dot {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
 
-        /* ── Select toolbar ───────────────────────────────────────────── */
-        .select-toolbar {
-            display: none;
-            position: sticky;
-            top: 112px;
-            z-index: 15;
-            background: rgba(10,10,10,0.95);
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding: 8px 24px;
-            align-items: center;
-            gap: 12px;
-        }
-        .select-toolbar.visible { display: flex; }
+    .device-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(217,119,6,0.18);
+      color: #fbbf24;
+    }
 
-        /* ── Gallery ──────────────────────────────────────────────────── */
-        .gallery-container {
-            padding: 24px;
-        }
+    /* ── Screen cards grid ───────────────────────────── */
+    .screens-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 16px;
+      padding: 8px 20px 90px;
+      position: relative;
+      z-index: 5;
+    }
 
-        .gallery-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 12px;
-        }
+    .screen-card {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      border-radius: 18px;
+      overflow: hidden;
+      cursor: pointer;
+      padding: 0;
+      text-align: left;
+      font-family: 'Inter', sans-serif;
+      transition: transform 0.15s;
+    }
 
-        .thumb {
-            position: relative;
-            border-radius: 8px;
-            overflow: hidden;
-            cursor: pointer;
-            border: 2px solid transparent;
-            transition: border-color 0.2s, transform 0.15s;
-            background: #111;
-        }
-        .thumb:hover { border-color: rgba(255,255,255,0.2); transform: scale(1.02); }
-        .thumb.selected { border-color: var(--accent); }
+    .screen-card:hover { transform: translateY(-2px); }
 
-        .thumb img {
-            width: 100%;
-            height: 160px;
-            object-fit: cover;
-            display: block;
-        }
+    .screen-card-bg {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 2px;
+    }
 
-        .thumb .del {
-            position: absolute;
-            top: 5px; right: 5px;
-            background: rgba(0,0,0,0.55);
-            color: #fff;
-            border: none;
-            border-radius: 50%;
-            width: 26px; height: 26px;
-            cursor: pointer;
-            font-size: 16px;
-            line-height: 26px;
-            text-align: center;
-            display: none;
-            font-family: inherit;
-        }
-        .thumb:hover .del { display: block; }
-        .thumb .del:hover { background: rgba(192,57,43,0.85); }
+    .screen-card-cell {
+      background: rgba(255,255,255,0.04);
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: rgba(255,255,255,0.1);
+    }
 
-        .thumb-check {
-            position: absolute;
-            top: 5px; left: 5px;
-            width: 20px; height: 20px;
-            border-radius: 50%;
-            border: 2px solid rgba(255,255,255,0.7);
-            background: rgba(0,0,0,0.35);
-            display: none;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            color: #fff;
-            pointer-events: none;
-        }
-        .select-mode .thumb-check { display: flex; }
-        .thumb.selected .thumb-check { background: var(--accent); border-color: var(--accent); }
+    .screen-card-overlay {
+      position: absolute;
+      inset: 0;
+    }
 
-        .thumb-fav {
-            position: absolute;
-            top: 5px; left: 5px;
-            width: 26px; height: 26px;
-            border-radius: 50%;
-            background: rgba(0,0,0,0.45);
-            border: none;
-            cursor: pointer;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            color: rgba(255,255,255,0.7);
-            padding: 0;
-            z-index: 2;
-            transition: background 0.15s, color 0.15s;
-        }
-        .thumb-fav.faved { display: flex; color: #f87171; }
-        .thumb:hover .thumb-fav { display: flex; }
-        .thumb-fav:hover { background: rgba(0,0,0,0.7); color: #f87171; }
-        .select-mode .thumb-fav { display: none !important; }
+    .screen-card-info {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 13px;
+    }
 
-        .thumb-uploader {
-            position: absolute;
-            bottom: 0; left: 0; right: 0;
-            background: linear-gradient(transparent, rgba(0,0,0,0.65));
-            color: rgba(255,255,255,0.85);
-            font-size: 11px;
-            padding: 14px 7px 5px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            pointer-events: none;
-        }
+    .screen-card-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
 
-        .thumb-screen-badge {
-            position: absolute;
-            bottom: 5px; right: 5px;
-            background: rgba(6,182,212,0.8);
-            color: #fff;
-            font-size: 10px;
-            padding: 2px 6px;
-            border-radius: 4px;
-            pointer-events: none;
-            max-width: 90px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
+    .screen-card-meta {
+      font-size: 12px;
+      color: rgba(255,255,255,0.85);
+      margin-top: 2px;
+    }
 
-        .thumb-assign {
-            position: absolute;
-            bottom: 5px; left: 5px;
-            background: rgba(0,0,0,0.6);
-            color: rgba(255,255,255,0.75);
-            border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 4px;
-            padding: 2px 6px;
-            font-size: 10px;
-            cursor: pointer;
-            display: none;
-            font-family: inherit;
-            white-space: nowrap;
-        }
-        .thumb:hover .thumb-assign { display: block; }
-        .thumb-assign:hover { background: rgba(0,0,0,0.85); color: #fff; }
+    .health-strip {
+      margin-top: 9px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 9px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.4);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.12);
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #fff;
+    }
 
-        /* ── Empty state ──────────────────────────────────────────────── */
-        .empty-state {
-            display: none;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            gap: 14px;
-            color: #888;
-            font-size: 18px;
-            padding: 80px 24px;
-            text-align: center;
-        }
-        .empty-state svg { width: 56px; height: 56px; fill: #555; }
+    .health-batt-shell {
+      position: relative;
+      width: 22px;
+      height: 11px;
+      border-radius: 2.5px;
+      border: 1.5px solid rgba(255,255,255,0.5);
+      padding: 1.5px;
+    }
 
-        /* ── Upload dropdown ──────────────────────────────────────────── */
-        .upload-wrap { position: relative; }
+    .health-batt-fill {
+      height: 100%;
+      border-radius: 1px;
+    }
 
-        .upload-menu {
-            display: none;
-            position: absolute;
-            top: calc(100% + 6px);
-            right: 0;
-            background: #1c1c1c;
-            border: 1px solid rgba(255,255,255,0.12);
-            border-radius: 8px;
-            min-width: 190px;
-            z-index: 200;
-            overflow: hidden;
-            box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-        }
-        .upload-menu.open { display: block; }
+    .health-batt-nub {
+      position: absolute;
+      right: -3px;
+      top: 3px;
+      width: 2px;
+      height: 5px;
+      border-radius: 1px;
+      background: rgba(255,255,255,0.5);
+    }
 
-        .upload-menu-item {
-            padding: 10px 14px;
-            font-size: 13px;
-            cursor: pointer;
-            color: #ddd;
-            border: none;
-            background: none;
-            width: 100%;
-            text-align: left;
-            font-family: inherit;
-            border-bottom: 1px solid rgba(255,255,255,0.06);
-        }
-        .upload-menu-item:last-child { border-bottom: none; }
-        .upload-menu-item:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
 
-        /* ── Slideshow overlay ────────────────────────────────────────── */
-        .slideshow-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: #000;
-            z-index: 100;
-        }
-        .slideshow-overlay.open { display: block; }
+    .divider-v {
+      width: 1px;
+      height: 13px;
+      background: rgba(255,255,255,0.2);
+      flex-shrink: 0;
+    }
 
-        .slide {
-            position: absolute;
-            inset: 0;
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            transition: opacity 1s ease;
-            opacity: 0;
-        }
-        .slide.active { opacity: 1; }
+    /* ── Add-new tile ────────────────────────────────── */
+    .add-tile {
+      aspect-ratio: 1 / 1;
+      border-radius: 18px;
+      border: 1.5px dashed rgba(255,255,255,0.22);
+      background: rgba(255,255,255,0.02);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: 'Inter', sans-serif;
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      font-weight: 600;
+    }
 
-        .ss-header {
-            position: absolute;
-            top: 0; left: 0; right: 0;
-            height: 60px;
-            padding: 0 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            z-index: 20;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
-            transition: opacity 0.4s;
-        }
+    .add-tile-plus {
+      font-size: 30px;
+      font-weight: 300;
+      line-height: 1;
+    }
 
-        .ss-bottom {
-            position: absolute;
-            bottom: 0; left: 0; right: 0;
-            padding: 16px 24px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
-            z-index: 20;
-            transition: opacity 0.4s;
-        }
+    /* ── Album cards grid ────────────────────────────── */
+    .albums-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      padding: 8px 20px 90px;
+      position: relative;
+      z-index: 5;
+    }
 
-        .dots { display: flex; gap: 7px; flex-wrap: wrap; max-width: 60%; }
-        .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.4); cursor: pointer; transition: background 0.2s, transform 0.2s; }
-        .dot.active { background: #fff; transform: scale(1.3); }
+    .album-card {
+      border-radius: 16px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
 
-        .timer-bar-wrap { position: absolute; bottom: 0; left: 0; right: 0; height: 3px; background: rgba(255,255,255,0.15); z-index: 21; transition: opacity 0.4s; }
-        .timer-bar { height: 100%; background: #29c76f; width: 0%; }
+    .album-card:hover { transform: translateY(-2px); }
 
-        .arrow { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.35); border: none; color: #fff; font-size: 28px; width: 48px; height: 48px; border-radius: 50%; cursor: pointer; z-index: 20; display: flex; align-items: center; justify-content: center; transition: background 0.2s, opacity 0.4s; }
-        .arrow:hover { background: rgba(0,0,0,0.6); }
-        .arrow-left  { left:  16px; }
-        .arrow-right { right: 16px; }
+    .album-card-cover {
+      position: relative;
+      height: 150px;
+      background: rgba(255,255,255,0.03);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 2px;
+      overflow: hidden;
+    }
 
-        .slideshow-overlay.idle .ss-header,
-        .slideshow-overlay.idle .ss-bottom,
-        .slideshow-overlay.idle .timer-bar-wrap,
-        .slideshow-overlay.idle .arrow { opacity: 0; pointer-events: none; }
-        .slideshow-overlay.idle { cursor: none; }
+    .album-cover-cell {
+      background: rgba(255,255,255,0.05);
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: rgba(255,255,255,0.1);
+    }
 
-        /* Date overlay (inside slideshow) */
-        .date-overlay { position: absolute; z-index: 30; pointer-events: none; transition: opacity 0.4s; }
-        .date-overlay.hidden { opacity: 0; }
-        .date-overlay .date-day { font-size: 15px; font-weight: 600; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,0.7); letter-spacing: 0.03em; }
-        .date-overlay .date-time { font-size: 13px; color: rgba(255,255,255,0.75); text-shadow: 0 1px 4px rgba(0,0,0,0.6); }
+    .album-fav-badge {
+      position: absolute;
+      top: 9px;
+      left: 9px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: #fde047;
+    }
 
-        /* ── Drop overlay ─────────────────────────────────────────────── */
-        .drop-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(74,144,226,0.2);
-            border: 3px dashed #29c76f;
-            z-index: 50;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-            font-weight: 600;
-            color: #29c76f;
-        }
-        .drop-overlay.active { display: flex; }
+    .album-empty-msg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-style: italic;
+      color: rgba(255,255,255,0.35);
+    }
 
-        /* ── Toast ────────────────────────────────────────────────────── */
-        .toast {
-            position: fixed;
-            bottom: 30px; left: 50%;
-            transform: translateX(-50%) translateY(60px);
-            background: #222; color: #fff;
-            padding: 10px 22px; border-radius: 6px;
-            font-size: 14px; opacity: 0;
-            transition: opacity 0.25s, transform 0.25s;
-            pointer-events: none; z-index: 300; white-space: nowrap;
-        }
-        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-        .toast.error { background: #c0392b; }
+    .album-card-footer {
+      padding: 11px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
 
-        /* ── Modal ────────────────────────────────────────────────────── */
-        .modal-backdrop {
-            display: none; position: fixed; inset: 0;
-            background: rgba(0,0,0,0.7); z-index: 200;
-            align-items: center; justify-content: center;
-        }
-        .modal-backdrop.open { display: flex; }
+    .album-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
+    }
 
-        .modal {
-            background: #1a1a1a; border-radius: 12px; padding: 28px;
-            width: 360px; border: 1px solid rgba(255,255,255,0.1);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-        }
-        .modal h3 { font-size: 16px; margin-bottom: 20px; }
-        .modal .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-        .modal label { font-size: 13px; color: #aaa; }
-        .modal input, .modal select {
-            background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
-            color: #fff; border-radius: 6px; padding: 9px 12px; font-size: 14px; outline: none;
-            font-family: inherit; width: 100%;
-        }
-        .modal input:focus, .modal select:focus { border-color: var(--accent); }
-        .modal select option { background: #1a1a1a; }
-        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
-        .btn-cancel { background: rgba(255,255,255,0.08); color: #ccc; border: none; padding: 8px 18px; border-radius: 6px; cursor: pointer; font-size: 14px; font-family: inherit; }
-        .btn-cancel:hover { background: rgba(255,255,255,0.15); }
-    </style>
+    .album-card-count {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    .album-add-tile {
+      min-height: 201px;
+      border-radius: 16px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* ── Photos grid ─────────────────────────────────── */
+    .photos-section {
+      position: relative;
+      z-index: 5;
+      padding: 8px 20px 90px;
+    }
+
+    .photos-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .photos-hint {
+      font-size: 13px;
+      color: rgba(255,255,255,0.45);
+    }
+
+    .photos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+      border-radius: 16px;
+      transition: border-color 0.15s, background 0.15s;
+      border: 2px dashed transparent;
+      padding: 0;
+    }
+
+    .photos-grid.drag-over {
+      border-width: 2px;
+      border-style: dashed;
+      padding: 10px;
+    }
+
+    .photo-tile {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      border-radius: 13px;
+      overflow: hidden;
+    }
+
+    .photo-tile img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .photo-tile-bg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      opacity: 0.5;
+    }
+
+    .photo-delete {
+      position: absolute;
+      top: 7px;
+      right: 7px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .photo-tile:hover .photo-delete { display: flex; }
+
+    .photo-add-tile {
+      aspect-ratio: 1 / 1;
+      border-radius: 13px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 12.5px;
+      background: transparent;
+    }
+
+    /* ── Modals ──────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 400;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-box {
+      width: 380px;
+      max-width: 95vw;
+      border-radius: 18px;
+      padding: 22px 24px;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.92);
+      margin-bottom: 4px;
+    }
+
+    .modal-sub {
+      font-size: 12.5px;
+      color: rgba(255,255,255,0.45);
+      margin-bottom: 16px;
+    }
+
+    .modal-input {
+      font-size: 13.5px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+    }
+
+    .color-picker { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 20px; }
+
+    .color-swatch {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: box-shadow 0.12s;
+    }
+
+    .color-swatch.selected { border-color: #fff; }
+
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+
+    .modal-btn {
+      padding: 8px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* ── Slideshow overlay ───────────────────────────── */
+    .ss-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .ss-slide {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      transition: opacity 1.2s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .ss-top-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 64px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 20;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+    }
+
+    .ss-title { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.8); }
+
+    .ss-arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      padding: 0;
+    }
+
+    .ss-date {
+      position: absolute;
+      top: 80px;
+      right: 28px;
+      z-index: 10;
+      text-align: right;
+      pointer-events: none;
+    }
+
+    .ss-date-day { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.85); text-shadow: 0 1px 8px rgba(0,0,0,0.6); }
+    .ss-date-time { font-size: 22px; font-weight: 300; color: rgba(255,255,255,0.7); text-shadow: 0 1px 8px rgba(0,0,0,0.6); margin-top: 2px; }
+
+    .ss-dots {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      z-index: 20;
+      background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+    }
+
+    .ss-dot {
+      height: 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      background: rgba(255,255,255,0.35);
+      transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .ss-dot.active { background: rgba(255,255,255,0.95); }
+
+    .ss-progress-bar {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 3px;
+      background: rgba(255,255,255,0.15);
+      z-index: 21;
+    }
+
+    .ss-progress-fill {
+      height: 100%;
+      background: #29c76f;
+      width: 0%;
+    }
+  </style>
 </head>
 <body>
-
-    <!-- Header -->
-    <header>
-        <h1>My Photos</h1>
-        <div class="header-right">
-            <a href="/admin.html" class="btn btn-ghost" style="text-decoration:none" data-admin>&#9881; Settings</a>
-            <form method="POST" action="/logout" style="margin:0">
-                <button class="btn btn-ghost" type="submit">Log out</button>
-            </form>
-            <button class="btn btn-ghost" id="slideshowBtn">&#9654; Slideshow</button>
-            <div class="upload-wrap">
-                <button class="btn btn-primary" id="uploadMenuBtn">&#8679; Upload &#9662;</button>
-                <div class="upload-menu" id="uploadMenu"></div>
-            </div>
-            <input type="file" id="fileInput" accept="image/*,.heic,.heif" multiple>
-        </div>
-    </header>
-
-    <!-- Screen tabs -->
-    <div class="screen-bar" id="screenBar">
-        <button class="screen-tab active" id="tabAll">All Photos</button>
-        <!-- screen tabs injected here -->
-        <button class="new-screen-btn" id="newScreenBtn">+ New Screen</button>
+<div class="space-bg" id="bgEl"></div>
+<div id="app">
+  <!-- JS renders content here -->
+  <div class="site-header glass" id="siteHeader">
+    <div class="header-logo">
+      <img src="/favicon.svg" width="24" height="24" alt="">
+      <span>My Photos</span>
     </div>
-
-    <!-- Select toolbar -->
-    <div class="select-toolbar" id="selectToolbar">
-        <span id="selectCount" style="font-size:14px;color:#ccc">0 selected</span>
-        <button class="btn btn-ghost" id="cancelSelectBtn" style="font-size:13px;padding:6px 14px">Cancel</button>
-        <button class="btn" id="deleteSelectedBtn" style="background:#c0392b;color:#fff;font-size:13px;padding:6px 14px" data-delete>Delete selected</button>
+    <div class="header-actions">
+      <a href="/admin" class="glass-btn hbtn">⚙ Settings</a>
+      <button class="glass-btn hbtn" onclick="openSlideshow()">▶ Slideshow</button>
+      <a href="/logout" class="glass-btn hbtn">Log out</a>
+      <div class="upload-wrap">
+        <button class="cyan-btn hbtn" id="uploadToggle" onclick="toggleUploadMenu()">↑ Upload ▾</button>
+        <div class="glass upload-dropdown" id="uploadDropdown">
+          <div class="upload-item" style="color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;cursor:default;padding-bottom:4px">Upload to</div>
+          <div id="uploadMenuItems"></div>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <!-- Gallery -->
-    <div class="gallery-container">
-        <div class="gallery-grid" id="galleryGrid"></div>
-        <div class="empty-state" id="emptyState">
-            <svg viewBox="0 0 24 24"><path d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zm-9-2l-3-4-2 2.5L5 19h14l-4-5.5-3 3.5z"/></svg>
-            No images yet — click Upload to add some.
-        </div>
+  <div class="breadcrumb" id="breadcrumb"></div>
+  <div id="mainContent"></div>
+</div>
+
+<!-- New Screen Modal -->
+<div class="modal-backdrop" id="newScreenModal" style="display:none" onclick="if(event.target===this)closeNewScreenModal()">
+  <div class="glass modal-box">
+    <div class="modal-title">New Screen</div>
+    <input class="glass-input modal-input" type="text" id="newScreenName" placeholder="Screen name — e.g. Hallway"
+      onkeydown="if(event.key==='Enter')confirmNewScreen();if(event.key==='Escape')closeNewScreenModal()">
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:9px">Colour</div>
+    <div class="color-picker" id="colorPicker"></div>
+    <div class="modal-footer">
+      <button class="glass-btn modal-btn" onclick="closeNewScreenModal()">Cancel</button>
+      <button class="cyan-btn modal-btn" onclick="confirmNewScreen()">Create Screen</button>
     </div>
+  </div>
+</div>
 
-    <!-- Slideshow overlay -->
-    <div class="slideshow-overlay" id="slideshowOverlay">
-        <div class="ss-header">
-            <span style="font-size:15px;font-weight:600;opacity:0.8" id="ssLabel">Slideshow</span>
-            <div style="display:flex;gap:8px">
-                <button class="btn btn-ghost" id="pauseBtn">&#9646;&#9646; Pause</button>
-                <button class="btn btn-ghost" id="slideshowCloseBtn">&#10005; Close</button>
-            </div>
-        </div>
-        <div id="slides"></div>
-        <button class="arrow arrow-left"  id="arrowLeft">&#8249;</button>
-        <button class="arrow arrow-right" id="arrowRight">&#8250;</button>
-        <div class="ss-bottom">
-            <div class="dots" id="dots"></div>
-        </div>
-        <div class="timer-bar-wrap"><div class="timer-bar" id="timerBar"></div></div>
-        <div class="date-overlay hidden" id="dateOverlay">
-            <div class="date-day" id="dateDay"></div>
-            <div class="date-time" id="dateTime"></div>
-        </div>
+<!-- New Album Modal -->
+<div class="modal-backdrop" id="newAlbumModal" style="display:none" onclick="if(event.target===this)closeNewAlbumModal()">
+  <div class="glass modal-box" style="width:360px">
+    <div class="modal-title">New Album</div>
+    <div class="modal-sub" id="newAlbumSub"></div>
+    <input class="glass-input modal-input" type="text" id="newAlbumName" placeholder="Album name — e.g. Summer 2024"
+      onkeydown="if(event.key==='Enter')confirmNewAlbum();if(event.key==='Escape')closeNewAlbumModal()">
+    <div class="modal-footer">
+      <button class="glass-btn modal-btn" onclick="closeNewAlbumModal()">Cancel</button>
+      <button class="cyan-btn modal-btn" onclick="confirmNewAlbum()">Create Album</button>
     </div>
+  </div>
+</div>
 
-    <!-- New Screen modal -->
-    <div class="modal-backdrop" id="newScreenModal">
-        <div class="modal">
-            <h3>New Screen</h3>
-            <div class="field">
-                <label>Screen name</label>
-                <input type="text" id="newScreenName" placeholder="e.g. Living Room Display" maxlength="60">
-            </div>
-            <div class="field">
-                <label>Description (optional)</label>
-                <input type="text" id="newScreenDesc" placeholder="Short description" maxlength="120">
-            </div>
-            <div class="modal-actions">
-                <button class="btn-cancel" id="cancelNewScreenBtn">Cancel</button>
-                <button class="btn btn-primary" id="saveNewScreenBtn">Create Screen</button>
-            </div>
-        </div>
+<!-- Slideshow overlay -->
+<div id="ssOverlay" class="ss-overlay" style="display:none">
+  <div id="ssSlides"></div>
+  <div class="ss-top-bar">
+    <div class="ss-title" id="ssTitle"></div>
+    <div style="display:flex;gap:6px">
+      <button class="glass-btn hbtn" onclick="toggleSsPause()">⏸</button>
+      <button class="glass-btn hbtn" onclick="closeSlideshow()">✕ Close</button>
     </div>
+  </div>
+  <button class="glass-btn ss-arrow" style="left:20px" onclick="ssPrev()">‹</button>
+  <button class="glass-btn ss-arrow" style="right:20px" onclick="ssNext()">›</button>
+  <div class="ss-date">
+    <div class="ss-date-day" id="ssDateDay"></div>
+    <div class="ss-date-time" id="ssDateTime"></div>
+  </div>
+  <div class="ss-dots" id="ssDots"></div>
+  <div class="ss-progress-bar"><div class="ss-progress-fill" id="ssProgress"></div></div>
+</div>
 
-    <!-- Assign screen modal -->
-    <div class="modal-backdrop" id="assignModal">
-        <div class="modal">
-            <h3 id="assignModalTitle">Assign to Screen</h3>
-            <div class="field">
-                <label>Screen</label>
-                <select id="assignScreenSel">
-                    <option value="">No screen (unassigned)</option>
-                </select>
-            </div>
-            <div class="modal-actions">
-                <button class="btn-cancel" id="cancelAssignBtn">Cancel</button>
-                <button class="btn btn-primary" id="saveAssignBtn">Assign</button>
-            </div>
+<input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="onFileInputChange()">
+
+<script>
+const SCREEN_COLORS = ['#06b6d4','#d97706','#22c55e','#a855f7','#f43f5e','#3b82f6','#eab308','#ec4899'];
+const HEALTH_COLOR = { good: '#22c55e', warn: '#f59e0b', bad: '#ef4444' };
+const STATUS_DOT   = { online: '#22c55e', recent: '#f59e0b', offline: '#6b7280' };
+
+// State
+let screens   = [];
+let albums    = [];
+let photos    = [];
+let curView   = 'screens';   // 'screens' | 'albums' | 'photos'
+let curScreen = null;
+let curAlbum  = null;
+let selectedColor = SCREEN_COLORS[0];
+
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+// ── Data loading ──────────────────────────────────────────
+async function init() {
+  await loadScreens();
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
+
+async function loadScreens() {
+  const res = await fetch('/api/screens');
+  if (!res.ok) { location.href = '/login'; return; }
+  screens = await res.json();
+}
+
+async function loadAlbums(screenId) {
+  const res = await fetch('/api/screens/' + screenId + '/albums');
+  albums = res.ok ? await res.json() : [];
+}
+
+async function loadPhotos(albumId) {
+  const res = await fetch('/api/images?albumId=' + albumId);
+  photos = res.ok ? await res.json() : [];
+}
+
+// ── Navigation ────────────────────────────────────────────
+async function openScreen(id) {
+  curScreen = screens.find(s => s.id === id);
+  await loadAlbums(id);
+  curView = 'albums';
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
+
+async function openAlbum(id) {
+  curAlbum = albums.find(a => a.id === id);
+  await loadPhotos(id);
+  curView = 'photos';
+  renderBreadcrumb();
+  renderContent();
+}
+
+async function goToScreens() {
+  curView = 'screens';
+  curScreen = null;
+  curAlbum = null;
+  await loadScreens();
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
+
+async function goToAlbums() {
+  curView = 'albums';
+  curAlbum = null;
+  await loadAlbums(curScreen.id);
+  renderBreadcrumb();
+  renderContent();
+}
+
+// ── Rendering ─────────────────────────────────────────────
+function renderBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  const parts = [];
+
+  if (curView === 'albums') {
+    parts.push(`<button class="glass-btn hbtn" onclick="goToScreens()">← Screens</button>`);
+    parts.push(`<span class="color-dot" style="background:${curScreen.color};box-shadow:0 0 0 3px ${hexA(curScreen.color,0.22)}"></span>`);
+    parts.push(`<span class="breadcrumb-title">${esc(curScreen.name)}</span>`);
+    parts.push(`<span class="breadcrumb-count">· ${albums.length} album${albums.length===1?'':'s'}</span>`);
+  } else if (curView === 'photos') {
+    parts.push(`<button class="glass-btn hbtn" onclick="goToAlbums()">← ${esc(curScreen.name)}</button>`);
+    parts.push(`<span class="color-dot" style="background:${curScreen.color};box-shadow:0 0 0 3px ${hexA(curScreen.color,0.22)}"></span>`);
+    parts.push(`<span class="breadcrumb-title">${esc(curAlbum.name)}</span>`);
+    if (curAlbum.fav) parts.push(`<span style="font-size:15px;color:#fde047">★</span>`);
+    parts.push(`<span class="breadcrumb-count">· ${photos.length} photo${photos.length===1?'':'s'}</span>`);
+  } else {
+    parts.push(`<span class="breadcrumb-title">Screens</span>`);
+    parts.push(`<span class="breadcrumb-count">· ${screens.length} screen${screens.length===1?'':'s'}</span>`);
+  }
+
+  bc.innerHTML = parts.join('');
+}
+
+function renderContent() {
+  const bg = document.getElementById('bgEl');
+  if (curView === 'screens')      { bg.className = 'space-bg'; }
+  else if (curView === 'albums')  { bg.className = 'space-bg space-bg-2'; }
+  else                            { bg.className = 'space-bg space-bg-3'; }
+
+  if (curView === 'screens')      renderScreensView();
+  else if (curView === 'albums')  renderAlbumsView();
+  else                            renderPhotosView();
+}
+
+function renderScreensView() {
+  const content = document.getElementById('mainContent');
+  let html = `<div class="screens-grid">`;
+
+  for (const s of screens) {
+    const allPhotos = []; // We don't have full photo lists here, just counts
+    const albumCount  = s.albumCount  || 0;
+    const imageCount  = s.imageCount  || 0;
+    const color = s.color || '#06b6d4';
+    const gradient = `linear-gradient(to top, ${hexA(color,0.88)} 0%, ${hexA(color,0.28)} 42%, transparent 68%)`;
+    const border    = `1.5px solid ${hexA(color,0.55)}`;
+    const shadow    = `0 0 0 1px ${hexA(color,0.12)}, 0 8px 28px ${hexA(color,0.16)}`;
+
+    let healthHtml = '';
+    if (s.device && s.deviceInfo) {
+      const d = s.deviceInfo;
+      const hc = HEALTH_COLOR[d.level] || '#22c55e';
+      const dc = STATUS_DOT[d.status] || '#6b7280';
+      healthHtml = `<div class="health-strip">
+        <div style="display:flex;align-items:center;gap:5px">
+          <div class="health-batt-shell">
+            <div class="health-batt-fill" style="width:${d.batt}%;background:${hc}"></div>
+            <div class="health-batt-nub"></div>
+          </div>
+          <span>${d.batt}%</span>
         </div>
+        <div class="divider-v"></div>
+        <div style="display:flex;align-items:center;gap:5px">
+          <span class="status-dot" style="background:${dc};box-shadow:0 0 6px ${dc}"></span>
+          <span>${esc(d.statusLabel)}</span>
+        </div>
+      </div>`;
+    }
+
+    const deviceBadge = s.device ? `<span class="device-badge" style="position:absolute;top:10px;right:10px">🖥 Device</span>` : '';
+
+    html += `<button class="screen-card" style="border:${border};box-shadow:${shadow}" onclick="openScreen('${s.id}')">
+      <div class="screen-card-bg">
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+      </div>
+      <div class="screen-card-overlay" style="background:${gradient}"></div>
+      <span style="position:absolute;top:11px;left:11px;width:12px;height:12px;border-radius:50%;background:${color};box-shadow:0 0 0 2px rgba(0,0,0,0.35)"></span>
+      ${deviceBadge}
+      <div class="screen-card-info">
+        <div class="screen-card-name">${esc(s.name)}</div>
+        <div class="screen-card-meta">${albumCount} album${albumCount===1?'':'s'} · ${imageCount} photo${imageCount===1?'':'s'}</div>
+        ${healthHtml}
+      </div>
+    </button>`;
+  }
+
+  html += `<button class="add-tile" onclick="openNewScreenModal()">
+    <span class="add-tile-plus">+</span>
+    <span>New Screen</span>
+  </button>`;
+
+  html += `</div>`;
+  content.innerHTML = html;
+}
+
+function renderAlbumsView() {
+  const content = document.getElementById('mainContent');
+  const color = curScreen.color || '#06b6d4';
+  let html = `<div class="albums-grid">`;
+
+  for (const a of albums) {
+    const count = a.photoCount || 0;
+    const favBadge = a.fav ? `<div class="album-fav-badge">★</div>` : '';
+    const emptyMsg = count === 0 ? `<div class="album-empty-msg">No photos yet</div>` : '';
+
+    html += `<div class="album-card glass" style="border-top:2.5px solid ${color}" onclick="openAlbum('${a.id}')">
+      <div class="album-card-cover">
+        <div class="album-cover-cell"></div>
+        <div class="album-cover-cell"></div>
+        <div class="album-cover-cell"></div>
+        <div class="album-cover-cell"></div>
+        ${favBadge}
+        ${emptyMsg}
+      </div>
+      <div class="album-card-footer">
+        <span class="album-card-name">${esc(a.name)}</span>
+        <span class="album-card-count">${count} photo${count===1?'':'s'}</span>
+      </div>
+    </div>`;
+  }
+
+  html += `<button class="album-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="openNewAlbumModal()">
+    <span class="add-tile-plus">+</span>
+    <span>New Album</span>
+  </button>`;
+
+  html += `</div>`;
+  content.innerHTML = html;
+}
+
+function renderPhotosView() {
+  const content = document.getElementById('mainContent');
+  const color = curScreen.color || '#06b6d4';
+  const count = photos.length;
+  const hint = count === 0 ? 'Drag photos here or use Upload' : `${count} photo${count===1?'':'s'} in this album`;
+
+  let photosHtml = '';
+  for (const p of photos) {
+    photosHtml += `<div class="photo-tile glass">
+      <img src="${esc(p.url)}" alt="${esc(p.filename)}">
+      <button class="photo-delete" onclick="deletePhoto('${esc(p.filename)}')">✕</button>
+    </div>`;
+  }
+
+  photosHtml += `<button class="photo-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="pickFiles()">
+    <span style="font-size:30px;font-weight:300;line-height:1">+</span>
+    <span>Add photos</span>
+  </button>`;
+
+  content.innerHTML = `<div class="photos-section">
+    <div class="photos-topbar">
+      <span class="photos-hint">${hint}</span>
+      <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="pickFiles()">↑ Upload photos</button>
     </div>
+    <div class="photos-grid" id="photosGrid"
+      ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"
+      style="border-color:transparent">
+      ${photosHtml}
+    </div>
+  </div>`;
+}
 
-    <!-- Drop overlay -->
-    <div class="drop-overlay" id="dropOverlay">Drop images to upload</div>
+// ── Upload menu ───────────────────────────────────────────
+function buildUploadMenu() {
+  const container = document.getElementById('uploadMenuItems');
+  if (!container) return;
+  if (curView === 'photos' && curAlbum) {
+    container.innerHTML = `<button class="upload-item" onclick="pickFiles();closeUploadMenu()">This album: ${esc(curAlbum.name)}</button>`;
+  } else if (curView === 'albums' && curScreen) {
+    container.innerHTML = `<button class="upload-item" onclick="pickFiles();closeUploadMenu()">Screen: ${esc(curScreen.name)}</button>`;
+  } else {
+    let html = '';
+    for (const s of screens) {
+      html += `<button class="upload-item" onclick="startUploadToScreen('${s.id}');closeUploadMenu()">${esc(s.name)}</button>`;
+    }
+    container.innerHTML = html || '<div class="upload-item" style="opacity:0.5;cursor:default">No screens yet</div>';
+  }
+}
 
-    <!-- Toast -->
-    <div class="toast" id="toast"></div>
+function toggleUploadMenu() {
+  document.getElementById('uploadDropdown').classList.toggle('open');
+}
 
-    <script>
-        let slideshowInterval = 30000;
-        let allImages  = [];
-        let ssImages   = []; // images currently in the slideshow
-        let current    = 0;
-        let paused     = false;
-        let favorites  = new Set();
-        let screens    = [];
-        let activeScreen       = null; // null = "All Photos"
-        let uploadTargetScreen = null;
-        let assigningFilename  = null;
-        let selectMode = false;
-        const selected = new Set();
-        let timer = null, timerStart = null, timerBarAnim = null;
+function closeUploadMenu() {
+  document.getElementById('uploadDropdown').classList.remove('open');
+}
 
-        const galleryGrid      = document.getElementById('galleryGrid');
-        const emptyState       = document.getElementById('emptyState');
-        const timerBar         = document.getElementById('timerBar');
-        const pauseBtn         = document.getElementById('pauseBtn');
-        const fileInput        = document.getElementById('fileInput');
-        const toastEl          = document.getElementById('toast');
-        const slidesEl         = document.getElementById('slides');
-        const dotsEl           = document.getElementById('dots');
-        const slideshowOverlay = document.getElementById('slideshowOverlay');
+document.addEventListener('click', e => {
+  if (!e.target.closest('.upload-wrap')) closeUploadMenu();
+});
 
-        // ── Toast ────────────────────────────────────────────────────
-        let toastTimer;
-        function showToast(msg, type = '') {
-            clearTimeout(toastTimer);
-            toastEl.textContent = msg;
-            toastEl.className = 'toast show ' + type;
-            toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3200);
-        }
+// ── File picking / drag-drop ──────────────────────────────
+let uploadTarget = null; // { screenId, albumId }
 
-        // ── Screens ──────────────────────────────────────────────────
-        async function loadScreens() {
-            try {
-                const res = await fetch('/api/screens');
-                screens = await res.json();
-            } catch { screens = []; }
-            renderScreenTabs();
-            renderUploadMenu();
-        }
+function pickFiles() {
+  if (curView === 'photos' && curAlbum) {
+    uploadTarget = { screenId: curScreen.id, albumId: curAlbum.id };
+  } else if (curView === 'albums' && curScreen) {
+    uploadTarget = { screenId: curScreen.id, albumId: null };
+  }
+  document.getElementById('fileInput').click();
+}
 
-        function renderScreenTabs() {
-            const bar    = document.getElementById('screenBar');
-            const newBtn = document.getElementById('newScreenBtn');
-            bar.querySelectorAll('.screen-tab[data-screen-id]').forEach(el => el.remove());
-            screens.forEach(s => {
-                const tab = document.createElement('button');
-                tab.className = 'screen-tab' + (activeScreen === s.id ? ' active' : '');
-                tab.dataset.screenId = s.id;
-                tab.textContent = s.name + (s.imageCount !== undefined ? ` (${s.imageCount})` : '');
-                tab.onclick = () => { activeScreen = s.id; refreshTabs(); renderGallery(); updateSsLabel(); };
-                bar.insertBefore(tab, newBtn);
-            });
-            document.getElementById('tabAll').classList.toggle('active', activeScreen === null);
-        }
+function startUploadToScreen(screenId) {
+  uploadTarget = { screenId, albumId: null };
+  document.getElementById('fileInput').click();
+}
 
-        function refreshTabs() {
-            document.getElementById('tabAll').classList.toggle('active', activeScreen === null);
-            document.querySelectorAll('.screen-tab[data-screen-id]').forEach(t =>
-                t.classList.toggle('active', t.dataset.screenId === activeScreen));
-        }
+async function onFileInputChange() {
+  const input = document.getElementById('fileInput');
+  const files = Array.from(input.files || []);
+  input.value = '';
+  if (!files.length) return;
+  await uploadFiles(files);
+}
 
-        function updateSsLabel() {
-            const s = screens.find(s => s.id === activeScreen);
-            document.getElementById('ssLabel').textContent = s ? s.name : 'All Photos';
-        }
+async function uploadFiles(files) {
+  const fd = new FormData();
+  for (const f of files) fd.append('images', f);
+  if (uploadTarget?.screenId) fd.append('screenId', uploadTarget.screenId);
+  if (uploadTarget?.albumId)  fd.append('albumId',  uploadTarget.albumId);
 
-        document.getElementById('tabAll').onclick = () => {
-            activeScreen = null;
-            refreshTabs();
-            renderGallery();
-            updateSsLabel();
-        };
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  if (!res.ok) { alert('Upload failed'); return; }
 
-        function renderUploadMenu() {
-            const menu = document.getElementById('uploadMenu');
-            menu.innerHTML = '';
-            const allItem = document.createElement('button');
-            allItem.className = 'upload-menu-item';
-            allItem.innerHTML = '&#128247; All Photos (no screen)';
-            allItem.onclick = () => triggerUpload(null);
-            menu.appendChild(allItem);
-            screens.forEach(s => {
-                const item = document.createElement('button');
-                item.className = 'upload-menu-item';
-                item.textContent = '&#9632; ' + s.name;
-                item.onclick = () => triggerUpload(s.id);
-                menu.appendChild(item);
-            });
-        }
+  if (curView === 'photos' && curAlbum) {
+    await loadPhotos(curAlbum.id);
+    renderPhotosView();
+    renderBreadcrumb();
+  } else {
+    await loadScreens();
+  }
+}
 
-        // ── Upload dropdown ──────────────────────────────────────────
-        document.getElementById('uploadMenuBtn').onclick = e => {
-            e.stopPropagation();
-            if (screens.length === 0) { triggerUpload(activeScreen); return; }
-            document.getElementById('uploadMenu').classList.toggle('open');
-        };
-        document.addEventListener('click', () => document.getElementById('uploadMenu').classList.remove('open'));
+function onDragOver(e) {
+  e.preventDefault();
+  const grid = document.getElementById('photosGrid');
+  if (!grid) return;
+  const color = curScreen?.color || '#06b6d4';
+  grid.style.borderColor = hexA(color, 0.5);
+  grid.style.background  = hexA(color, 0.06);
+}
 
-        function triggerUpload(screenId) {
-            uploadTargetScreen = screenId;
-            document.getElementById('uploadMenu').classList.remove('open');
-            fileInput.click();
-        }
+function onDragLeave() {
+  const grid = document.getElementById('photosGrid');
+  if (!grid) return;
+  grid.style.borderColor = 'transparent';
+  grid.style.background  = 'transparent';
+}
 
-        // ── New Screen modal ─────────────────────────────────────────
-        document.getElementById('newScreenBtn').onclick = () => {
-            document.getElementById('newScreenModal').classList.add('open');
-            setTimeout(() => document.getElementById('newScreenName').focus(), 50);
-        };
-        document.getElementById('cancelNewScreenBtn').onclick = () =>
-            document.getElementById('newScreenModal').classList.remove('open');
+async function onDrop(e) {
+  e.preventDefault();
+  onDragLeave();
+  if (curView !== 'photos' || !curAlbum) return;
+  const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  uploadTarget = { screenId: curScreen.id, albumId: curAlbum.id };
+  await uploadFiles(files);
+}
 
-        document.getElementById('saveNewScreenBtn').onclick = async () => {
-            const name = document.getElementById('newScreenName').value.trim();
-            const desc = document.getElementById('newScreenDesc').value.trim();
-            if (!name) { showToast('Screen name is required.', 'error'); return; }
-            try {
-                const res = await fetch('/api/screens', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, description: desc })
-                });
-                if (!res.ok) throw new Error((await res.json()).error);
-                document.getElementById('newScreenName').value = '';
-                document.getElementById('newScreenDesc').value = '';
-                document.getElementById('newScreenModal').classList.remove('open');
-                showToast(`Screen "${name}" created.`);
-                await loadScreens();
-                await renderGallery();
-            } catch (e) { showToast('Could not create screen: ' + e.message, 'error'); }
-        };
-        document.getElementById('newScreenName').addEventListener('keydown', e => {
-            if (e.key === 'Enter') document.getElementById('saveNewScreenBtn').click();
-            if (e.key === 'Escape') document.getElementById('cancelNewScreenBtn').click();
-        });
+// ── Delete photo ──────────────────────────────────────────
+async function deletePhoto(filename) {
+  if (!confirm('Delete this photo?')) return;
+  const res = await fetch('/api/images/' + encodeURIComponent(filename), { method: 'DELETE' });
+  if (!res.ok) { alert('Could not delete'); return; }
+  await loadPhotos(curAlbum.id);
+  renderPhotosView();
+  renderBreadcrumb();
+}
 
-        // ── Assign screen modal ──────────────────────────────────────
-        function openAssignModal(filename) {
-            assigningFilename = filename;
-            const img = allImages.find(i => i.filename === filename);
-            const sel = document.getElementById('assignScreenSel');
-            sel.innerHTML = '<option value="">No screen (unassigned)</option>';
-            screens.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s.id;
-                opt.textContent = s.name;
-                if (img?.screenId === s.id) opt.selected = true;
-                sel.appendChild(opt);
-            });
-            document.getElementById('assignModal').classList.add('open');
-        }
-        document.getElementById('cancelAssignBtn').onclick = () =>
-            document.getElementById('assignModal').classList.remove('open');
-        document.getElementById('saveAssignBtn').onclick = async () => {
-            if (!assigningFilename) return;
-            const screenId = document.getElementById('assignScreenSel').value || null;
-            try {
-                const res = await fetch(`/api/images/${encodeURIComponent(assigningFilename)}/screen`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ screenId })
-                });
-                if (!res.ok) throw new Error((await res.json()).error);
-                document.getElementById('assignModal').classList.remove('open');
-                showToast('Screen assigned.');
-                await loadImages();
-                await loadScreens();
-            } catch (e) { showToast('Error: ' + e.message, 'error'); }
-        };
+// ── New Screen modal ──────────────────────────────────────
+function openNewScreenModal() {
+  document.getElementById('newScreenModal').style.display = 'flex';
+  document.getElementById('newScreenName').value = '';
+  renderColorPicker();
+  setTimeout(() => document.getElementById('newScreenName').focus(), 50);
+}
 
-        // ── Render gallery ───────────────────────────────────────────
-        function renderGallery() {
-            const galleryEl = document.getElementById('galleryGrid');
-            galleryEl.className = 'gallery-grid' + (selectMode ? ' select-mode' : '');
-            galleryEl.innerHTML = '';
+function closeNewScreenModal() {
+  document.getElementById('newScreenModal').style.display = 'none';
+}
 
-            const visible = activeScreen === null
-                ? allImages
-                : allImages.filter(img => img.screenId === activeScreen);
+function renderColorPicker() {
+  selectedColor = SCREEN_COLORS[0];
+  const picker = document.getElementById('colorPicker');
+  picker.innerHTML = SCREEN_COLORS.map(c =>
+    `<button class="color-swatch${c===selectedColor?' selected':''}" style="background:${c};box-shadow:${c===selectedColor?'0 0 0 2px '+c:'none'}" onclick="selectColor('${c}')"></button>`
+  ).join('');
+}
 
-            if (visible.length === 0) {
-                emptyState.style.display = 'flex';
-                return;
-            }
-            emptyState.style.display = 'none';
+function selectColor(c) {
+  selectedColor = c;
+  renderColorPicker();
+  document.querySelectorAll('.color-swatch').forEach(el => {
+    const ec = el.style.background;
+    el.className = 'color-swatch' + (ec === c ? ' selected' : '');
+    el.style.boxShadow = ec === c ? '0 0 0 2px ' + c : 'none';
+  });
+}
 
-            visible.forEach(img => {
-                const thumb = document.createElement('div');
-                thumb.className = 'thumb' + (selected.has(img.filename) ? ' selected' : '');
-                thumb.onclick = () => {
-                    if (selectMode) {
-                        selected.has(img.filename) ? selected.delete(img.filename) : selected.add(img.filename);
-                        thumb.classList.toggle('selected', selected.has(img.filename));
-                        check.textContent = selected.has(img.filename) ? '✓' : '';
-                        updateSelectToolbar();
-                        return;
-                    }
-                    openSlideshow(visible.indexOf(img), visible);
-                };
+async function confirmNewScreen() {
+  const name = document.getElementById('newScreenName').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/screens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color: selectedColor })
+  });
+  if (!res.ok) { alert('Could not create screen'); return; }
+  closeNewScreenModal();
+  await loadScreens();
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
 
-                const image = document.createElement('img');
-                image.src = img.url;
-                image.alt = img.filename;
-                image.loading = 'lazy';
-                thumb.appendChild(image);
+// ── New Album modal ───────────────────────────────────────
+function openNewAlbumModal() {
+  document.getElementById('newAlbumModal').style.display = 'flex';
+  document.getElementById('newAlbumSub').textContent = 'in ' + (curScreen?.name || '');
+  document.getElementById('newAlbumName').value = '';
+  setTimeout(() => document.getElementById('newAlbumName').focus(), 50);
+}
 
-                // Fav
-                const fav = document.createElement('button');
-                fav.className = 'thumb-fav' + (favorites.has(img.filename) ? ' faved' : '');
-                fav.title = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
-                fav.textContent = '♥';
-                fav.onclick = async e => {
-                    e.stopPropagation();
-                    const isFav = favorites.has(img.filename);
-                    const r = await fetch(`/api/favorites/${encodeURIComponent(img.filename)}`, { method: isFav ? 'DELETE' : 'POST' });
-                    if (r.ok) {
-                        isFav ? favorites.delete(img.filename) : favorites.add(img.filename);
-                        fav.classList.toggle('faved', !isFav);
-                        fav.title = favorites.has(img.filename) ? 'Remove from favourites' : 'Add to favourites';
-                    }
-                };
-                thumb.appendChild(fav);
+function closeNewAlbumModal() {
+  document.getElementById('newAlbumModal').style.display = 'none';
+}
 
-                // Check
-                const check = document.createElement('div');
-                check.className = 'thumb-check';
-                check.textContent = selected.has(img.filename) ? '✓' : '';
-                thumb.appendChild(check);
+async function confirmNewAlbum() {
+  const name = document.getElementById('newAlbumName').value.trim();
+  if (!name || !curScreen) return;
+  const res = await fetch('/api/screens/' + curScreen.id + '/albums', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (!res.ok) { alert('Could not create album'); return; }
+  closeNewAlbumModal();
+  await loadAlbums(curScreen.id);
+  renderBreadcrumb();
+  renderContent();
+}
 
-                // Delete
-                const del = document.createElement('button');
-                del.className = 'del';
-                del.textContent = '×';
-                del.title = 'Delete';
-                del.dataset.delete = '';
-                del.onclick = async e => {
-                    e.stopPropagation();
-                    if (!confirm('Delete this image?')) return;
-                    const r = await fetch(`/api/images/${encodeURIComponent(img.filename)}`, { method: 'DELETE' });
-                    if (r.ok) { favorites.delete(img.filename); showToast('Deleted.'); await loadImages(); await loadScreens(); }
-                    else showToast('Could not delete.', 'error');
-                };
-                thumb.appendChild(del);
+// ── Slideshow ─────────────────────────────────────────────
+let ssPhotos = [], ssIdx = 0, ssPaused = false, ssTimer = null, ssRaf = null, ssStart = 0;
+const SS_DURATION = 8000;
 
-                // Uploader label
-                if (img.uploadedBy) {
-                    const lbl = document.createElement('div');
-                    lbl.className = 'thumb-uploader';
-                    lbl.textContent = img.uploadedBy;
-                    thumb.appendChild(lbl);
-                }
+async function openSlideshow() {
+  let src = [];
+  if (curView === 'photos' && photos.length) {
+    src = photos;
+  } else {
+    const res = await fetch('/api/images' + (curScreen ? '?screenId=' + curScreen.id : ''));
+    src = res.ok ? await res.json() : [];
+  }
+  if (!src.length) { alert('No photos to show.'); return; }
+  ssPhotos = src;
+  ssIdx = 0;
+  ssPaused = false;
 
-                // Screen badge (only in "All" view)
-                if (activeScreen === null && img.screenId) {
-                    const s = screens.find(s => s.id === img.screenId);
-                    if (s) {
-                        const badge = document.createElement('span');
-                        badge.className = 'thumb-screen-badge';
-                        badge.textContent = s.name;
-                        thumb.appendChild(badge);
-                    }
-                }
+  const overlay = document.getElementById('ssOverlay');
+  overlay.style.display = 'block';
+  document.getElementById('ssTitle').textContent = curAlbum?.name || curScreen?.name || 'All Photos';
+  renderSsSlides();
+  renderSsDots();
+  updateSsDate();
+  setInterval(updateSsDate, 30000);
+  startSsTimer();
+}
 
-                // Assign to screen button
-                if (screens.length > 0) {
-                    const assignBtn = document.createElement('button');
-                    assignBtn.className = 'thumb-assign';
-                    assignBtn.textContent = img.screenId ? '⊙ Change screen' : '⊕ Add to screen';
-                    assignBtn.onclick = e => { e.stopPropagation(); openAssignModal(img.filename); };
-                    thumb.appendChild(assignBtn);
-                }
+function renderSsSlides() {
+  const container = document.getElementById('ssSlides');
+  container.innerHTML = ssPhotos.map((p, i) =>
+    `<div class="ss-slide" style="background-image:url(${esc(p.url)});opacity:${i===ssIdx?1:0}"></div>`
+  ).join('');
+}
 
-                galleryEl.appendChild(thumb);
-            });
-        }
+function renderSsDots() {
+  const dotsEl = document.getElementById('ssDots');
+  dotsEl.innerHTML = ssPhotos.map((_, i) =>
+    `<div class="ss-dot${i===ssIdx?' active':''}" style="width:${i===ssIdx?18:8}px" onclick="ssGoto(${i})"></div>`
+  ).join('');
+}
 
-        // ── Select mode ──────────────────────────────────────────────
-        function updateSelectToolbar() {
-            const n = selected.size;
-            document.getElementById('selectCount').textContent = `${n} selected`;
-            document.getElementById('selectToolbar').classList.toggle('visible', n > 0);
-        }
+function updateSsDate() {
+  const now = new Date();
+  document.getElementById('ssDateDay').textContent  = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+  document.getElementById('ssDateTime').textContent = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
 
-        document.getElementById('cancelSelectBtn').onclick = () => {
-            selectMode = false;
-            selected.clear();
-            updateSelectToolbar();
-            renderGallery();
-        };
+function startSsTimer() {
+  clearTimeout(ssTimer);
+  cancelAnimationFrame(ssRaf);
+  ssStart = performance.now();
+  const tick = now => {
+    const p = Math.min((now - ssStart) / SS_DURATION * 100, 100);
+    document.getElementById('ssProgress').style.width = p + '%';
+    if (p < 100) ssRaf = requestAnimationFrame(tick);
+  };
+  ssRaf = requestAnimationFrame(tick);
+  ssTimer = setTimeout(ssNext, SS_DURATION);
+}
 
-        document.getElementById('deleteSelectedBtn').onclick = async () => {
-            const filenames = [...selected];
-            if (!filenames.length || !confirm(`Delete ${filenames.length} image(s)?`)) return;
-            await Promise.all(filenames.map(f => fetch(`/api/images/${encodeURIComponent(f)}`, { method: 'DELETE' })));
-            showToast(`${filenames.length} image(s) deleted.`);
-            selectMode = false;
-            selected.clear();
-            updateSelectToolbar();
-            await loadImages();
-            await loadScreens();
-        };
+function ssNext() {
+  ssIdx = (ssIdx + 1) % ssPhotos.length;
+  ssUpdate();
+}
 
-        // Long-press on mobile to enter select mode
-        let longPressTimer;
-        document.getElementById('galleryGrid').addEventListener('pointerdown', e => {
-            const thumb = e.target.closest('.thumb');
-            if (!thumb || selectMode) return;
-            longPressTimer = setTimeout(() => {
-                selectMode = true;
-                const img = allImages.find(i => thumb.querySelector('img')?.src.endsWith('/uploads/' + i.filename));
-                if (img) { selected.add(img.filename); updateSelectToolbar(); }
-                renderGallery();
-            }, 600);
-        });
-        document.getElementById('galleryGrid').addEventListener('pointerup', () => clearTimeout(longPressTimer));
-        document.getElementById('galleryGrid').addEventListener('pointermove', () => clearTimeout(longPressTimer));
+function ssPrev() {
+  ssIdx = (ssIdx - 1 + ssPhotos.length) % ssPhotos.length;
+  ssUpdate();
+}
 
-        // ── Slideshow ────────────────────────────────────────────────
-        function openSlideshow(startIdx, imageSet) {
-            ssImages = imageSet || allImages;
-            current  = Math.max(0, Math.min(startIdx, ssImages.length - 1));
-            renderSlides();
-            slideshowOverlay.classList.add('open');
-            goTo(current, false);
-            if (!paused) startTimer();
-            resetSlideshowIdle();
-        }
+function ssGoto(i) {
+  ssIdx = i;
+  ssUpdate();
+}
 
-        document.getElementById('slideshowBtn').onclick = () => {
-            const visible = activeScreen === null ? allImages : allImages.filter(i => i.screenId === activeScreen);
-            if (visible.length === 0) { showToast('No images to show.', 'error'); return; }
-            openSlideshow(0, visible);
-        };
+function ssUpdate() {
+  const slides = document.querySelectorAll('.ss-slide');
+  slides.forEach((el, i) => el.style.opacity = i === ssIdx ? 1 : 0);
+  renderSsDots();
+  if (!ssPaused) startSsTimer();
+}
 
-        document.getElementById('slideshowCloseBtn').onclick = () => {
-            slideshowOverlay.classList.remove('open');
-            clearTimeout(timer);
-            cancelAnimationFrame(timerBarAnim);
-        };
+function toggleSsPause() {
+  ssPaused = !ssPaused;
+  const btn = document.querySelector('.ss-top-bar .glass-btn');
+  if (btn) btn.textContent = ssPaused ? '▶ Play' : '⏸';
+  if (ssPaused) {
+    clearTimeout(ssTimer);
+    cancelAnimationFrame(ssRaf);
+  } else {
+    startSsTimer();
+  }
+}
 
-        function renderSlides() {
-            slidesEl.innerHTML = '';
-            dotsEl.innerHTML   = '';
-            ssImages.forEach((img, i) => {
-                const slide = document.createElement('div');
-                slide.className = 'slide' + (i === current ? ' active' : '');
-                slide.style.backgroundImage = `url('${img.url}')`;
-                slidesEl.appendChild(slide);
-                const dot = document.createElement('div');
-                dot.className = 'dot' + (i === current ? ' active' : '');
-                dot.onclick = () => goTo(i);
-                dotsEl.appendChild(dot);
-            });
-        }
+function closeSlideshow() {
+  clearTimeout(ssTimer);
+  cancelAnimationFrame(ssRaf);
+  document.getElementById('ssOverlay').style.display = 'none';
+}
 
-        function goTo(index, resetTimer = true) {
-            if (ssImages.length === 0) return;
-            const slides = slidesEl.querySelectorAll('.slide');
-            slides[current]?.classList.remove('active');
-            dotsEl.querySelectorAll('.dot')[current]?.classList.remove('active');
-            current = (index + ssImages.length) % ssImages.length;
-            slides[current]?.classList.add('active');
-            dotsEl.querySelectorAll('.dot')[current]?.classList.add('active');
-            if (resetTimer && !paused) startTimer();
-        }
+document.addEventListener('keydown', e => {
+  const ss = document.getElementById('ssOverlay');
+  if (ss.style.display !== 'none') {
+    if (e.key === 'ArrowRight') ssNext();
+    else if (e.key === 'ArrowLeft') ssPrev();
+    else if (e.key === 'Escape') closeSlideshow();
+  }
+  if (e.key === 'Escape') {
+    if (document.getElementById('newScreenModal').style.display !== 'none') closeNewScreenModal();
+    if (document.getElementById('newAlbumModal').style.display !== 'none') closeNewAlbumModal();
+  }
+});
 
-        function startTimer() {
-            clearTimeout(timer);
-            cancelAnimationFrame(timerBarAnim);
-            timerBar.style.transition = 'none';
-            timerBar.style.width = '0%';
-            timerStart = performance.now();
-            const interval = slideshowInterval;
-            (function animBar(now) {
-                const pct = Math.min(((now - timerStart) / interval) * 100, 100);
-                timerBar.style.width = pct + '%';
-                if (pct < 100) timerBarAnim = requestAnimationFrame(animBar);
-            })(timerStart);
-            timer = setTimeout(() => goTo(current + 1), interval);
-        }
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-        pauseBtn.onclick = () => {
-            paused = !paused;
-            if (paused) { clearTimeout(timer); cancelAnimationFrame(timerBarAnim); pauseBtn.innerHTML = '&#9654; Play'; }
-            else { pauseBtn.innerHTML = '&#9646;&#9646; Pause'; startTimer(); }
-        };
-
-        document.getElementById('arrowLeft').onclick  = () => goTo(current - 1);
-        document.getElementById('arrowRight').onclick = () => goTo(current + 1);
-
-        document.addEventListener('keydown', e => {
-            if (!slideshowOverlay.classList.contains('open')) return;
-            if (e.key === 'ArrowLeft')  goTo(current - 1);
-            if (e.key === 'ArrowRight') goTo(current + 1);
-            if (e.key === ' ') { e.preventDefault(); pauseBtn.click(); }
-            if (e.key === 'Escape') document.getElementById('slideshowCloseBtn').click();
-        });
-
-        // Idle hide in slideshow
-        let idleTimer;
-        function resetSlideshowIdle() {
-            slideshowOverlay.classList.remove('idle');
-            clearTimeout(idleTimer);
-            idleTimer = setTimeout(() => slideshowOverlay.classList.add('idle'), 3000);
-        }
-        slideshowOverlay.addEventListener('mousemove', resetSlideshowIdle);
-        slideshowOverlay.addEventListener('click', resetSlideshowIdle);
-
-        // ── Load from server ─────────────────────────────────────────
-        async function loadImages() {
-            try {
-                const [imgRes, favRes] = await Promise.all([fetch('/api/images'), fetch('/api/favorites')]);
-                allImages = await imgRes.json();
-                favorites = new Set(favRes.ok ? await favRes.json() : []);
-                renderGallery();
-            } catch { showToast('Could not connect to server.', 'error'); }
-        }
-
-        // ── Upload ───────────────────────────────────────────────────
-        async function uploadFiles(files) {
-            const ALLOWED_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i;
-            const all    = Array.from(files);
-            const imgs   = all.filter(f => f.type.startsWith('image/') || ALLOWED_EXTS.test(f.name));
-            const bad    = all.filter(f => !f.type.startsWith('image/') && !ALLOWED_EXTS.test(f.name));
-            if (bad.length) showToast(`Unsupported: ${bad.map(f => f.name).join(', ')}`, 'error');
-            if (!imgs.length) return;
-
-            const btn = document.getElementById('uploadMenuBtn');
-            btn.disabled = true;
-            btn.textContent = 'Uploading…';
-
-            const fd = new FormData();
-            imgs.forEach(f => fd.append('images', f));
-            if (uploadTargetScreen) fd.append('screenId', uploadTargetScreen);
-
-            try {
-                const res  = await fetch('/api/upload', { method: 'POST', body: fd });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Upload failed');
-                showToast(`${data.uploaded.length} image(s) uploaded.`);
-                await loadImages();
-                await loadScreens();
-            } catch (err) { showToast('Upload failed: ' + err.message, 'error'); }
-            finally {
-                btn.disabled = false;
-                btn.innerHTML = '&#8679; Upload &#9662;';
-                fileInput.value = '';
-                uploadTargetScreen = null;
-            }
-        }
-
-        fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
-
-        // ── Drag & drop ──────────────────────────────────────────────
-        let dragCounter = 0;
-        const dropOverlay = document.getElementById('dropOverlay');
-        document.addEventListener('dragenter', e => {
-            if ([...e.dataTransfer.items].some(i => i.kind === 'file')) { dragCounter++; dropOverlay.classList.add('active'); }
-        });
-        document.addEventListener('dragleave', () => { if (--dragCounter === 0) dropOverlay.classList.remove('active'); });
-        document.addEventListener('dragover', e => e.preventDefault());
-        document.addEventListener('drop', e => {
-            e.preventDefault();
-            dragCounter = 0;
-            dropOverlay.classList.remove('active');
-            uploadTargetScreen = activeScreen;
-            uploadFiles(e.dataTransfer.files);
-        });
-
-        // ── Date overlay ─────────────────────────────────────────────
-        const dateOverlay = document.getElementById('dateOverlay');
-        let displaySettings = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false };
-
-        async function loadDisplaySettings() {
-            try {
-                const res = await fetch('/api/settings');
-                displaySettings = await res.json();
-                slideshowInterval = Math.max(1, displaySettings.slideshowInterval || 30) * 1000;
-                if (displaySettings.accentColor) {
-                    document.documentElement.style.setProperty('--accent', displaySettings.accentColor);
-                }
-            } catch {}
-            applyDatePosition();
-            updateDate();
-        }
-
-        function applyDatePosition() {
-            const pos = displaySettings.datePosition || 'top-right';
-            const isRight = pos.includes('right'), isBottom = pos.includes('bottom');
-            const el = document.getElementById('dateOverlay');
-            el.style.top    = isBottom ? 'auto' : '70px';
-            el.style.bottom = isBottom ? '24px' : 'auto';
-            el.style.left   = isRight  ? 'auto' : '24px';
-            el.style.right  = isRight  ? '24px' : 'auto';
-            el.style.textAlign = isRight ? 'right' : 'left';
-        }
-
-        function updateDate() {
-            const s = displaySettings, tz = s.timezone || 'Europe/Amsterdam', now = new Date();
-            const parts = [];
-            if (s.showDayName) parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, weekday: 'long' }));
-            if (s.showDate)    parts.push(now.toLocaleDateString('en-GB', { timeZone: tz, day: 'numeric', month: 'long', year: 'numeric' }));
-            document.getElementById('dateDay').textContent = parts.join(' ');
-            document.getElementById('dateTime').textContent = s.showTime
-                ? now.toLocaleTimeString('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', ...(s.showSeconds ? { second: '2-digit' } : {}) })
-                : '';
-            const hasContent = s.showDayName || s.showDate || s.showTime;
-            dateOverlay.style.display = hasContent ? '' : 'none';
-        }
-
-        loadDisplaySettings();
-        dateOverlay.classList.remove('hidden');
-        setInterval(updateDate, 1000);
-
-        // ── Role-based UI ─────────────────────────────────────────────
-        async function applyRole() {
-            try {
-                const res  = await fetch('/api/me');
-                const user = await res.json();
-                const p    = user.permissions || {};
-                if (!p.canManage) document.querySelectorAll('[data-admin]').forEach(el => el.style.display = 'none');
-                if (!p.canUpload) document.getElementById('uploadMenuBtn').style.display = 'none';
-                if (!p.canDelete) document.querySelectorAll('[data-delete]').forEach(el => el.style.display = 'none');
-            } catch {}
-        }
-
-        // ── Init ─────────────────────────────────────────────────────
-        applyRole();
-        loadScreens().then(() => loadImages());
-    </script>
+init();
+</script>
 </body>
 </html>

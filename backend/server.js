@@ -224,6 +224,7 @@ if (!appData.tokens)        { appData.tokens        = []; saveData(appData); }
 if (!appData.logs)          { appData.logs          = []; saveData(appData); }
 if (!appData.imageMetadata) { appData.imageMetadata = {}; saveData(appData); }
 if (!appData.screens)       { appData.screens       = []; saveData(appData); }
+if (!appData.albums)        { appData.albums        = []; saveData(appData); }
 
 const MAX_LOGS = 500;
 function addLog(event, { user, keyName, ip, detail } = {}) {
@@ -489,7 +490,8 @@ app.post('/logout', (req, res) => {
 });
 
 // ── 2FA — login completion (unauthenticated) ───────────────────────────────
-app.get('/2fa', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, '2fa.html')));
+app.get('/2fa',     (_req, res) => res.sendFile(path.join(FRONTEND_DIR, '2fa.html')));
+app.get('/devices', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'devices.html')));
 
 app.post('/api/2fa/complete', express.json(), (req, res) => {
     if (!check2FARateLimit(req.ip)) return res.status(429).json({ error: 'Too many attempts. Try again later.' });
@@ -1010,6 +1012,7 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 app.get('/api/images', (req, res) => {
     const meta  = appData.imageMetadata || {};
     const { screenId } = req.query;
+    const { albumId } = req.query;
     let files = fs.readdirSync(UPLOADS_DIR)
         .filter(f => IMAGE_EXTS.test(f))
         .map(filename => ({
@@ -1017,10 +1020,15 @@ app.get('/api/images', (req, res) => {
             uploadedAt: meta[filename]?.uploadedAt || fs.statSync(path.join(UPLOADS_DIR, filename)).mtime,
             uploadedBy: meta[filename]?.uploadedBy || null,
             screenId:   meta[filename]?.screenId   || null,
+            albumId:    meta[filename]?.albumId    || null,
         }));
     if (screenId !== undefined) {
         const filterVal = screenId === '' ? null : screenId;
         files = files.filter(f => f.screenId === filterVal);
+    }
+    if (albumId !== undefined) {
+        const filterVal = albumId === '' ? null : albumId;
+        files = files.filter(f => f.albumId === filterVal);
     }
     files.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
     res.json(files);
@@ -1061,9 +1069,10 @@ app.post('/api/upload', requireUpload, (req, res) => {
     const uploader   = req.currentUser?.username || null;
     const uploadedAt = new Date().toISOString();
     const screenId   = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    const albumId    = req.body.albumId  && (appData.albums  || []).find(a => a.id === req.body.albumId)  ? req.body.albumId  : null;
     if (!appData.imageMetadata) appData.imageMetadata = {};
     for (const f of processed) {
-        appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt, screenId };
+        appData.imageMetadata[f.filename] = { uploadedBy: uploader, uploadedAt, screenId, albumId };
     }
     saveData(appData);
     addLog('upload', { user: uploader, ip: req.ip, detail: `${processed.length} file(s)` });
@@ -1114,19 +1123,21 @@ app.get('/api/screens', (_req, res) => {
     const meta = appData.imageMetadata || {};
     const screens = (appData.screens || []).map(s => ({
         ...s,
-        imageCount: Object.values(meta).filter(m => m.screenId === s.id).length,
+        imageCount:  Object.values(meta).filter(m => m.screenId === s.id).length,
+        albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
     }));
     res.json(screens);
 });
 
 app.post('/api/screens', (req, res) => {
-    const { name, description } = req.body;
+    const { name, description, color } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Screen name is required' });
     if (!appData.screens) appData.screens = [];
     const screen = {
         id: crypto.randomUUID(),
         name: name.trim(),
         description: (description || '').trim(),
+        color: color || '#06b6d4',
         createdAt: new Date().toISOString(),
         createdBy: req.currentUser?.username || null,
     };
@@ -1138,9 +1149,10 @@ app.post('/api/screens', (req, res) => {
 app.put('/api/screens/:id', (req, res) => {
     const screen = (appData.screens || []).find(s => s.id === req.params.id);
     if (!screen) return res.status(404).json({ error: 'Screen not found' });
-    const { name, description } = req.body;
+    const { name, description, color } = req.body;
     if (name !== undefined) screen.name = name.trim();
     if (description !== undefined) screen.description = description.trim();
+    if (color !== undefined) screen.color = color;
     saveData(appData);
     res.json(screen);
 });
@@ -1160,6 +1172,62 @@ app.delete('/api/screens/:id', requireAdmin, (req, res) => {
     }
     saveData(appData);
     res.json({ deleted: screenId });
+});
+
+// ── Albums ─────────────────────────────────────────────────────────────────
+app.get('/api/screens/:screenId/albums', (req, res) => {
+    const { screenId } = req.params;
+    if (!(appData.screens || []).find(s => s.id === screenId))
+        return res.status(404).json({ error: 'Screen not found' });
+    const meta = appData.imageMetadata || {};
+    const albums = (appData.albums || [])
+        .filter(a => a.screenId === screenId)
+        .map(a => ({ ...a, photoCount: Object.values(meta).filter(m => m.albumId === a.id).length }));
+    res.json(albums);
+});
+
+app.post('/api/screens/:screenId/albums', (req, res) => {
+    const { screenId } = req.params;
+    if (!(appData.screens || []).find(s => s.id === screenId))
+        return res.status(404).json({ error: 'Screen not found' });
+    const { name } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Album name is required' });
+    if (!appData.albums) appData.albums = [];
+    const album = {
+        id: crypto.randomUUID(),
+        screenId,
+        name: name.trim(),
+        fav: false,
+        createdAt: new Date().toISOString(),
+        createdBy: req.currentUser?.username || null,
+    };
+    appData.albums.push(album);
+    saveData(appData);
+    res.json(album);
+});
+
+app.put('/api/screens/:screenId/albums/:albumId', (req, res) => {
+    const album = (appData.albums || []).find(a => a.id === req.params.albumId && a.screenId === req.params.screenId);
+    if (!album) return res.status(404).json({ error: 'Album not found' });
+    const { name, fav } = req.body;
+    if (name !== undefined) album.name = name.trim();
+    if (fav !== undefined) album.fav = !!fav;
+    saveData(appData);
+    res.json(album);
+});
+
+app.delete('/api/screens/:screenId/albums/:albumId', requireAdmin, (req, res) => {
+    const idx = (appData.albums || []).findIndex(a => a.id === req.params.albumId && a.screenId === req.params.screenId);
+    if (idx === -1) return res.status(404).json({ error: 'Album not found' });
+    const albumId = req.params.albumId;
+    appData.albums.splice(idx, 1);
+    // Unlink images from this album
+    const meta = appData.imageMetadata || {};
+    for (const f of Object.keys(meta)) {
+        if (meta[f].albumId === albumId) meta[f].albumId = null;
+    }
+    saveData(appData);
+    res.json({ deleted: albumId });
 });
 
 app.put('/api/images/:filename/screen', (req, res) => {

@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Device Displays — Photo Display</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <style>
+    body { min-height: 100vh; overflow-y: auto; }
+    #app { position: relative; min-height: 100vh; }
+
+    /* ── Header ─────────────────────────────────────── */
+    .site-header {
+      position: sticky; top: 0; z-index: 30;
+      margin: 12px 16px 0;
+      border-radius: 16px;
+      padding: 0 16px;
+      height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .header-title { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; color: rgba(255,255,255,0.9); }
+    .header-sub { font-size: 12.5px; color: rgba(255,255,255,0.35); }
+
+    /* ── Gallery grid ────────────────────────────────── */
+    .gallery {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 8px 24px 90px;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(384px, 1fr));
+      gap: 26px;
+      justify-items: center;
+      position: relative; z-index: 5;
+    }
+
+    .card-wrap {
+      display: flex; flex-direction: column; gap: 12px;
+      cursor: pointer;
+      transition: transform 0.15s;
+      background: none; border: none; padding: 0;
+      font-family: 'Inter', sans-serif;
+    }
+    .card-wrap:hover { transform: translateY(-3px); }
+
+    /* ── Device bezel ────────────────────────────────── */
+    .bezel {
+      width: 384px;
+      height: 230px; /* 480 * 0.48 */
+      border-radius: 12px;
+      background: linear-gradient(150deg, #1a1c20, #0c0d10);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 30px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 0 1px rgba(0,0,0,0.5);
+      padding: 8px;
+      overflow: hidden;
+    }
+
+    .panel-scale {
+      width: 368px;
+      height: 214px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: #07090d;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.8);
+      position: relative;
+    }
+
+    /* ── Panel contents ──────────────────────────────── */
+    .panel {
+      position: absolute; inset: 0;
+      font-family: 'Inter', -apple-system, sans-serif;
+      color: #fff;
+      overflow: hidden;
+    }
+
+    .panel-bg { position: absolute; inset: 0; }
+
+    .panel-content {
+      position: absolute;
+      inset: 0;
+      bottom: 27px; /* footer */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 0 33px;
+      gap: 10px;
+    }
+
+    .panel-dim { position: absolute; inset: 0; background: rgba(0,0,0,0.4); }
+
+    /* e-ink stepped spinner */
+    .spinner {
+      position: relative;
+      width: 34px; height: 34px;
+      animation: ddspin 9.6s steps(12) infinite;
+    }
+    .spinner-tick {
+      position: absolute;
+      left: 50%; top: 0;
+      width: 2px; height: 17px;
+      margin-left: -1px;
+      transform-origin: 50% 100%;
+      border-radius: 1px;
+    }
+
+    /* e-ink blink dots */
+    .blink-dot {
+      display: inline-block;
+      width: 4px; height: 4px;
+      border-radius: 50%;
+      margin: 0 3px;
+    }
+    .blink-dot:nth-child(1) { animation: ddblink 2.4s steps(1,end) 0s infinite; }
+    .blink-dot:nth-child(2) { animation: ddblink 2.4s steps(1,end) 0.8s infinite; }
+    .blink-dot:nth-child(3) { animation: ddblink 2.4s steps(1,end) 1.6s infinite; }
+
+    .panel-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; color: rgba(255,255,255,0.96); line-height: 1.2; }
+    .panel-sub { font-size: 10px; font-weight: 400; line-height: 1.4; color: rgba(255,255,255,0.55); max-width: 268px; }
+
+    .icon-ring {
+      width: 50px; height: 50px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 300;
+      flex-shrink: 0;
+    }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 4px 9px; border-radius: 999px;
+      font-size: 8px; font-weight: 600;
+      margin-top: 2px;
+    }
+
+    /* Battery glyph */
+    .batt-glyph {
+      display: flex; align-items: center; gap: 4px;
+    }
+    .batt-shell {
+      position: relative;
+      border-radius: 4px;
+      border: 1.5px solid rgba(255,255,255,0.55);
+      padding: 2px;
+    }
+    .batt-fill { height: 100%; border-radius: 2px; }
+    .batt-nub {
+      width: 3px; height: 9px;
+      border-radius: 1px;
+      background: rgba(255,255,255,0.55);
+    }
+
+    /* Wi-Fi bars */
+    .wifi-bars { display: flex; align-items: flex-end; gap: 1.5px; height: 12px; }
+    .wifi-bar { display: block; border-radius: 0.75px; }
+
+    /* ── Status footer ────────────────────────────────── */
+    .panel-footer {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      height: 27px;
+      padding: 0 13px;
+      display: flex; align-items: center; justify-content: space-between;
+      background: rgba(255,255,255,0.05);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      font-family: 'Inter', sans-serif;
+    }
+    .footer-left { display: flex; align-items: center; gap: 5px; }
+    .footer-brand { font-size: 7px; font-weight: 600; color: rgba(255,255,255,0.82); letter-spacing: -0.005em; }
+    .footer-id { font-family: ui-monospace, monospace; font-size: 6px; color: rgba(255,255,255,0.4); letter-spacing: 0.01em; }
+    .footer-right { display: flex; align-items: center; gap: 8px; }
+    .footer-fw { font-family: ui-monospace, monospace; font-size: 6px; color: rgba(255,255,255,0.32); }
+    .footer-batt-pct { font-size: 7px; font-weight: 700; color: rgba(255,255,255,0.75); }
+
+    /* ── Card label ──────────────────────────────────── */
+    .card-label { text-align: left; padding-left: 4px; }
+    .card-label-row { display: flex; align-items: center; gap: 8px; }
+    .card-accent-dot { width: 9px; height: 9px; border-radius: 50%; }
+    .card-name { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.9); }
+    .card-desc { font-size: 13px; color: rgba(255,255,255,0.4); margin-top: 3px; padding-left: 17px; }
+
+    /* ── Fullscreen viewer ───────────────────────────── */
+    .fs-backdrop {
+      position: fixed; inset: 0; z-index: 600;
+      background: rgba(4,5,7,0.88);
+      backdrop-filter: blur(16px);
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 22px;
+    }
+    .fs-backdrop.open { display: flex; }
+
+    .fs-bezel {
+      border-radius: 26px;
+      background: linear-gradient(150deg, #1a1c20, #0c0d10);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 30px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08), inset 0 0 0 1px rgba(0,0,0,0.5);
+    }
+
+    .fs-panel-wrap {
+      border-radius: 8px;
+      overflow: hidden;
+      background: #07090d;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.8);
+      position: relative;
+    }
+
+    .fs-info { text-align: center; }
+    .fs-name { font-size: 19px; font-weight: 600; color: #fff; }
+    .fs-desc { font-size: 14px; color: rgba(255,255,255,0.45); margin-top: 3px; }
+
+    .fs-close {
+      position: absolute; top: 22px; right: 24px;
+      padding: 8px 16px; border-radius: 11px; font-size: 14px;
+    }
+    .fs-arrow {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      width: 54px; height: 54px; border-radius: 50%;
+      font-size: 26px; display: flex; align-items: center; justify-content: center;
+      padding: 0; z-index: 2;
+    }
+    .fs-arrow-l { left: 26px; }
+    .fs-arrow-r { right: 26px; }
+
+    /* QR code CSS */
+    .qr { position: relative; background: #fff; border-radius: 6px; overflow: hidden; }
+    .qr-cell { position: absolute; background: #0b0d11; }
+
+    /* Setup panel two-column layout */
+    .setup-layout {
+      position: absolute; inset: 0; bottom: 27px;
+      display: flex; align-items: center; gap: 27px;
+      padding: 0 34px;
+    }
+    .setup-left { flex: 1; text-align: left; }
+    .setup-label { font-size: 7px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; margin-bottom: 7px; }
+    .setup-heading { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; color: #fff; line-height: 1.1; margin-bottom: 10px; }
+    .setup-step { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+    .setup-num {
+      width: 13px; height: 13px; flex-shrink: 0;
+      border-radius: 50%;
+      font-size: 7px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .setup-step-text { font-size: 9px; color: rgba(255,255,255,0.7); }
+    .setup-mono { font-family: ui-monospace, monospace; color: #fff; font-weight: 600; }
+  </style>
+</head>
+<body>
+<div class="space-bg" style="background:radial-gradient(ellipse 80% 50% at 50% 0%, rgba(34,211,238,0.08), transparent 60%), #080808"></div>
+
+<div id="app">
+  <div class="site-header glass">
+    <div class="header-left">
+      <span class="header-title">Device Displays</span>
+      <span class="header-sub">· PhotoPainter 7.3″ · 800×480 e-ink</span>
+    </div>
+    <a href="/" class="glass-btn" style="padding:6px 16px;border-radius:10px;font-size:13px;font-weight:500;text-decoration:none;color:#fff">← Back</a>
+  </div>
+
+  <div style="max-width:1280px;margin:0 auto;padding:14px 24px 8px;position:relative;z-index:5">
+    <p style="font-size:14px;color:rgba(255,255,255,0.45);line-height:1.5;max-width:620px">
+      On-screen states the firmware renders directly on the device. Click any display to view it full size.
+    </p>
+  </div>
+
+  <div class="gallery" id="gallery"></div>
+</div>
+
+<!-- Fullscreen viewer -->
+<div class="fs-backdrop" id="fsBackdrop" onclick="if(event.target===this)closeFs()">
+  <button class="glass-btn fs-close" onclick="closeFs()">✕ Close</button>
+  <button class="glass-btn fs-arrow fs-arrow-l" onclick="fsNav(-1)">‹</button>
+  <button class="glass-btn fs-arrow fs-arrow-r" onclick="fsNav(1)">›</button>
+  <div id="fsContent"></div>
+  <div class="fs-info">
+    <div class="fs-name" id="fsName"></div>
+    <div class="fs-desc" id="fsDesc"></div>
+  </div>
+</div>
+
+<script>
+// ── Color helpers ─────────────────────────────────────────
+function rgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+const C = {
+  cyan:  '#22d3ee',
+  blue:  '#3b82f6',
+  green: '#34d399',
+  amber: '#f59e0b',
+  red:   '#f87171',
+  white: '#e5e7eb',
+};
+const FW = { id: 'trmnl-c3d4', net: 'Leuffen-5G', fw: 'v2.4.1' };
+
+// ── Build panels ──────────────────────────────────────────
+function bgStyle(accent) {
+  return `background:radial-gradient(ellipse 90% 75% at 50% 18%, ${rgba(accent,0.20)}, transparent 60%),
+          radial-gradient(ellipse 70% 60% at 85% 95%, ${rgba(accent,0.10)}, transparent 55%),
+          linear-gradient(160deg, #0c1016 0%, #07090d 60%, #050608 100%)`;
+}
+
+function spinner(color, scale=1) {
+  const N = 12;
+  let ticks = '';
+  for (let i = 0; i < N; i++) {
+    const opacity = 1 - (i / N) * 0.82;
+    ticks += `<div class="spinner-tick" style="transform:rotate(${i*(360/N)}deg);background:linear-gradient(to top,transparent 62%,${color} 62%);opacity:${opacity}"></div>`;
+  }
+  return `<div class="spinner" style="width:${34*scale}px;height:${34*scale}px">${ticks}</div>`;
+}
+
+function wifiBars(quality, failed=false, size=1) {
+  const heights = [4, 6, 9, 12].map(h => h * size);
+  const barW = Math.round(2.5 * size);
+  let bars = '';
+  for (let i = 0; i < 4; i++) {
+    const active = !failed && i < quality;
+    const color = failed ? C.red : (quality >= 3 ? C.green : quality === 2 ? C.amber : C.red);
+    bars += `<span class="wifi-bar" style="width:${barW}px;height:${heights[i]}px;background:${active ? color : 'rgba(255,255,255,0.16)'}"></span>`;
+  }
+  const failX = failed ? `<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${11*size}px;color:${C.red};font-weight:700">╳</span>` : '';
+  return `<div class="wifi-bars" style="position:relative;height:${12*size}px">${bars}${failX}</div>`;
+}
+
+function battGlyph(pct, color, w=65) {
+  const h = Math.round(w * 0.46);
+  return `<div class="batt-glyph">
+    <div class="batt-shell" style="width:${w}px;height:${h}px;border-radius:${Math.round(w*0.07)}px;border:${Math.max(1.5,w*0.035)}px solid rgba(255,255,255,0.55);padding:${Math.round(w*0.05)}px">
+      <div class="batt-fill" style="width:${pct}%;min-width:2px;background:${color};border-radius:${Math.round(w*0.03)}px"></div>
+    </div>
+    <div class="batt-nub" style="width:${Math.round(w*0.05)}px;height:${Math.round(h*0.42)}px"></div>
+  </div>`;
+}
+
+function iconRing(accent, content, size=50) {
+  return `<div class="icon-ring" style="width:${size}px;height:${size}px;background:${rgba(accent,0.12)};border:2px solid ${rgba(accent,0.4)};box-shadow:0 0 0 4px ${rgba(accent,0.06)},inset 0 1px 0 rgba(255,255,255,0.12);color:${accent};font-size:${Math.round(size*0.42)}px">${content}</div>`;
+}
+
+function chip(text, accent) {
+  return `<div class="chip" style="background:${rgba(accent,0.12)};border:1px solid ${rgba(accent,0.35)};color:${accent};margin-top:2px">${text}</div>`;
+}
+
+function blinkDots(color) {
+  return `<span style="display:inline-flex;align-items:center;margin-left:2px"><span class="blink-dot" style="background:${color}"></span><span class="blink-dot" style="background:${color}"></span><span class="blink-dot" style="background:${color}"></span></span>`;
+}
+
+function statusFooter(wifi, wifiFailed, batt, battColor) {
+  const battC = battColor || (batt <= 15 ? C.amber : C.green);
+  return `<div class="panel-footer">
+    <div class="footer-left">
+      <img src="/favicon.svg" width="11" height="11" alt="">
+      <span class="footer-brand">PhotoPainter</span>
+      <span class="footer-id">· ${FW.id}</span>
+    </div>
+    <div class="footer-right">
+      <span class="footer-fw">${FW.fw}</span>
+      ${wifiBars(wifi, wifiFailed, 0.5)}
+      <div style="display:flex;align-items:center;gap:4px">
+        ${battGlyph(batt, battC, 20)}
+        <span class="footer-batt-pct">${batt}%</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+// QR code (deterministic CSS squares)
+function qrCode(size=84) {
+  const N = 21, cell = size / N;
+  const inBox = (r, c, R, Cc) => r >= R && r < R+7 && c >= Cc && c < Cc+7;
+  const finder = (r, c) => inBox(r,c,0,0) || inBox(r,c,0,N-7) || inBox(r,c,N-7,0);
+  const finderOn = (r, c) => {
+    const local = (R, Cc) => { const lr=r-R, lc=c-Cc; return (lr===0||lr===6||lc===0||lc===6)||(lr>=2&&lr<=4&&lc>=2&&lc<=4); };
+    if (inBox(r,c,0,0))   return local(0,0);
+    if (inBox(r,c,0,N-7)) return local(0,N-7);
+    if (inBox(r,c,N-7,0)) return local(N-7,0);
+    return false;
+  };
+  let cells = '';
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    let on = finder(r,c) ? finderOn(r,c) : ((r*7+c*13+r*c*3)%5) < 2;
+    if (on) cells += `<div class="qr-cell" style="left:${c*cell}px;top:${r*cell}px;width:${cell+0.5}px;height:${cell+0.5}px"></div>`;
+  }
+  return `<div class="qr" style="width:${size}px;height:${size}px">${cells}</div>`;
+}
+
+// ── The 10 states ─────────────────────────────────────────
+const STATES = [
+  {
+    key:'setup', name:'Setup / pairing', accent:C.cyan,
+    desc:'First boot — join Wi-Fi and pair',
+    panel(scale=1) {
+      return `<div class="panel" style="font-size:${scale*10}px">
+        <div class="panel-bg" style="${bgStyle(C.cyan)}"></div>
+        <div class="setup-layout">
+          <div class="setup-left">
+            <div class="setup-label" style="color:${C.cyan}">Let's get set up</div>
+            <div class="setup-heading">Scan to connect<br>your display</div>
+            <div class="setup-step">
+              <div class="setup-num" style="background:${rgba(C.cyan,0.14)};border:1px solid ${rgba(C.cyan,0.4)};color:${C.cyan}">1</div>
+              <span class="setup-step-text">Join Wi-Fi <span class="setup-mono">"PhotoPainter-A1B2"</span></span>
+            </div>
+            <div class="setup-step">
+              <div class="setup-num" style="background:${rgba(C.cyan,0.14)};border:1px solid ${rgba(C.cyan,0.4)};color:${C.cyan}">2</div>
+              <span class="setup-step-text">Open <span class="setup-mono">photo.leuffen.nl/setup</span></span>
+            </div>
+            <div class="setup-step">
+              <div class="setup-num" style="background:${rgba(C.cyan,0.14)};border:1px solid ${rgba(C.cyan,0.4)};color:${C.cyan}">3</div>
+              <span class="setup-step-text">Pick a screen to pair this device</span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+            <div style="padding:7px;background:#fff;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,0.4)">${qrCode(84)}</div>
+            <span style="font-size:6.5px;color:rgba(255,255,255,0.4)">Scan with your phone</span>
+          </div>
+        </div>
+        ${statusFooter(0, false, 96, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'connecting', name:'Connecting to Wi-Fi', accent:C.cyan,
+    desc:'Joining the network',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.cyan)}"></div>
+        <div class="panel-content" style="gap:10px">
+          ${spinner(C.cyan)}
+          <div class="panel-title">Connecting to Wi-Fi</div>
+          <div class="panel-sub" style="display:inline-flex;align-items:center;flex-wrap:wrap;justify-content:center">
+            Joining <span style="color:#fff;font-weight:600;margin:0 3px">${FW.net}</span>${blinkDots(C.cyan)}
+          </div>
+        </div>
+        ${statusFooter(2, false, 71, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'wifi_failed', name:'Wi-Fi failed', accent:C.red,
+    desc:'Could not join the network',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.red)}"></div>
+        <div class="panel-content">
+          ${iconRing(C.red, wifiBars(0, true, 1.3).replace('class="wifi-bars"','class="wifi-bars" style="align-items:center"'))}
+          <div class="panel-title">Wi-Fi connection failed</div>
+          <div class="panel-sub">Couldn't join ${FW.net}. Check the password or move the display closer to your router.</div>
+          ${chip('↻ Retrying in 30s', C.red)}
+        </div>
+        ${statusFooter(1, true, 64, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'server', name:'Server unreachable', accent:C.red,
+    desc:'Online, but server not responding',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.red)}"></div>
+        <div class="panel-content">
+          ${iconRing(C.red, '!')}
+          <div class="panel-title">Can't reach the server</div>
+          <div class="panel-sub">The display is online but the photo server isn't responding.</div>
+          <div style="font-family:ui-monospace,monospace;font-size:8px;color:rgba(255,255,255,0.5);background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:4px 8px">photo.leuffen.nl</div>
+          ${chip('↻ Next attempt in 2 min', C.red)}
+        </div>
+        ${statusFooter(4, false, 58, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'low_batt', name:'Low battery', accent:C.amber,
+    desc:'Charge required soon',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.amber)}"></div>
+        <div class="panel-content">
+          ${battGlyph(8, C.amber, 72)}
+          <div class="panel-title">Battery low</div>
+          <div class="panel-sub">8% remaining. Connect the USB-C cable to keep your photos updating.</div>
+          ${chip('⚡ Connect charger', C.amber)}
+        </div>
+        ${statusFooter(3, false, 8, C.amber)}
+      </div>`;
+    },
+  },
+  {
+    key:'updating', name:'Firmware updating', accent:C.cyan,
+    desc:'Installing a new firmware version',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.cyan)}"></div>
+        <div class="panel-content">
+          ${spinner(C.cyan)}
+          <div class="panel-title">Updating firmware</div>
+          <div style="font-family:ui-monospace,monospace;font-size:8.5px;color:rgba(255,255,255,0.5)">v1.8.2 → v2.4.1</div>
+          <div style="width:210px;max-width:70%">
+            <div style="height:5.5px;border-radius:999px;background:rgba(255,255,255,0.1);overflow:hidden">
+              <div style="height:100%;width:64%;border-radius:999px;background:linear-gradient(90deg,${C.blue},${C.cyan})"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:7px;color:rgba(255,255,255,0.5)">
+              <span>Installing…</span><span style="font-weight:700;color:#fff">64%</span>
+            </div>
+          </div>
+          <div style="font-size:7px;color:${rgba(C.amber,0.9)}">Keep the display plugged in — do not unplug.</div>
+        </div>
+        ${statusFooter(4, false, 88, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'empty', name:'No images assigned', accent:C.white,
+    desc:'Paired, but no album yet',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.white)}"></div>
+        <div class="panel-content">
+          <div style="width:63px;height:42px;border-radius:6px;border:1.5px dashed rgba(255,255,255,0.3);display:flex;align-items:center;justify-content:center;font-size:18px;opacity:0.5">🖼</div>
+          <div class="panel-title">No photos yet</div>
+          <div class="panel-sub">This display is paired but has no album. Assign one from the dashboard and your photos will appear here.</div>
+          ${chip('Open the dashboard to assign an album', C.cyan)}
+        </div>
+        ${statusFooter(4, false, 92, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'paired', name:'Successfully paired', accent:C.green,
+    desc:'Pairing complete',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.green)}"></div>
+        <div class="panel-content">
+          ${iconRing(C.green, '✓')}
+          <div class="panel-title">You're all set</div>
+          <div class="panel-sub">This display is paired and will start showing your photos in a moment.</div>
+          <div style="display:flex;gap:5px;font-size:7.5px;flex-wrap:wrap;justify-content:center">
+            <span style="padding:3px 7px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7)">Screen: <b style="color:#fff">Office</b></span>
+            <span style="padding:3px 7px;border-radius:999px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);font-family:ui-monospace,monospace;color:rgba(255,255,255,0.7)">${FW.id}</span>
+          </div>
+        </div>
+        ${statusFooter(4, false, 100, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'sleeping', name:'Sleeping / standby', accent:C.blue,
+    desc:'Low-power refresh window',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.blue)}"></div>
+        <div class="panel-dim"></div>
+        <div class="panel-content">
+          <div style="position:relative;width:44px;height:44px">
+            <div style="position:absolute;inset:0;border-radius:50%;background:${rgba(C.blue,0.18)};border:2px solid ${rgba(C.blue,0.4)}"></div>
+            <div style="position:absolute;top:-3px;right:-3px;width:33px;height:33px;border-radius:50%;background:#07090d"></div>
+          </div>
+          <div class="panel-title">Sleeping</div>
+          <div class="panel-sub">The display is conserving power. Photos refresh on schedule — no action needed.</div>
+          ${chip('Next refresh · 7:00 AM', C.blue)}
+        </div>
+        ${statusFooter(2, false, 54, C.green)}
+      </div>`;
+    },
+  },
+  {
+    key:'error', name:'Generic error', accent:C.red,
+    desc:'Unexpected fault',
+    panel() {
+      return `<div class="panel">
+        <div class="panel-bg" style="${bgStyle(C.red)}"></div>
+        <div class="panel-content">
+          ${iconRing(C.red, '✕')}
+          <div class="panel-title">Something went wrong</div>
+          <div class="panel-sub">The display hit an unexpected error. Try restarting it; if it keeps happening, contact support.</div>
+          <div style="font-family:ui-monospace,monospace;font-size:7px;color:rgba(255,255,255,0.45)">Error 0x5A · render-timeout</div>
+          ${chip('Hold the button 5s to restart', C.red)}
+        </div>
+        ${statusFooter(3, false, 47, C.amber)}
+      </div>`;
+    },
+  },
+];
+
+// ── Render gallery ────────────────────────────────────────
+function buildGallery() {
+  const gallery = document.getElementById('gallery');
+  gallery.innerHTML = STATES.map((s, i) =>
+    `<button class="card-wrap" onclick="openFs(${i})">
+      <div class="bezel">
+        <div class="panel-scale">${s.panel()}</div>
+      </div>
+      <div class="card-label">
+        <div class="card-label-row">
+          <span class="card-accent-dot" style="background:${s.accent};box-shadow:0 0 8px ${rgba(s.accent,0.6)}"></span>
+          <span class="card-name">${s.name}</span>
+        </div>
+        <div class="card-desc">${s.desc}</div>
+      </div>
+    </button>`
+  ).join('');
+}
+
+// ── Fullscreen viewer ─────────────────────────────────────
+let fsActive = 0;
+
+function openFs(i) {
+  fsActive = i;
+  renderFs();
+  document.getElementById('fsBackdrop').classList.add('open');
+}
+
+function closeFs() {
+  document.getElementById('fsBackdrop').classList.remove('open');
+}
+
+function fsNav(dir) {
+  fsActive = (fsActive + dir + STATES.length) % STATES.length;
+  renderFs();
+}
+
+function renderFs() {
+  const s = STATES[fsActive];
+  // Compute scale to fit viewport
+  const FRAME_W = 836, FRAME_H = 516; // 800+36 bezel width, 480+36 height
+  const PW = 800, PH = 480;
+  const sw = (window.innerWidth  - 120) / FRAME_W;
+  const sh = (window.innerHeight - 200) / FRAME_H;
+  const scale = Math.min(sw, sh, 1.5);
+
+  const bezelPad = Math.round(18 * scale);
+  const bw = Math.round((PW + 36) * scale);
+  const bh = Math.round((PH + 36) * scale);
+  const pw = Math.round(PW * scale);
+  const ph = Math.round(PH * scale);
+
+  document.getElementById('fsContent').innerHTML = `
+    <div class="fs-bezel" style="width:${bw}px;height:${bh}px;padding:${bezelPad}px;border-radius:${Math.round(26*scale)}px">
+      <div class="fs-panel-wrap" style="width:${pw}px;height:${ph}px;border-radius:${Math.round(8*scale)}px">
+        <div style="width:800px;height:480px;transform:scale(${scale});transform-origin:top left;position:relative">
+          ${s.panel(scale)}
+        </div>
+      </div>
+    </div>`;
+
+  document.getElementById('fsName').textContent = s.name;
+  document.getElementById('fsDesc').textContent = s.desc;
+}
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('fsBackdrop').classList.contains('open')) renderFs();
+});
+
+document.addEventListener('keydown', e => {
+  if (!document.getElementById('fsBackdrop').classList.contains('open')) return;
+  if (e.key === 'Escape') closeFs();
+  if (e.key === 'ArrowRight') fsNav(1);
+  if (e.key === 'ArrowLeft')  fsNav(-1);
+});
+
+buildGallery();
+</script>
+</body>
+</html>
