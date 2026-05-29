@@ -5,35 +5,54 @@
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include <SPI.h>
+#include <Wire.h>
 #include <esp_sleep.h>
 #include <esp_mac.h>
 #include "JPEGDEC.h"
 #include "config.h"
 
-// ── Pin mapping — Waveshare ESP32-S3-PhotoPainter ─────────────────────────
-#define EPD_RST   8
-#define EPD_DC    7
-#define EPD_CS    10
-#define EPD_BUSY  9
+#define XPOWERS_CHIP_AXP2101
+#include "XPowersLib.h"
+
+// ── Pin mapping — Waveshare ESP32-S3-PhotoPainter (7.3" E6) ───────────────
+// Values taken from Waveshare's official factory source (bsp_config.h).
+#define EPD_DC    8
+#define EPD_CS    9
+#define EPD_CLK   10
 #define EPD_MOSI  11
-#define EPD_CLK   12
-#define EPD_PWR   45
+#define EPD_RST   12
+#define EPD_BUSY  13
+
+// I2C bus to the AXP2101 PMIC (which powers the e-paper panel)
+#define PMIC_SDA  47
+#define PMIC_SCL  48
+
+static XPowersPMU PMU;
 
 // ── Display dimensions ────────────────────────────────────────────────────
 #define EPD_W        800
 #define EPD_H        480
 #define EPD_BUF_SIZE (EPD_W * EPD_H / 2)
 
-// ── ACeP 7-color palette ──────────────────────────────────────────────────
-static const uint8_t PALETTE[7][3] = {
-    {  0,   0,   0},   // 0 BLACK
-    {255, 255, 255},   // 1 WHITE
-    { 67, 138,  28},   // 2 GREEN
-    {100,  64, 255},   // 3 BLUE
-    {228,  28,  28},   // 4 RED
-    {199, 199,  10},   // 5 YELLOW
-    {248, 190,   0},   // 6 ORANGE
+// ── Spectra 6 (E6) color palette ──────────────────────────────────────────
+// The E6 panel accepts these 4-bit color codes (index 4 is unused). Order and
+// codes match Waveshare's official E6 driver.
+#define C_BLACK   0
+#define C_WHITE   1
+#define C_YELLOW  2
+#define C_RED     3
+#define C_BLUE    5
+#define C_GREEN   6
+
+static const struct { uint8_t code; uint8_t r, g, b; } PALETTE[] = {
+    {C_BLACK,    0,   0,   0},
+    {C_WHITE,  255, 255, 255},
+    {C_YELLOW, 255, 255,   0},
+    {C_RED,    255,   0,   0},
+    {C_BLUE,     0,   0, 255},
+    {C_GREEN,    0, 255,   0},
 };
+static const int PALETTE_N = sizeof(PALETTE) / sizeof(PALETTE[0]);
 
 static uint8_t *epd_buf  = nullptr;
 static uint8_t *jpeg_buf = nullptr;
@@ -204,15 +223,15 @@ static void startCaptivePortal() {
 
 // ── Nearest-color quantization ────────────────────────────────────────────
 static inline uint8_t quantize(uint8_t r, uint8_t g, uint8_t b) {
-    int best = 0, bestDist = INT_MAX;
-    for (int i = 0; i < 7; i++) {
-        int dr = (int)r - PALETTE[i][0];
-        int dg = (int)g - PALETTE[i][1];
-        int db = (int)b - PALETTE[i][2];
+    int bestCode = C_BLACK, bestDist = INT_MAX;
+    for (int i = 0; i < PALETTE_N; i++) {
+        int dr = (int)r - PALETTE[i].r;
+        int dg = (int)g - PALETTE[i].g;
+        int db = (int)b - PALETTE[i].b;
         int d  = dr*dr*2 + dg*dg*4 + db*db;
-        if (d < bestDist) { bestDist = d; best = i; }
+        if (d < bestDist) { bestDist = d; bestCode = PALETTE[i].code; }
     }
-    return (uint8_t)best;
+    return (uint8_t)bestCode;
 }
 
 // ── JPEGDEC draw callback ─────────────────────────────────────────────────
@@ -228,7 +247,7 @@ static int jpegDraw(JPEGDRAW *pDraw) {
             uint8_t g = ((c >>  5) & 0x3F) << 2;
             uint8_t b = ( c        & 0x1F) << 3;
             uint8_t idx = quantize(r, g, b);
-            int pos = py * EPD_W + px;
+            int pos = (EPD_H - 1 - py) * EPD_W + (EPD_W - 1 - px);  // 180° rotate
             if (pos & 1)
                 epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | idx;
             else
@@ -249,16 +268,31 @@ static void epd_dat(uint8_t dat) {
     SPI.transfer(dat);
     digitalWrite(EPD_CS, HIGH);
 }
-static void epd_busy_wait() { while (!digitalRead(EPD_BUSY)) delay(10); }
-static void epd_reset() {
-    digitalWrite(EPD_RST, HIGH); delay(20);
-    digitalWrite(EPD_RST, LOW);  delay(4);
-    digitalWrite(EPD_RST, HIGH); delay(20);
-    epd_busy_wait();
+// Wait until the panel reports idle (BUSY high), with a timeout so a wiring or
+// polarity problem can't hang the firmware forever.
+static void epd_busy_wait() {
+    const uint32_t TIMEOUT_MS = 30000;
+    uint32_t start = millis();
+    while (!digitalRead(EPD_BUSY)) {
+        if (millis() - start > TIMEOUT_MS) {
+            Serial.println("epd_busy_wait: TIMEOUT (BUSY never went high)");
+            return;
+        }
+        delay(10);
+    }
 }
+static void epd_reset() {
+    digitalWrite(EPD_RST, HIGH); delay(50);
+    digitalWrite(EPD_RST, LOW);  delay(20);
+    digitalWrite(EPD_RST, HIGH); delay(50);
+}
+// E6 init sequence (from Waveshare's official ESP32-S3-PhotoPainter driver).
 static void epd_init() {
-    digitalWrite(EPD_PWR, HIGH);
+    Serial.printf("epd_init: BUSY=%d\n", digitalRead(EPD_BUSY));
     epd_reset();
+    epd_busy_wait();
+    Serial.printf("epd_init: after reset, BUSY=%d\n", digitalRead(EPD_BUSY));
+    delay(50);
     epd_cmd(0xAA);
     epd_dat(0x49); epd_dat(0x55); epd_dat(0x20); epd_dat(0x08);
     epd_dat(0x09); epd_dat(0x18);
@@ -266,20 +300,16 @@ static void epd_init() {
     epd_cmd(0x00); epd_dat(0x5F); epd_dat(0x69);
     epd_cmd(0x03); epd_dat(0x00); epd_dat(0x54); epd_dat(0x00); epd_dat(0x44);
     epd_cmd(0x05); epd_dat(0x40); epd_dat(0x1F); epd_dat(0x1F); epd_dat(0x2C);
-    epd_cmd(0x06); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x1F); epd_dat(0x22);
+    epd_cmd(0x06); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x17); epd_dat(0x49);
     epd_cmd(0x08); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x1F); epd_dat(0x22);
-    epd_cmd(0x13); epd_dat(0x00); epd_dat(0x04);
-    epd_cmd(0x30); epd_dat(0x3C);
-    epd_cmd(0x41); epd_dat(0x00);
+    epd_cmd(0x30); epd_dat(0x03);
     epd_cmd(0x50); epd_dat(0x3F);
     epd_cmd(0x60); epd_dat(0x02); epd_dat(0x00);
     epd_cmd(0x61); epd_dat(0x03); epd_dat(0x20); epd_dat(0x01); epd_dat(0xE0);
-    epd_cmd(0x82); epd_dat(0x1E);
-    epd_cmd(0x84); epd_dat(0x00);
-    epd_cmd(0x86); epd_dat(0x00);
+    epd_cmd(0x84); epd_dat(0x01);
     epd_cmd(0xE3); epd_dat(0x2F);
-    epd_cmd(0xE0); epd_dat(0x00);
-    epd_cmd(0xE6); epd_dat(0x00);
+    epd_cmd(0x04);                  // power on
+    epd_busy_wait();
 }
 static void epd_display(uint8_t *buf) {
     epd_cmd(0x10);
@@ -290,17 +320,19 @@ static void epd_display(uint8_t *buf) {
         SPI.writeBytes(buf + i, n);
         digitalWrite(EPD_CS, HIGH);
     }
-    epd_cmd(0x04); epd_dat(0x00);
+    Serial.println("epd_display: data sent, power on (0x04)");
+    epd_cmd(0x04);                  // power on
     epd_busy_wait();
-    epd_cmd(0x12); epd_dat(0x00);
-    delay(100);
+    epd_cmd(0x06); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x17); epd_dat(0x49);
+    Serial.println("epd_display: refresh (0x12)");
+    epd_cmd(0x12); epd_dat(0x00);   // display refresh
     epd_busy_wait();
+    epd_cmd(0x02); epd_dat(0x00);   // power off
+    epd_busy_wait();
+    Serial.println("epd_display: done");
 }
 static void epd_sleep_mode() {
-    epd_cmd(0x02); epd_dat(0x00);
-    epd_busy_wait();
-    epd_cmd(0x07); epd_dat(0xA5);
-    digitalWrite(EPD_PWR, LOW);
+    epd_cmd(0x07); epd_dat(0xA5);   // deep sleep
 }
 
 // ── 8×8 bitmap font (IBM PC, printable ASCII 0x20–0x7E) ──────────────────
@@ -410,7 +442,8 @@ static void epd_fill(uint8_t color) {
 }
 static void epd_pix(int x, int y, uint8_t color) {
     if (x < 0 || x >= EPD_W || y < 0 || y >= EPD_H) return;
-    int pos = y * EPD_W + x;
+    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180° rotate
+
     if (pos & 1) epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | color;
     else         epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0x0F) | (color << 4);
 }
@@ -445,21 +478,21 @@ static String apNameFromMac() {
 
 // Show the WiFi setup portal screen on the e-ink display
 static void epd_show_setup(const char *apName) {
-    epd_fill(1);                                              // white bg
-    epd_rect(0, 0, EPD_W, 64, 3);                            // blue header
-    epd_text(16, 12, "Photo Display Setup", 1, 3, 3);         // white on blue
-    epd_rect(0, 64, EPD_W, 2, 0);                             // black divider
+    epd_fill(C_WHITE);                                        // white bg
+    epd_rect(0, 0, EPD_W, 64, C_BLUE);                        // blue header
+    epd_text(16, 12, "Photo Display Setup", C_WHITE, C_BLUE, 3);
+    epd_rect(0, 64, EPD_W, 2, C_BLACK);                       // black divider
 
-    epd_text(24, 82,  "Connect your phone to this WiFi:", 0, 1, 2);
-    epd_rect(16, 108, EPD_W - 32, 40, 3);                    // blue box for AP name
-    epd_text(24, 116, apName, 1, 3, 3);                       // AP name in white
+    epd_text(24, 82,  "Connect your phone to this WiFi:", C_BLACK, C_WHITE, 2);
+    epd_rect(16, 108, EPD_W - 32, 40, C_BLUE);               // blue box for AP name
+    epd_text(24, 116, apName, C_WHITE, C_BLUE, 3);            // AP name in white
 
-    epd_text(24, 168, "Then open a browser and go to:", 0, 1, 2);
-    epd_rect(16, 194, 340, 40, 0);                            // black box for IP
-    epd_text(24, 202, "192.168.4.1", 1, 0, 3);               // IP in white
+    epd_text(24, 168, "Then open a browser and go to:", C_BLACK, C_WHITE, 2);
+    epd_rect(16, 194, 340, 40, C_BLACK);                     // black box for IP
+    epd_text(24, 202, "192.168.4.1", C_WHITE, C_BLACK, 3);   // IP in white
 
-    epd_text(24, 260, "Enter your WiFi password and", 0, 1, 2);
-    epd_text(24, 282, "server address to get started.", 0, 1, 2);
+    epd_text(24, 260, "Enter your WiFi password and", C_BLACK, C_WHITE, 2);
+    epd_text(24, 282, "server address to get started.", C_BLACK, C_WHITE, 2);
 
     epd_init();
     epd_display(epd_buf);
@@ -468,38 +501,47 @@ static void epd_show_setup(const char *apName) {
 
 // Show a server-unreachable error screen on the e-ink display
 static void epd_show_error(const char *host, int port) {
-    epd_fill(1);                                              // white bg
-    epd_rect(0, 0, EPD_W, 64, 4);                            // red header
-    epd_text(16, 12, "Cannot reach server", 1, 4, 3);         // white on red
-    epd_rect(0, 64, EPD_W, 2, 0);                             // black divider
+    epd_fill(C_WHITE);                                        // white bg
+    epd_rect(0, 0, EPD_W, 64, C_RED);                        // red header
+    epd_text(16, 12, "Cannot reach server", C_WHITE, C_RED, 3);
+    epd_rect(0, 64, EPD_W, 2, C_BLACK);                      // black divider
 
     char addr[64]; snprintf(addr, sizeof(addr), "%s:%d", host, port);
-    epd_text(24, 82,  "Tried to connect to:", 0, 1, 2);
-    epd_rect(16, 108, EPD_W - 32, 40, 4);                    // red box for address
-    epd_text(24, 116, addr, 1, 4, 3);                         // address in white
+    epd_text(24, 82,  "Tried to connect to:", C_BLACK, C_WHITE, 2);
+    epd_rect(16, 108, EPD_W - 32, 40, C_RED);               // red box for address
+    epd_text(24, 116, addr, C_WHITE, C_RED, 3);              // address in white
 
-    epd_text(24, 168, "Check that the server is running", 0, 1, 2);
-    epd_text(24, 190, "and the IP address is correct.", 0, 1, 2);
-    epd_text(24, 230, "Hold BOOT during power-on to", 0, 1, 2);
-    epd_text(24, 252, "reconfigure this device.", 0, 1, 2);
+    epd_text(24, 168, "Check that the server is running", C_BLACK, C_WHITE, 2);
+    epd_text(24, 190, "and the IP address is correct.", C_BLACK, C_WHITE, 2);
+    epd_text(24, 230, "Press BOOT after a reboot to", C_BLACK, C_WHITE, 2);
+    epd_text(24, 252, "reconfigure this device.", C_BLACK, C_WHITE, 2);
 
     epd_init();
     epd_display(epd_buf);
     epd_sleep_mode();
 }
 
-// ── Battery voltage reading ───────────────────────────────────────────────
+// ── Battery voltage reading (via AXP2101 PMIC) ────────────────────────────
 static int read_battery_mv() {
-#if BATTERY_ADC_PIN < 0
-    return -1;
-#else
-    analogReadResolution(12);
-    uint32_t raw = 0;
-    for (int i = 0; i < 8; i++) raw += analogRead(BATTERY_ADC_PIN);
-    raw /= 8;
-    float vadc = (raw / 4095.0f) * 3300.0f;
-    return (int)(vadc * BATTERY_DIVIDER_RATIO);
-#endif
+    int mv = PMU.getBattVoltage();
+    return mv > 0 ? mv : -1;
+}
+
+// ── Power up the AXP2101 PMIC and the e-paper power rails ─────────────────
+static bool pmic_init() {
+    Wire.begin(PMIC_SDA, PMIC_SCL);
+    if (!PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, PMIC_SDA, PMIC_SCL)) {
+        Serial.println("PMIC: AXP2101 init FAILED");
+        return false;
+    }
+    // ALDO3/ALDO4 = 3.3V feed the e-paper panel. Without these the panel has
+    // no power and BUSY never goes high.
+    PMU.setALDO3Voltage(3300); PMU.enableALDO3();
+    PMU.setALDO4Voltage(3300); PMU.enableALDO4();
+    PMU.enableBattVoltageMeasure();
+    delay(50);
+    Serial.println("PMIC: AXP2101 ready, panel rails on");
+    return true;
 }
 
 // ── Post device status to server ──────────────────────────────────────────
@@ -531,6 +573,9 @@ static void deep_sleep(uint32_t seconds) {
     Serial.printf("Deep sleep for %u s\n", seconds);
     Serial.flush();
     WiFi.disconnect(true);
+    // Cut the e-paper power rails — the image persists on e-ink without power.
+    PMU.disableALDO3();
+    PMU.disableALDO4();
     esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
     esp_deep_sleep_start();
 }
@@ -555,23 +600,42 @@ void setup() {
     if (!epd_buf || !jpeg_buf) { Serial.println("PSRAM alloc failed"); deep_sleep(60); }
     memset(epd_buf, 0x11, EPD_BUF_SIZE);
 
+    // Bring up the PMIC first — it powers the e-paper panel.
+    pmic_init();
+
     pinMode(EPD_CS,   OUTPUT); digitalWrite(EPD_CS,   HIGH);
     pinMode(EPD_DC,   OUTPUT);
-    pinMode(EPD_RST,  OUTPUT);
-    pinMode(EPD_BUSY, INPUT);
-    pinMode(EPD_PWR,  OUTPUT); digitalWrite(EPD_PWR, LOW);
+    pinMode(EPD_RST,  OUTPUT); digitalWrite(EPD_RST,  HIGH);
+    pinMode(EPD_BUSY, INPUT_PULLUP);
     SPI.begin(EPD_CLK, -1, EPD_MOSI, EPD_CS);
-    SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
+    SPI.beginTransaction(SPISettings(10000000, MSBFIRST, SPI_MODE0));
 
-    // Hold BOOT (GPIO 0) during power-on to wipe config and show setup portal
+    // Reconfigure trigger: press & hold BOOT (GPIO 0) within the first few
+    // seconds *after* a normal boot. (GPIO0 cannot be read at power-on on the
+    // ESP32-S3 — holding it low at reset enters ROM download mode and the app
+    // never runs. So we watch it briefly once the app is already executing.)
     pinMode(0, INPUT_PULLUP);
-    delay(50);
-    if (digitalRead(0) == LOW) {
-        Serial.println("BOOT held — clearing config, starting portal");
-        clearConfig();
-        String ap = apNameFromMac();
-        epd_show_setup(ap.c_str());
-        startCaptivePortal(); // never returns
+    {
+        const uint32_t WINDOW_MS = 3000;   // how long to watch after boot
+        const uint32_t HOLD_MS   = 800;    // how long BOOT must stay pressed
+        Serial.printf("Press BOOT within %u ms to reconfigure...\n", WINDOW_MS);
+        uint32_t windowStart = millis();
+        uint32_t pressStart  = 0;
+        while (millis() - windowStart < WINDOW_MS) {
+            if (digitalRead(0) == LOW) {
+                if (pressStart == 0) pressStart = millis();
+                if (millis() - pressStart >= HOLD_MS) {
+                    Serial.println("BOOT held — clearing config, starting portal");
+                    clearConfig();
+                    String ap = apNameFromMac();
+                    epd_show_setup(ap.c_str());
+                    startCaptivePortal(); // never returns
+                }
+            } else {
+                pressStart = 0; // released — reset the hold timer
+            }
+            delay(10);
+        }
     }
 
     cfg = loadConfig();
