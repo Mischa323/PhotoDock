@@ -115,6 +115,27 @@
       color: rgba(255,255,255,0.25); font-size: 0.875rem;
     }
 
+    /* ── Tooltip ────────────────────────────────────── */
+    .tip {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 14px; height: 14px; border-radius: 50%;
+      font-size: 9px; font-weight: 700; cursor: help; flex-shrink: 0;
+      background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+      color: rgba(255,255,255,0.5); position: relative;
+    }
+    .tip:hover { background: rgba(6,182,212,0.2); border-color: rgba(6,182,212,0.5); color: #22d3ee; }
+    .tip::after {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background: rgba(15,15,25,0.97); border: 1px solid rgba(255,255,255,0.12);
+      backdrop-filter: blur(12px); border-radius: 9px;
+      padding: 9px 12px; font-size: 12px; font-weight: 400; line-height: 1.5;
+      color: rgba(255,255,255,0.8); white-space: normal; width: 240px;
+      pointer-events: none; opacity: 0; transition: opacity 0.15s;
+      z-index: 100; text-transform: none; letter-spacing: normal;
+    }
+    .tip:hover::after { opacity: 1; }
+
     /* ── State panels reference ─────────────────────── */
     .states-toggle {
       background: none; border: 1px solid rgba(255,255,255,0.1);
@@ -386,14 +407,20 @@
   </div>
 
   <!-- ── Flash firmware ─────────────────────────────────────── -->
-  <div class="section-heading" style="margin-top:20px">Flash firmware</div>
+  <div class="section-heading" style="margin-top:20px;display:flex;align-items:center;gap:6px">
+    Flash firmware
+    <span class="tip" data-tip="Installs the software onto a brand-new ESP32 PhotoPainter over USB. You only need to do this once per device. After flashing, the device handles the rest through its own setup screen and the pairing flow on this page.">?</span>
+  </div>
   <div class="glass-dark" id="flashCard" style="border-radius:16px;padding:24px;margin-bottom:36px">
 
     <div id="flashIdle">
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px">
         <div>
           <h2 style="font-size:1rem;font-weight:600;color:#fff;margin:0 0 4px">Flash PhotoPainter firmware</h2>
-          <p style="font-size:0.8rem;color:rgba(255,255,255,0.45);margin:0">Build and install firmware on a new device via USB. Requires Chrome or Edge.</p>
+          <p style="font-size:0.8rem;color:rgba(255,255,255,0.45);margin:0">
+            Build and install firmware on a new device via USB.
+            <span class="tip" style="vertical-align:middle;margin-left:3px" data-tip="Plug the device into your computer with a USB-C cable, click 'Configure & build', and the browser will install it directly — no extra software needed. Only works in Chrome or Edge.">?</span>
+          </p>
         </div>
         <button class="cyan-btn" onclick="openFlash()">Configure &amp; build</button>
       </div>
@@ -418,23 +445,37 @@
       <p class="section-heading" style="margin-bottom:14px">Build configuration</p>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:20px">
         <div>
-          <label class="field-label" for="fWifiSsid">Wi-Fi network name</label>
+          <label class="field-label" for="fWifiSsid" style="display:flex;align-items:center;gap:5px">
+            Wi-Fi network name
+            <span class="tip" data-tip="The name (SSID) of your home Wi-Fi network. The device will connect to this automatically on every boot. Leave blank to configure Wi-Fi via the device's own setup hotspot instead.">?</span>
+          </label>
           <input id="fWifiSsid" class="glass-input" type="text" placeholder="MyWiFi" autocomplete="off">
         </div>
         <div>
-          <label class="field-label" for="fWifiPass">Wi-Fi password</label>
+          <label class="field-label" for="fWifiPass" style="display:flex;align-items:center;gap:5px">
+            Wi-Fi password
+            <span class="tip" data-tip="The password for your Wi-Fi network. This is stored in the firmware — anyone with the device can read it, so use a guest network if that's a concern.">?</span>
+          </label>
           <input id="fWifiPass" class="glass-input" type="password" placeholder="••••••••" autocomplete="off">
         </div>
         <div>
-          <label class="field-label" for="fServerHost">Server host</label>
+          <label class="field-label" for="fServerHost" style="display:flex;align-items:center;gap:5px">
+            Server host
+            <span class="tip" data-tip="The IP address or hostname of this server on your local network — e.g. 192.168.1.100 or photos.home. The device needs this to fetch photos and send health updates. Pre-filled from your current browser URL.">?</span>
+          </label>
           <input id="fServerHost" class="glass-input" type="text" placeholder="192.168.1.100" autocomplete="off">
         </div>
         <div>
-          <label class="field-label" for="fServerPort">Server port</label>
+          <label class="field-label" for="fServerPort" style="display:flex;align-items:center;gap:5px">
+            Server port
+            <span class="tip" data-tip="The port the server listens on. Default is 8080 unless you changed it in the server configuration or are running behind a reverse proxy on port 80/443.">?</span>
+          </label>
           <input id="fServerPort" class="glass-input" type="number" value="8080" min="1" max="65535">
         </div>
       </div>
-      <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin:0 0 16px">Leave Wi-Fi and server blank to use the captive portal flow — the device will prompt for these on first boot.</p>
+      <div style="font-size:0.78rem;color:rgba(255,255,255,0.4);background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:12px 14px;margin-bottom:16px;line-height:1.6">
+        <strong style="color:rgba(255,255,255,0.65)">Tip:</strong> You can leave Wi-Fi and server blank. The device will start a setup hotspot on first boot where you can enter these details — no reflash needed. Credentials baked into firmware are a convenience for when you're deploying many devices at once.
+      </div>
       <div style="display:flex;gap:10px">
         <button id="buildBtn" class="cyan-btn" onclick="startBuild()">Build firmware</button>
         <button class="glass-btn" onclick="cancelFlash()">Cancel</button>
