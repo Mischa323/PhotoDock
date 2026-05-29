@@ -422,7 +422,11 @@ function requireEndpoint(name) {
 }
 
 // ── Device pairing (unauthenticated — device + QR landing page) ───────────
-app.get('/pair', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'pair.html')));
+// /pair?token=xxx redirects to /devices?token=xxx so onboarding lives there
+app.get('/pair', (req, res) => {
+    const token = req.query.token;
+    return res.redirect(301, token ? `/devices?token=${encodeURIComponent(token)}` : '/devices');
+});
 
 // Device requests a pairing token on boot
 app.post('/api/devices/pair/request', express.json(), (req, res) => {
