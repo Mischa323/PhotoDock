@@ -225,6 +225,7 @@ if (!appData.logs)          { appData.logs          = []; saveData(appData); }
 if (!appData.imageMetadata) { appData.imageMetadata = {}; saveData(appData); }
 if (!appData.screens)       { appData.screens       = []; saveData(appData); }
 if (!appData.albums)        { appData.albums        = []; saveData(appData); }
+if (!appData.deviceStates)  { appData.deviceStates  = {}; saveData(appData); }
 
 const MAX_LOGS = 500;
 function addLog(event, { user, keyName, ip, detail } = {}) {
@@ -899,6 +900,47 @@ function getScreenFiles(keyRecord) {
     return all.filter(f => (meta[f]?.screenId || null) === screenId);
 }
 
+// ── Device ping ────────────────────────────────────────────────────────────
+// Firmware calls this on every wake cycle to report its current health.
+// batt: 0-100, wifi: 0-4 (RSSI buckets), fw: firmware version string, status: string
+app.post('/api/devices/ping', requireApiKey, (req, res) => {
+    const keyRecord = req.apiKey;
+    const screenId  = keyRecord.screenId || null;
+    const { batt, wifi, fw, status } = req.body || {};
+
+    const battNum  = Number(batt);
+    const wifiNum  = Number(wifi);
+    const level    = battNum <= 15 ? 'bad' : battNum <= 30 ? 'warn' : 'good';
+    const wlabels  = ['No signal', 'Weak', 'Fair', 'Good', 'Excellent'];
+    const wlabel   = wlabels[Math.min(Math.max(Math.round(wifiNum), 0), 4)] || 'Unknown';
+
+    if (!appData.deviceStates) appData.deviceStates = {};
+    appData.deviceStates[keyRecord.id] = {
+        keyId:    keyRecord.id,
+        screenId,
+        batt:     isNaN(battNum) ? null : battNum,
+        wifi:     isNaN(wifiNum) ? null : wifiNum,
+        level,
+        wlabel,
+        fw:       fw || null,
+        status:   status || 'online',
+        lastSeen: new Date().toISOString(),
+    };
+    saveData(appData);
+
+    // Return next image info so the device can immediately decide what to show
+    const files    = getScreenFiles(keyRecord);
+    const interval = (keyRecord.intervalMinutes || 5) * 60 * 1000;
+    const slot     = Math.floor(Date.now() / interval);
+    const filename = files.length ? files[slot % files.length] : null;
+    const baseUrl  = `${req.protocol}://${req.get('host')}`;
+    res.json({
+        ok: true,
+        imageUrl:         filename ? `${baseUrl}/uploads/${filename}` : null,
+        intervalMinutes:  keyRecord.intervalMinutes || 5,
+    });
+});
+
 app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
@@ -1120,12 +1162,44 @@ app.delete('/api/favorites/:filename', (req, res) => {
 
 // ── Screens ────────────────────────────────────────────────────────────────
 app.get('/api/screens', (_req, res) => {
-    const meta = appData.imageMetadata || {};
-    const screens = (appData.screens || []).map(s => ({
-        ...s,
-        imageCount:  Object.values(meta).filter(m => m.screenId === s.id).length,
-        albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
-    }));
+    const meta   = appData.imageMetadata || {};
+    const states = appData.deviceStates  || {};
+    const now    = Date.now();
+
+    const screens = (appData.screens || []).map(s => {
+        // Find the most recent ping for any API key tied to this screen
+        const linkedKey = (appData.apiKeys || []).find(k => k.screenId === s.id);
+        let deviceInfo  = null;
+        if (linkedKey && states[linkedKey.id]) {
+            const d = states[linkedKey.id];
+            const ageMs = now - new Date(d.lastSeen).getTime();
+            const status = ageMs < 5 * 60 * 1000 ? 'online'
+                         : ageMs < 24 * 60 * 60 * 1000 ? 'recent'
+                         : 'offline';
+            const statusLabel = status === 'online' ? 'Online'
+                              : status === 'recent' ? 'Recently seen'
+                              : 'Offline';
+            deviceInfo = {
+                id:          linkedKey.label || linkedKey.id,
+                batt:        d.batt ?? null,
+                level:       d.level || 'good',
+                wifi:        d.wifi ?? null,
+                wlabel:      d.wlabel || '',
+                status,
+                statusLabel,
+                lastSeen:    d.lastSeen,
+                fw:          d.fw || null,
+                deviceStatus: d.status || null,
+            };
+        }
+        return {
+            ...s,
+            imageCount:  Object.values(meta).filter(m => m.screenId === s.id).length,
+            albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
+            device:      !!deviceInfo,
+            deviceInfo,
+        };
+    });
     res.json(screens);
 });
 
