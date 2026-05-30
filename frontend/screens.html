@@ -207,6 +207,7 @@
   <div class="header-actions">
     <button class="cyan-btn hbtn" onclick="openSetup()">&#65291; Set up a device</button>
     <a href="/pair" class="glass-btn hbtn" title="Pair a device that's already on your WiFi and showing a QR code">&#128241; Pair a device</a>
+    <button class="glass-btn hbtn" onclick="openFwLog()" title="See what changed in the device firmware">&#128221; Firmware log</button>
     <a href="/" class="glass-btn hbtn">&#8962; Gallery</a>
     <a href="/admin" class="glass-btn hbtn">&#9881; Settings</a>
   </div>
@@ -277,6 +278,23 @@
         <button class="glass-btn modal-btn" onclick="closeEditModal()">Cancel</button>
         <button class="cyan-btn modal-btn" onclick="saveEdit()">Save</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- Firmware changelog modal -->
+<div class="modal-backdrop" id="fwLogModal" onclick="if(event.target===this)closeFwLog()">
+  <div class="glass modal-box" style="width:480px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-title">Firmware changelog</div>
+    <div id="fwLogBody" style="overflow:auto;font-size:13px;color:rgba(255,255,255,0.85)">Loading…</div>
+    <div id="fwLogAdmin" style="display:none;border-top:1px solid rgba(255,255,255,0.12);margin-top:14px;padding-top:14px">
+      <input class="glass-input" id="fwLogTitle" placeholder="Version title — e.g. Faster refresh & PMIC fix" style="margin-bottom:8px">
+      <textarea class="glass-input" id="fwLogChanges" placeholder="One change per line" rows="4" style="width:100%;resize:vertical;font-family:inherit"></textarea>
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);margin:6px 0 10px">Tagged to the current build automatically.</div>
+    </div>
+    <div class="modal-footer">
+      <button class="glass-btn modal-btn" id="fwLogAddBtn" style="display:none" onclick="addFwLog()">&#65291; Add entry</button>
+      <button class="cyan-btn modal-btn" onclick="closeFwLog()" style="margin-left:auto">Close</button>
     </div>
   </div>
 </div>
@@ -549,6 +567,58 @@ function deviceRow(d) {
 function albumChip(a) {
   const count = a.photoCount || 0;
   return `<div class="album-chip${a.fav ? ' fav' : ''}"><span class="album-chip-name"><span class="album-chip-heart" style="color:${a.fav ? HEALTH.warn : 'rgba(255,255,255,0.25)'}">&#9829;</span>${esc(a.name)}</span><span class="album-chip-count">${count} photo${count===1?'':'s'}</span></div>`;
+}
+// ── Firmware changelog ─────────────────────────────────────
+let _fwIsAdmin = false;
+async function openFwLog() {
+  document.getElementById('fwLogModal').style.display = 'flex';
+  try {
+    const me = await (await fetch('/api/me')).json();
+    _fwIsAdmin = !!me.permissions?.canManage;
+  } catch { _fwIsAdmin = false; }
+  document.getElementById('fwLogAdmin').style.display = _fwIsAdmin ? 'block' : 'none';
+  document.getElementById('fwLogAddBtn').style.display = _fwIsAdmin ? 'inline-block' : 'none';
+  await renderFwLog();
+}
+function closeFwLog() { document.getElementById('fwLogModal').style.display = 'none'; }
+async function renderFwLog() {
+  const body = document.getElementById('fwLogBody');
+  try {
+    const r = await fetch('/api/firmware/changelog');
+    const { current, entries } = await r.json();
+    if (!entries.length) { body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No firmware notes yet.</div>'; return; }
+    body.innerHTML = entries.map(e => {
+      const isCur = current && e.version === current;
+      const ver = e.version ? `<span class="fw-chip">${esc(e.version.slice(0,8))}</span>` : '';
+      const cur = isCur ? `<span style="font-size:11px;color:#34d399;font-weight:600">● running now</span>` : '';
+      const list = (e.changes||[]).map(c => `<li>${esc(c)}</li>`).join('');
+      const del = _fwIsAdmin ? `<button class="glass-btn" style="font-size:11px;padding:3px 9px;border-radius:7px" onclick="delFwLog('${e.id}')">Delete</button>` : '';
+      return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.08)">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+          <strong style="font-size:14px">${esc(e.title||'Update')}</strong>${cur}
+          <span style="margin-left:auto;display:flex;gap:6px;align-items:center">${ver}${del}</span>
+        </div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">${new Date(e.date).toLocaleDateString()}${e.author?' · '+esc(e.author):''}</div>
+        <ul style="margin:0;padding-left:18px;line-height:1.6">${list}</ul>
+      </div>`;
+    }).join('');
+  } catch { body.innerHTML = '<div style="color:#f87171">Could not load changelog.</div>'; }
+}
+async function addFwLog() {
+  const title = document.getElementById('fwLogTitle').value.trim();
+  const changes = document.getElementById('fwLogChanges').value;
+  if (!title && !changes.trim()) { showToast('Add a title or changes', 'error'); return; }
+  const r = await fetch('/api/admin/firmware/changelog', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, changes }) });
+  if (!r.ok) { showToast('Could not save entry', 'error'); return; }
+  document.getElementById('fwLogTitle').value = '';
+  document.getElementById('fwLogChanges').value = '';
+  showToast('Changelog entry added.');
+  await renderFwLog();
+}
+async function delFwLog(id) {
+  if (!confirm('Delete this changelog entry?')) return;
+  await fetch('/api/admin/firmware/changelog/' + id, { method: 'DELETE' });
+  await renderFwLog();
 }
 async function updateFirmware(id) {
   if (!confirm('Send a firmware update to this screen\'s device? It will apply the next time the device wakes.')) return;
@@ -1024,7 +1094,7 @@ function resetTheme() {
 }
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeSetup(); closeEditModal(); }
+  if (e.key === 'Escape') { closeSetup(); closeEditModal(); closeFwLog(); }
 });
 
 loadScreens();
