@@ -687,8 +687,17 @@ static int read_battery_mv() {
 // â”€â”€ Power up the AXP2101 PMIC and the e-paper power rails â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static bool pmic_init() {
     Wire.begin(PMIC_SDA, PMIC_SCL);
-    if (!PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, PMIC_SDA, PMIC_SCL)) {
-        logln("PMIC: AXP2101 init FAILED");
+    Wire.setClock(100000);          // be gentle; the bus can be flaky on wake
+    // The AXP2101 (and the I2C bus) can need a moment to settle after a deep-
+    // sleep wake, so retry a few times instead of giving up on one bad attempt.
+    bool ok = false;
+    for (int i = 0; i < 8; i++) {
+        if (PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, PMIC_SDA, PMIC_SCL)) { ok = true; break; }
+        logf("PMIC: AXP2101 init attempt %d failed, retrying...\n", i + 1);
+        delay(120);
+    }
+    if (!ok) {
+        logln("PMIC: AXP2101 init FAILED (giving up)");
         return false;
     }
     // ALDO3/ALDO4 = 3.3V feed the e-paper panel. Without these the panel has
@@ -696,7 +705,7 @@ static bool pmic_init() {
     PMU.setALDO3Voltage(3300); PMU.enableALDO3();
     PMU.setALDO4Voltage(3300); PMU.enableALDO4();
     PMU.enableBattVoltageMeasure();
-    delay(50);
+    delay(80);                       // let the panel rails come up
     logln("PMIC: AXP2101 ready, panel rails on");
     return true;
 }
