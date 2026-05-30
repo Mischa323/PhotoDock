@@ -1275,6 +1275,115 @@ app.get('/api/slideshow/all', requireApiKey, requireEndpoint('all'), (req, res) 
     res.json(files.map((filename, i) => ({ index: i, filename, url: `${baseUrl}/uploads/${filename}` })));
 });
 
+// ── On-device status screens (rendered to an 800×480 image for the panel) ──
+// Flat, high-contrast colours so they stay crisp after the panel's 6-colour
+// dithering. Matches the design handoff's status-screen set.
+const SCREEN_STATES = {
+    empty:    { accent: '#3b82f6', title: 'No photos yet',        sub: 'Add photos to this screen in Photo Display', icon: 'frame' },
+    paired:   { accent: '#34d399', title: "You're all set",       sub: 'Device paired successfully',                 icon: 'check' },
+    low_batt: { accent: '#f59e0b', title: 'Battery low',          sub: 'Please connect the charger',                 icon: 'batt'  },
+    sleeping: { accent: '#3b82f6', title: 'Sleeping',             sub: 'Waiting for the next refresh',               icon: 'moon'  },
+    updating: { accent: '#22d3ee', title: 'Updating firmware',    sub: 'Please do not unplug the device',            icon: 'spin'  },
+    server:   { accent: '#f87171', title: "Can't reach the server", sub: 'Will retry shortly',                       icon: 'warn'  },
+};
+
+function statusIconSvg(icon, cx, cy, accent) {
+    const r = 52;
+    const ring = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${accent}" stroke-width="5"/>`;
+    switch (icon) {
+        case 'check':
+            return ring + `<path d="M${cx-24} ${cy} l16 17 l32 -34" fill="none" stroke="${accent}" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>`;
+        case 'warn':
+            return ring + `<rect x="${cx-4}" y="${cy-26}" width="8" height="32" rx="4" fill="${accent}"/><circle cx="${cx}" cy="${cy+20}" r="6" fill="${accent}"/>`;
+        case 'batt':
+            return `<rect x="${cx-44}" y="${cy-26}" width="80" height="52" rx="8" fill="none" stroke="${accent}" stroke-width="5"/><rect x="${cx+38}" y="${cy-10}" width="8" height="20" rx="3" fill="${accent}"/><rect x="${cx-36}" y="${cy-18}" width="20" height="36" rx="3" fill="${accent}"/>`;
+        case 'moon':
+            return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${accent}"/><circle cx="${cx+22}" cy="${cy-14}" r="46" fill="#0b1020"/>`;
+        case 'spin': {
+            let s = '';
+            for (let i = 0; i < 12; i++) {
+                const a = (i / 12) * Math.PI * 2;
+                const op = (0.15 + 0.85 * (i / 12)).toFixed(2);
+                const x1 = cx + Math.cos(a) * 30, y1 = cy + Math.sin(a) * 30;
+                const x2 = cx + Math.cos(a) * 50, y2 = cy + Math.sin(a) * 50;
+                s += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${accent}" stroke-width="6" stroke-linecap="round" opacity="${op}"/>`;
+            }
+            return s;
+        }
+        case 'frame':
+        default:
+            return `<rect x="${cx-46}" y="${cy-34}" width="92" height="68" rx="10" fill="none" stroke="${accent}" stroke-width="5" stroke-dasharray="10 8"/>`;
+    }
+}
+
+function buildStatusScreenSvg(stateKey, q) {
+    const W = 800, H = 480;
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const cfg = SCREEN_STATES[stateKey] || SCREEN_STATES.empty;
+    const accent = cfg.accent;
+
+    // Footer values supplied by the device (best-effort)
+    const devId = (q.id || 'photopainter').toString().slice(0, 24);
+    const fw    = (q.fw || '').toString().slice(0, 12);
+    const batt  = q.batt != null && q.batt !== '' ? Math.max(0, Math.min(100, parseInt(q.batt, 10))) : null;
+    const rssi  = q.rssi != null && q.rssi !== '' ? parseInt(q.rssi, 10) : null;
+    const bars  = rssi == null ? 0 : rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : rssi >= -85 ? 1 : 0;
+
+    let wifi = '';
+    for (let i = 0; i < 4; i++) {
+        const bh = 6 + i * 5, bx = 700 + i * 9, by = 452 - bh;
+        wifi += `<rect x="${bx}" y="${by}" width="6" height="${bh}" rx="1.5" fill="${i < bars ? '#fff' : 'rgba(255,255,255,0.25)'}"/>`;
+    }
+    let battSvg = '';
+    if (batt != null) {
+        battSvg = `<rect x="744" y="440" width="34" height="18" rx="3" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2"/>`
+                + `<rect x="778" y="445" width="4" height="8" rx="1.5" fill="rgba(255,255,255,0.6)"/>`
+                + `<rect x="747" y="443" width="${(batt / 100 * 28).toFixed(0)}" height="12" rx="1.5" fill="#fff"/>`;
+    }
+
+    const footer =
+        `<rect x="0" y="422" width="${W}" height="58" fill="rgba(255,255,255,0.06)"/>`
+      + `<rect x="0" y="422" width="${W}" height="2" fill="rgba(255,255,255,0.12)"/>`
+      + `<rect x="24" y="436" width="30" height="30" rx="8" fill="${accent}"/>`
+      + `<text x="64" y="456" font-family="sans-serif" font-size="16" font-weight="600" fill="#fff">PhotoPainter</text>`
+      + `<text x="180" y="456" font-family="ui-monospace,monospace" font-size="13" fill="rgba(255,255,255,0.55)">${esc(devId)}</text>`
+      + (fw ? `<text x="650" y="456" font-family="ui-monospace,monospace" font-size="12" fill="rgba(255,255,255,0.55)" text-anchor="end">${esc(fw)}</text>` : '')
+      + wifi + battSvg;
+
+    const cx = W / 2;
+    return Buffer.from(
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">`
+      + `<defs><radialGradient id="g" cx="50%" cy="34%" r="70%">`
+      + `<stop offset="0%" stop-color="${accent}" stop-opacity="0.20"/>`
+      + `<stop offset="60%" stop-color="${accent}" stop-opacity="0"/></radialGradient></defs>`
+      + `<rect width="${W}" height="${H}" fill="#0b1020"/>`
+      + `<rect width="${W}" height="${H}" fill="url(#g)"/>`
+      + statusIconSvg(cfg.icon, cx, 150, accent)
+      + `<text x="${cx}" y="280" font-family="sans-serif" font-size="42" font-weight="700" fill="#fff" text-anchor="middle">${esc(cfg.title)}</text>`
+      + `<text x="${cx}" y="324" font-family="sans-serif" font-size="20" fill="rgba(255,255,255,0.7)" text-anchor="middle">${esc(cfg.sub)}</text>`
+      + footer
+      + `</svg>`
+    );
+}
+
+// Render a designed status screen to a JPEG for the device.
+app.get('/api/device/screen', requireApiKey, async (req, res) => {
+    const state = req.query.state || 'empty';
+    const rotation = [0, 90, 180, 270].includes(Number(req.apiKey?.rotation)) ? Number(req.apiKey.rotation) : 0;
+    try {
+        const svg = buildStatusScreenSvg(state, req.query);
+        let pipe = sharp(svg);
+        if (rotation) pipe = pipe.rotate(rotation).resize(800, 480, { fit: 'contain', background: { r: 11, g: 16, b: 32 } });
+        const buf = await pipe.jpeg({ quality: 92 }).toBuffer();
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'no-cache');
+        res.send(buf);
+    } catch (e) {
+        console.error('Status screen render failed:', e.message);
+        res.status(500).json({ error: 'Render failed' });
+    }
+});
+
 function buildDateOverlaySvg(w, h, settings) {
     const now = new Date();
     const tz  = settings.timezone || 'UTC';
@@ -1338,10 +1447,16 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     // Per-key date overlay override (set in admin panel)
     if (keyRecord.showDate === true)  { settings.showDate = true;  settings.showDayName = true; }
     if (keyRecord.showDate === false) { settings.showDate = false; settings.showDayName = false; settings.showTime = false; }
-    const imgW = keyRecord?.imageWidth  || settings.imageWidth;
-    const imgH = keyRecord?.imageHeight || settings.imageHeight;
+    // The device passes its exact panel size via ?width=&height= — honour that
+    // first so the photo is fitted/centered to the panel (not a default 1080p).
+    const qW = parseInt(req.query.width, 10);
+    const qH = parseInt(req.query.height, 10);
+    const imgW = (qW > 0 ? qW : null) || keyRecord?.imageWidth  || settings.imageWidth;
+    const imgH = (qH > 0 ? qH : null) || keyRecord?.imageHeight || settings.imageHeight;
+    const rotation = [0, 90, 180, 270].includes(Number(keyRecord?.rotation)) ? Number(keyRecord.rotation) : 0;
     try {
         const pipeline = sharp(filepath)
+            .rotate(rotation, { background: { r: 0, g: 0, b: 0 } })   // user-chosen orientation
             .resize(imgW, imgH, { fit: 'contain', background: { r: 0, g: 0, b: 0 } });
 
         const overlay = buildDateOverlaySvg(imgW, imgH, settings);
@@ -1697,6 +1812,72 @@ app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
     res.json({ ok: true });
 });
 
+// Firmware OTA: tell the device the version (content hash) of the binary the
+// server currently has, so it can decide whether to update. Cached by mtime.
+let _fwCache = { mtimeMs: 0, version: null, size: 0 };
+function currentFirmwareInfo() {
+    const bin = path.join(FIRMWARE_DIR, 'firmware.bin');
+    if (!fs.existsSync(bin)) return null;
+    const st = fs.statSync(bin);
+    if (st.mtimeMs !== _fwCache.mtimeMs) {
+        const hash = crypto.createHash('md5').update(fs.readFileSync(bin)).digest('hex').slice(0, 16);
+        _fwCache = { mtimeMs: st.mtimeMs, version: hash, size: st.size };
+    }
+    return _fwCache;
+}
+
+app.get('/api/device/firmware', requireApiKey, (req, res) => {
+    const info = currentFirmwareInfo();
+    if (!info) return res.status(404).json({ error: 'No firmware available' });
+    const key     = req.apiKey;
+    const current = req.query.current || '';
+    // Only instruct an update when the user opted in: a one-shot "Update now"
+    // request, or auto-update enabled for this device. Never on its own.
+    let should = false;
+    if (current && current !== info.version) {
+        if (key.updatePending) { should = true; key.updatePending = false; saveData(appData); }
+        else if (key.autoUpdate) should = true;
+    }
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    res.json({ version: info.version, size: info.size, update: should ? 'yes' : 'no',
+               url: `${baseUrl}/firmware/firmware.bin` });
+});
+
+// Device uploads its captured log buffer each wake. Kept as a small ring per device.
+app.post('/api/device/log', requireApiKey, express.json({ limit: '64kb' }), (req, res) => {
+    const key = req.apiKey;
+    const { device_id, log } = req.body || {};
+    if (typeof log !== 'string' || !log.length) return res.json({ ok: true });
+    const id = device_id || key.id;
+    if (!appData.deviceLogs) appData.deviceLogs = {};
+    const entry = appData.deviceLogs[id] || { deviceId: id, apiKeyId: key.id, entries: [] };
+    entry.apiKeyId = key.id;
+    entry.entries.push({ at: new Date().toISOString(), text: log.slice(0, 8000) });
+    // Keep only the most recent 20 uploads per device.
+    if (entry.entries.length > 20) entry.entries = entry.entries.slice(-20);
+    appData.deviceLogs[id] = entry;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// Admin: read a device's recent logs (optionally filter by apiKeyId or deviceId).
+app.get('/api/admin/device-logs', requireAdmin, (req, res) => {
+    const logs = appData.deviceLogs || {};
+    const { deviceId, apiKeyId } = req.query;
+    let list = Object.values(logs);
+    if (deviceId) list = list.filter(l => l.deviceId === deviceId);
+    if (apiKeyId) list = list.filter(l => l.apiKeyId === apiKeyId);
+    // Newest entries first within each device.
+    list = list.map(l => ({ ...l, entries: [...l.entries].reverse() }));
+    res.json(list);
+});
+
+app.delete('/api/admin/device-logs/:deviceId', requireAdmin, (req, res) => {
+    if (appData.deviceLogs) delete appData.deviceLogs[req.params.deviceId];
+    saveData(appData);
+    res.json({ ok: true });
+});
+
 app.get('/api/admin/devices', requireAdmin, (_req, res) => {
     const statuses = Object.values(appData.deviceStatus || {});
     // Merge lastFlash + key string from apiKeys into each status entry
@@ -1757,41 +1938,76 @@ app.get('/api/admin/wifi-scan', requireAdmin, (_req, res) => {
 });
 
 // ── Screens ────────────────────────────────────────────────────────────────
+// Convert a Li-ion cell voltage (mV) to an approximate 0-100% charge.
+function battMvToPercent(mv) {
+    if (mv == null) return null;
+    const pct = Math.round(((mv - 3300) / (4200 - 3300)) * 100);
+    return Math.min(100, Math.max(0, pct));
+}
+// Convert WiFi RSSI (dBm) to a 0-4 bar strength and label.
+function rssiToBars(rssi) {
+    if (rssi == null) return { bars: null, label: '' };
+    const bars = rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : rssi >= -85 ? 1 : 0;
+    const label = ['No signal', 'Weak', 'Fair', 'Good', 'Excellent'][bars];
+    return { bars, label };
+}
+
 app.get('/api/screens', (_req, res) => {
-    const meta   = appData.imageMetadata || {};
-    const states = appData.deviceStates  || {};
-    const now    = Date.now();
+    const meta     = appData.imageMetadata || {};
+    const states   = appData.deviceStates  || {};   // legacy /api/devices/ping store
+    const statuses = appData.deviceStatus  || {};    // what the firmware posts
+    const now      = Date.now();
 
     const screens = (appData.screens || []).map(s => {
-        // Find the most recent ping for any API key tied to this screen
+        // Find the API key tied to this screen, then its most recent check-in
+        // from either device store (firmware uses deviceStatus).
         const linkedKey = (appData.apiKeys || []).find(k => k.screenId === s.id);
         let deviceInfo  = null;
-        if (linkedKey && states[linkedKey.id]) {
-            const d = states[linkedKey.id];
-            const ageMs = now - new Date(d.lastSeen).getTime();
-            const status = ageMs < 5 * 60 * 1000 ? 'online'
-                         : ageMs < 24 * 60 * 60 * 1000 ? 'recent'
-                         : 'offline';
-            const statusLabel = status === 'online' ? 'Online'
-                              : status === 'recent' ? 'Recently seen'
-                              : 'Offline';
-            deviceInfo = {
-                id:          linkedKey.label || linkedKey.id,
-                batt:        d.batt ?? null,
-                level:       d.level || 'good',
-                wifi:        d.wifi ?? null,
-                wlabel:      d.wlabel || '',
-                status,
-                statusLabel,
-                lastSeen:    d.lastSeen,
-                fw:          d.fw || null,
-                deviceStatus: d.status || null,
-            };
+        if (linkedKey) {
+            const fw  = Object.values(statuses).find(d => d.apiKeyId === linkedKey.id);
+            const leg = states[linkedKey.id];
+            // Prefer the most recently seen of the two sources.
+            const src = [fw, leg].filter(Boolean)
+                .sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen))[0];
+            if (src) {
+                const ageMs = now - new Date(src.lastSeen).getTime();
+                const status = ageMs < 15 * 60 * 1000 ? 'online'
+                             : ageMs < 24 * 60 * 60 * 1000 ? 'recent'
+                             : 'offline';
+                const statusLabel = status === 'online' ? 'Online'
+                                  : status === 'recent' ? 'Recently seen'
+                                  : 'Offline';
+                // Normalize fields from whichever store we used.
+                const batt = src.batt ?? battMvToPercent(src.batteryMv);
+                const w    = src.wifi != null ? { bars: src.wifi, label: src.wlabel || '' }
+                                              : rssiToBars(src.wifiRssi);
+                deviceInfo = {
+                    id:          linkedKey.label || linkedKey.id,
+                    batt:        batt ?? null,
+                    level:       src.level || (batt == null ? 'good' : batt <= 15 ? 'bad' : batt <= 30 ? 'warn' : 'good'),
+                    wifi:        w.bars,
+                    wlabel:      w.label,
+                    status,
+                    statusLabel,
+                    lastSeen:    src.lastSeen,
+                    fw:          src.fw || src.fwVersion || null,
+                    deviceStatus: src.status || null,
+                };
+            }
         }
+        const serverFw = currentFirmwareInfo();
+        const deviceFw = deviceInfo?.fw || null;
         return {
             ...s,
             imageCount:  Object.values(meta).filter(m => m.screenId === s.id).length,
             albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
+            intervalMinutes: linkedKey?.intervalMinutes || 5,
+            rotation:    linkedKey?.rotation || 0,
+            autoUpdate:  linkedKey?.autoUpdate || false,
+            updatePending: linkedKey?.updatePending || false,
+            firmwareVersion: deviceFw,
+            serverFirmwareVersion: serverFw?.version || null,
+            firmwareUpdateAvailable: !!(deviceFw && serverFw && deviceFw !== serverFw.version),
             device:      !!deviceInfo,
             deviceInfo,
         };
@@ -1819,12 +2035,47 @@ app.post('/api/screens', (req, res) => {
 app.put('/api/screens/:id', (req, res) => {
     const screen = (appData.screens || []).find(s => s.id === req.params.id);
     if (!screen) return res.status(404).json({ error: 'Screen not found' });
-    const { name, description, color } = req.body;
+    const { name, description, color, intervalMinutes, autoUpdate, rotation } = req.body;
     if (name !== undefined) screen.name = name.trim();
     if (description !== undefined) screen.description = description.trim();
     if (color !== undefined) screen.color = color;
+    // Rotation (0/90/180/270) — applied server-side to the image sent to the device.
+    if (rotation !== undefined) {
+        const allowed = [0, 90, 180, 270];
+        const rot = allowed.includes(Number(rotation)) ? Number(rotation) : 0;
+        for (const k of (appData.apiKeys || [])) {
+            if (k.screenId === screen.id) k.rotation = rot;
+        }
+        screen.rotation = rot;
+    }
+    // Refresh rate and auto-update live on the device's API key. Apply to every
+    // key linked to this screen.
+    if (intervalMinutes !== undefined) {
+        const mins = Math.min(1440, Math.max(1, Math.round(Number(intervalMinutes) || 5)));
+        for (const k of (appData.apiKeys || [])) {
+            if (k.screenId === screen.id) k.intervalMinutes = mins;
+        }
+        screen.intervalMinutes = mins;
+    }
+    if (autoUpdate !== undefined) {
+        for (const k of (appData.apiKeys || [])) {
+            if (k.screenId === screen.id) k.autoUpdate = !!autoUpdate;
+        }
+    }
     saveData(appData);
     res.json(screen);
+});
+
+// Queue a one-shot firmware update for the device(s) on this screen. The device
+// applies it the next time it wakes and checks in.
+app.post('/api/screens/:id/update-firmware', (req, res) => {
+    const screen = (appData.screens || []).find(s => s.id === req.params.id);
+    if (!screen) return res.status(404).json({ error: 'Screen not found' });
+    const keys = (appData.apiKeys || []).filter(k => k.screenId === screen.id);
+    if (!keys.length) return res.status(400).json({ error: 'No device paired to this screen' });
+    for (const k of keys) k.updatePending = true;
+    saveData(appData);
+    res.json({ ok: true, queued: keys.length });
 });
 
 app.delete('/api/screens/:id', requireAdmin, (req, res) => {

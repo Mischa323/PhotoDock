@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Pair Device — PhotoDock</title>
 <link rel="stylesheet" href="/glass.css">
+<script src="/theme.js"></script>
 <style>
 body {
     min-height: 100vh;
@@ -17,6 +18,8 @@ body {
 .pair-card {
     width: 100%;
     max-width: 480px;
+    position: relative;
+    z-index: 1;
     animation: fadeIn 0.4s ease both;
 }
 
@@ -170,7 +173,8 @@ select.glass-input option {
 }
 </style>
 </head>
-<body class="space-bg">
+<body>
+<div class="space-bg" id="bgEl"></div>
 
 <div class="pair-card glass-dark">
     <!-- Loading state -->
