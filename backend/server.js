@@ -369,6 +369,8 @@ function requireAuth(req, res, next) {
     // Device-facing endpoints authenticate with an API key (requireApiKey), not
     // a user session — let them through the session wall.
     if (req.path.startsWith('/api/device/')) return next();
+    // OTA firmware download (no session — the ESP32 fetches this directly).
+    if (req.path.startsWith('/firmware/')) return next();
     if (req.path === '/pair') return next();
     if (req.path === '/api/devices/pair/request') return next();
     if (req.method === 'GET' && req.path.startsWith('/api/devices/pair/')) return next();
@@ -1645,12 +1647,17 @@ app.get('/api/device/firmware', requireApiKey, (req, res) => {
     if (!info) return res.status(404).json({ error: 'No firmware available' });
     const key     = req.apiKey;
     const current = req.query.current || '';
+    // A screen can have several keys (re-paired devices); the flags are set on
+    // all of them. Consider/clear them together so the UI doesn't get stuck.
+    const screenKeys = key.screenId ? (appData.apiKeys || []).filter(k => k.screenId === key.screenId) : [key];
+    const anyPending = screenKeys.some(k => k.updatePending);
+    const anyAuto    = screenKeys.some(k => k.autoUpdate);
     // Only instruct an update when the user opted in: a one-shot "Update now"
     // request, or auto-update enabled for this device. Never on its own.
     let should = false;
     if (current && current !== info.version) {
-        if (key.updatePending) { should = true; key.updatePending = false; saveData(appData); }
-        else if (key.autoUpdate) should = true;
+        if (anyPending) { should = true; for (const k of screenKeys) k.updatePending = false; saveData(appData); }
+        else if (anyAuto) should = true;
     }
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json({ version: info.version, size: info.size, update: should ? 'yes' : 'no',
@@ -1822,8 +1829,8 @@ app.get('/api/screens', (_req, res) => {
             rotation:    linkedKey?.rotation || 0,
             imageBrightness: linkedKey?.imageBrightness ?? (appData.settings?.imageBrightness ?? DEFAULT_SETTINGS.imageBrightness),
             imageSaturation: linkedKey?.imageSaturation ?? (appData.settings?.imageSaturation ?? DEFAULT_SETTINGS.imageSaturation),
-            autoUpdate:  linkedKey?.autoUpdate || false,
-            updatePending: linkedKey?.updatePending || false,
+            autoUpdate:  linkedKeys.some(k => k.autoUpdate),
+            updatePending: linkedKeys.some(k => k.updatePending),
             firmwareVersion: deviceFw,
             serverFirmwareVersion: serverFw?.version || null,
             firmwareUpdateAvailable: !!(deviceFw && serverFw && deviceFw !== serverFw.version),
