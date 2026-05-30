@@ -1999,10 +1999,13 @@
 
         // null/undefined allowedEndpoints means all endpoints allowed (backward compat)
         const hasEp = (k, name) => !k.allowedEndpoints || k.allowedEndpoints.includes(name);
+        // Paired devices store a label instead of a name.
+        const keyName = k => k.name || k.label || '(unnamed device)';
 
+        try {
         tbody.innerHTML = keys.map(k => `
             <tr id="row-${k.id}">
-                <td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(k.name)}">${escHtml(k.name)}</td>
+                <td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(keyName(k))}">${escHtml(keyName(k))}</td>
                 <td style="font-size:13px;white-space:nowrap">
                     <div style="display:flex;align-items:center;gap:4px">
                         <input type="number" min="1" value="${k.intervalMinutes || 5}"
@@ -2016,7 +2019,7 @@
                 <td>
                     <div style="display:flex;gap:4px">
                         <button class="icon-btn" title="Expand settings" onclick="toggleKeyExpand('${k.id}')">&#9881;</button>
-                        <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(k.name)}')">&#128465;</button>
+                        <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(keyName(k))}')">&#128465;</button>
                     </div>
                 </td>
             </tr>
@@ -2078,6 +2081,9 @@
                 </td>
             </tr>
         `).join('');
+        } catch (e) {
+            tbody.innerHTML = `<tr class="empty-row"><td colspan="4">Error rendering API keys: ${escHtml(e.message)}</td></tr>`;
+        }
     }
 
     async function saveKeySettings(id) {
@@ -2166,7 +2172,7 @@
 
     // ── Helpers ────────────────────────────────────────────────────────────
     function escHtml(str) {
-        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     document.getElementById('editModal').addEventListener('click', e => {
