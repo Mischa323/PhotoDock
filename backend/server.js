@@ -1699,6 +1699,43 @@ app.delete('/api/admin/device-logs/:deviceId', requireAdmin, (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Firmware changelog (anyone can read, admins write) ────────────────────
+app.get('/api/firmware/changelog', (_req, res) => {
+    const info = currentFirmwareInfo();
+    res.json({
+        current: info?.version || null,
+        entries: (appData.firmwareChangelog || []).slice().reverse(),  // newest first
+    });
+});
+
+app.post('/api/admin/firmware/changelog', requireAdmin, (req, res) => {
+    const { version, title, changes } = req.body || {};
+    const info = currentFirmwareInfo();
+    const list = Array.isArray(changes)
+        ? changes
+        : String(changes || '').split('\n').map(s => s.trim()).filter(Boolean);
+    if (!title?.trim() && list.length === 0)
+        return res.status(400).json({ error: 'Add a title or at least one change' });
+    if (!appData.firmwareChangelog) appData.firmwareChangelog = [];
+    const entry = {
+        id:      crypto.randomUUID(),
+        version: (version || info?.version || '').toString().slice(0, 32),
+        title:   (title || '').trim(),
+        changes: list,
+        date:    new Date().toISOString(),
+        author:  req.currentUser?.username || null,
+    };
+    appData.firmwareChangelog.push(entry);
+    saveData(appData);
+    res.json(entry);
+});
+
+app.delete('/api/admin/firmware/changelog/:id', requireAdmin, (req, res) => {
+    appData.firmwareChangelog = (appData.firmwareChangelog || []).filter(e => e.id !== req.params.id);
+    saveData(appData);
+    res.json({ ok: true });
+});
+
 app.get('/api/admin/devices', requireAdmin, (_req, res) => {
     const statuses = Object.values(appData.deviceStatus || {});
     // Merge lastFlash + key string from apiKeys into each status entry
