@@ -359,15 +359,14 @@ static void epd_dat(uint8_t dat) {
 }
 // Wait until the panel reports idle (BUSY high), with a timeout so a wiring or
 // polarity problem can't hang the firmware forever.
-static void epd_busy_wait() {
-    const uint32_t TIMEOUT_MS = 30000;
+static void epd_busy_wait(uint32_t timeout_ms = 35000) {
     uint32_t start = millis();
     while (!digitalRead(EPD_BUSY)) {
-        if (millis() - start > TIMEOUT_MS) {
-            logln("epd_busy_wait: TIMEOUT (BUSY never went high)");
+        if (millis() - start > timeout_ms) {
+            logf("epd_busy_wait: TIMEOUT after %u ms (BUSY never went high)\n", timeout_ms);
             return;
         }
-        delay(10);
+        delay(5);
     }
 }
 static void epd_reset() {
@@ -379,7 +378,7 @@ static void epd_reset() {
 static void epd_init() {
     logf("epd_init: BUSY=%d\n", digitalRead(EPD_BUSY));
     epd_reset();
-    epd_busy_wait();
+    epd_busy_wait(8000);    // reset settles quickly
     logf("epd_init: after reset, BUSY=%d\n", digitalRead(EPD_BUSY));
     delay(50);
     epd_cmd(0xAA);
@@ -398,7 +397,7 @@ static void epd_init() {
     epd_cmd(0x84); epd_dat(0x01);
     epd_cmd(0xE3); epd_dat(0x2F);
     epd_cmd(0x04);                  // power on
-    epd_busy_wait();
+    epd_busy_wait(8000);            // power-up is fast
 }
 static void epd_display(uint8_t *buf) {
     epd_cmd(0x10);
@@ -411,13 +410,13 @@ static void epd_display(uint8_t *buf) {
     }
     logln("epd_display: data sent, power on (0x04)");
     epd_cmd(0x04);                  // power on
-    epd_busy_wait();
+    epd_busy_wait(8000);            // power-up is fast
     epd_cmd(0x06); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x17); epd_dat(0x49);
     logln("epd_display: refresh (0x12)");
-    epd_cmd(0x12); epd_dat(0x00);   // display refresh
-    epd_busy_wait();
+    epd_cmd(0x12); epd_dat(0x00);   // display refresh — the genuinely slow step
+    epd_busy_wait(35000);
     epd_cmd(0x02); epd_dat(0x00);   // power off
-    epd_busy_wait();
+    epd_busy_wait(8000);
     logln("epd_display: done");
 }
 static void epd_sleep_mode() {
