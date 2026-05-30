@@ -52,6 +52,7 @@
     }
     .device-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
     .device-id { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.8); font-family: monospace; letter-spacing: 0.02em; }
+    .fw-chip { font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 2px 7px; }
     .device-row-stats { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
 
     .batt-meter { display: flex; align-items: center; gap: 6px; }
@@ -519,8 +520,12 @@ function statusPill(d) {
   const st = STATUS_STYLE[d.status] || STATUS_STYLE.offline;
   return `<span class="status-pill" style="background:${st.bg};color:${st.fg};border-color:${st.bd}"><span class="dot" style="background:${st.dot}"></span>${esc(d.statusLabel || '')}</span>`;
 }
+function fwChip(d) {
+  if (!d.fw) return '';
+  return `<span class="fw-chip" title="Firmware build the device is running">⚙ fw ${esc(String(d.fw).slice(0,8))}</span>`;
+}
 function deviceRow(d) {
-  return `<div class="device-row"><div class="device-row-top"><span class="device-id">${esc(d.id)}</span>${statusPill(d)}</div><div class="device-row-stats">${battMeter(d)}${d.wifi != null ? wifiBars(d) : ''}</div></div>`;
+  return `<div class="device-row"><div class="device-row-top"><span class="device-id">${esc(d.id)}</span>${statusPill(d)}</div><div class="device-row-stats">${battMeter(d)}${d.wifi != null ? wifiBars(d) : ''}${fwChip(d)}</div></div>`;
 }
 function albumChip(a) {
   const count = a.photoCount || 0;
