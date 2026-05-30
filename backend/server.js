@@ -3,6 +3,7 @@ const https   = require('https');
 const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
+const os      = require('os');
 const crypto  = require('crypto');
 const { spawn, execSync, exec } = require('child_process');
 const QRCode      = require('qrcode');
@@ -1262,8 +1263,38 @@ app.post('/api/devices/ping', requireApiKey, (req, res) => {
     });
 });
 
+// Current local minutes-of-day in a timezone (0-1439).
+function nowMinutesInTz(tz) {
+    try {
+        const parts = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
+        return (+parts.find(p => p.type === 'hour').value) * 60 + (+parts.find(p => p.type === 'minute').value);
+    } catch { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); }
+}
+// Is this screen inside its scheduled sleep window right now? If so, how long
+// (ms) until it should wake. Handles overnight windows (e.g. 23:00 → 07:00).
+function screenSleepInfo(keyRecord, tz) {
+    if (!keyRecord || !keyRecord.sleepEnabled) return { sleeping: false };
+    const toMin = s => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(s || '')); return m ? (+m[1]) * 60 + (+m[2]) : null; };
+    const start = toMin(keyRecord.sleepStart), end = toMin(keyRecord.sleepEnd);
+    if (start == null || end == null || start === end) return { sleeping: false };
+    const now = nowMinutesInTz(tz);
+    const sleeping = start < end ? (now >= start && now < end) : (now >= start || now < end);
+    if (!sleeping) return { sleeping: false };
+    let untilEnd = ((end - now) + 1440) % 1440;
+    if (untilEnd === 0) untilEnd = 1440;
+    return { sleeping: true, msUntilWake: untilEnd * 60 * 1000 };
+}
+
 app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
+    // Scheduled sleep takes precedence over the slideshow: tell the device to
+    // show the "Sleeping" screen and sleep until its configured wake time.
+    const tz = appData.settings?.timezone || DEFAULT_SETTINGS.timezone;
+    const sw = screenSleepInfo(keyRecord, tz);
+    if (sw.sleeping) {
+        return res.json({ sleeping: true, next_in_ms: sw.msUntilWake,
+                          next_at: new Date(Date.now() + sw.msUntilWake).toISOString() });
+    }
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
     const files      = getScreenFiles(keyRecord);
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
@@ -1291,6 +1322,7 @@ const SCREEN_STATES = {
     low_batt: { accent: '#f59e0b', title: 'Battery low',          sub: 'Please connect the charger',                 icon: 'batt'  },
     sleeping: { accent: '#3b82f6', title: 'Sleeping',             sub: 'Waiting for the next refresh',               icon: 'moon'  },
     updating: { accent: '#22d3ee', title: 'Updating firmware',    sub: 'Please do not unplug the device',            icon: 'spin'  },
+    updated:  { accent: '#34d399', title: 'Update complete',      sub: 'Now running the latest firmware',            icon: 'check' },
     server:   { accent: '#f87171', title: "Can't reach the server", sub: 'Will retry shortly',                       icon: 'warn'  },
 };
 
@@ -1467,10 +1499,22 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     const saRaw = keyRecord?.imageSaturation ?? settings.imageSaturation ?? 1;
     const brightness = Math.min(2, Math.max(0.5, Number(brRaw) || 1));
     const saturation = Math.min(2, Math.max(0.5, Number(saRaw) || 1));
+    // Fit mode: 'contain' = letterbox (black bars, no cropping), 'cover' = crop
+    // to fill the panel (no bars). A per-image override wins over the per-screen
+    // setting, which wins over the default (contain).
+    const imgMeta = (appData.imageMetadata || {})[filename] || {};
+    const screenFit = keyRecord?.screenId
+        ? (appData.screens || []).find(s => s.id === keyRecord.screenId)?.imageFit
+        : null;
+    const validFit = v => (v === 'cover' || v === 'contain') ? v : null;
+    const fit = validFit(imgMeta.imageFit)       // per-image override
+             || validFit(keyRecord?.imageFit)    // per-key (set on this screen)
+             || validFit(screenFit)              // screen default (key paired later)
+             || 'contain';
     try {
         const pipeline = sharp(filepath)
             .rotate(rotation, { background: { r: 0, g: 0, b: 0 } })   // user-chosen orientation
-            .resize(imgW, imgH, { fit: 'contain', background: { r: 0, g: 0, b: 0 } });
+            .resize(imgW, imgH, { fit, position: 'centre', background: { r: 0, g: 0, b: 0 } });
 
         if (brightness !== 1 || saturation !== 1) pipeline.modulate({ brightness, saturation });
 
@@ -1510,6 +1554,7 @@ app.get('/api/images', (req, res) => {
             uploadedBy: meta[filename]?.uploadedBy || null,
             screenId:   meta[filename]?.screenId   || null,
             albumId:    meta[filename]?.albumId    || null,
+            imageFit:   meta[filename]?.imageFit   || null,   // null = follow screen default
         }));
     if (screenId !== undefined) {
         const filterVal = screenId === '' ? null : screenId;
@@ -1610,7 +1655,7 @@ app.delete('/api/favorites/:filename', (req, res) => {
 // ── Device status (posted by ESP32 after each display refresh) ────────────
 app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
     const key = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
-    const { battery_mv, wifi_rssi, firmware_version, device_id } = req.body || {};
+    const { battery_mv, wifi_rssi, firmware_version, device_id, charging, usb } = req.body || {};
     if (!appData.deviceStatus) appData.deviceStatus = {};
     const id = device_id || key.id;
     appData.deviceStatus[id] = {
@@ -1621,6 +1666,8 @@ app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
         intervalMinutes: key.intervalMinutes || 5,
         batteryMv:       battery_mv   != null ? Number(battery_mv)  : null,
         wifiRssi:        wifi_rssi    != null ? Number(wifi_rssi)   : null,
+        charging:        charging != null ? !!charging : null,
+        usb:             usb      != null ? !!usb      : null,
         fwVersion:       firmware_version || null,
         lastSeen:        new Date().toISOString(),
     };
@@ -1658,6 +1705,12 @@ app.get('/api/device/firmware', requireApiKey, (req, res) => {
     if (current && current !== info.version) {
         if (anyPending) { should = true; for (const k of screenKeys) k.updatePending = false; saveData(appData); }
         else if (anyAuto) should = true;
+    } else if (current && current === info.version && anyPending) {
+        // Device already reports the latest version — the update is done (or was
+        // unnecessary). Clear the pending flag so the UI stops saying "waiting
+        // for update" forever.
+        for (const k of screenKeys) k.updatePending = false;
+        saveData(appData);
     }
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json({ version: info.version, size: info.size, update: should ? 'yes' : 'no',
@@ -1699,41 +1752,84 @@ app.delete('/api/admin/device-logs/:deviceId', requireAdmin, (req, res) => {
     res.json({ ok: true });
 });
 
-// ── Firmware changelog (anyone can read, admins write) ────────────────────
-app.get('/api/firmware/changelog', (_req, res) => {
-    const info = currentFirmwareInfo();
+// ── Firmware changelog (read-only) ────────────────────────────────────────
+// The changelog is NOT edited through the UI. It is a source-controlled file
+// in the repo (esp32/firmware-changelog.json) that we update when we push a new
+// firmware build. It lists the releases per supported screen model; the newest
+// release of a model is the build the server currently serves over OTA.
+const FW_CHANGELOG_FILE = path.join(ESP32_DIR, 'firmware-changelog.json');
+function readFirmwareChangelog() {
+    try {
+        const doc = JSON.parse(fs.readFileSync(FW_CHANGELOG_FILE, 'utf8'));
+        return doc && typeof doc.models === 'object' ? doc.models : {};
+    } catch { return {}; }
+}
+
+app.get('/api/firmware/changelog', (req, res) => {
+    const models = readFirmwareChangelog();
+    const serverVersion = currentFirmwareInfo()?.version || null;
+    // The server only carries one firmware binary; it corresponds to the newest
+    // release of the requested (or only) supported model.
+    const onlyModel = req.query.model && models[req.query.model]
+        ? { [req.query.model]: models[req.query.model] }
+        : models;
+    const out = Object.entries(onlyModel).map(([id, m]) => ({
+        id,
+        name: m.name || id,
+        releases: (m.releases || []).map((r, i) => ({
+            version: r.version || null,
+            title:   r.title || 'Update',
+            changes: Array.isArray(r.changes) ? r.changes : [],
+            date:    r.date || null,
+            // The first (newest) release is what the server currently serves.
+            isCurrentBuild: i === 0,
+        })),
+    }));
+    res.json({ serverVersion, models: out });
+});
+
+// ── Server system metrics (CPU / RAM / storage) ────────────────────────────
+function cpuSample() {
+    let idle = 0, total = 0;
+    for (const c of os.cpus()) { for (const t in c.times) total += c.times[t]; idle += c.times.idle; }
+    return { idle, total };
+}
+function dirSize(dir) {
+    let bytes = 0;
+    try { for (const f of fs.readdirSync(dir)) { try { bytes += fs.statSync(path.join(dir, f)).size; } catch {} } } catch {}
+    return bytes;
+}
+app.get('/api/admin/system-metrics', requireAdmin, async (_req, res) => {
+    // CPU: sample busy time over a short window (loadavg is unreliable on Windows).
+    const a = cpuSample();
+    await new Promise(r => setTimeout(r, 200));
+    const b = cpuSample();
+    const idleDiff = b.idle - a.idle, totalDiff = b.total - a.total;
+    const cpuPct = totalDiff > 0 ? Math.round(100 * (1 - idleDiff / totalDiff)) : 0;
+
+    const totalMem = os.totalmem(), freeMem = os.freemem();
+    const ramPct = Math.round(100 * (1 - freeMem / totalMem));
+
+    // Storage: free space on the disk holding the app (fs.statfs, Node 18.15+);
+    // fall back to just the size of the uploads folder if unavailable.
+    let storage = null;
+    try {
+        const st = await fs.promises.statfs(ROOT_DIR);
+        const total = st.blocks * st.bsize, free = st.bavail * st.bsize;
+        storage = { total, free, used: total - free, pct: Math.round(100 * (1 - free / total)), kind: 'disk' };
+    } catch {
+        const used = dirSize(UPLOADS_DIR);
+        storage = { used, pct: null, kind: 'uploads' };
+    }
+
     res.json({
-        current: info?.version || null,
-        entries: (appData.firmwareChangelog || []).slice().reverse(),  // newest first
+        cpu:     { pct: cpuPct, cores: os.cpus().length, model: (os.cpus()[0] || {}).model || '' },
+        ram:     { pct: ramPct, total: totalMem, free: freeMem, used: totalMem - freeMem },
+        storage,
+        uploads: { bytes: dirSize(UPLOADS_DIR), count: (() => { try { return fs.readdirSync(UPLOADS_DIR).filter(f => IMAGE_EXTS.test(f)).length; } catch { return 0; } })() },
+        host:    { platform: os.platform(), uptime: os.uptime() },
+        proc:    { uptime: process.uptime(), rss: process.memoryUsage().rss, node: process.version },
     });
-});
-
-app.post('/api/admin/firmware/changelog', requireAdmin, (req, res) => {
-    const { version, title, changes } = req.body || {};
-    const info = currentFirmwareInfo();
-    const list = Array.isArray(changes)
-        ? changes
-        : String(changes || '').split('\n').map(s => s.trim()).filter(Boolean);
-    if (!title?.trim() && list.length === 0)
-        return res.status(400).json({ error: 'Add a title or at least one change' });
-    if (!appData.firmwareChangelog) appData.firmwareChangelog = [];
-    const entry = {
-        id:      crypto.randomUUID(),
-        version: (version || info?.version || '').toString().slice(0, 32),
-        title:   (title || '').trim(),
-        changes: list,
-        date:    new Date().toISOString(),
-        author:  req.currentUser?.username || null,
-    };
-    appData.firmwareChangelog.push(entry);
-    saveData(appData);
-    res.json(entry);
-});
-
-app.delete('/api/admin/firmware/changelog/:id', requireAdmin, (req, res) => {
-    appData.firmwareChangelog = (appData.firmwareChangelog || []).filter(e => e.id !== req.params.id);
-    saveData(appData);
-    res.json({ ok: true });
 });
 
 app.get('/api/admin/devices', requireAdmin, (_req, res) => {
@@ -1832,12 +1928,22 @@ app.get('/api/screens', (_req, res) => {
                 .sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen))[0];
             if (src) {
                 const ageMs = now - new Date(src.lastSeen).getTime();
-                const status = ageMs < 15 * 60 * 1000 ? 'online'
-                             : ageMs < 24 * 60 * 60 * 1000 ? 'recent'
-                             : 'offline';
-                const statusLabel = status === 'online' ? 'Online'
-                                  : status === 'recent' ? 'Recently seen'
-                                  : 'Offline';
+                // Offline detection is relative to how often the device is
+                // *expected* to check in (its refresh interval), not a fixed
+                // window: a device is online if it checked in this cycle, and
+                // offline once it has missed ~3 expected check-ins. While it's
+                // in its scheduled sleep window it intentionally won't check in,
+                // so show "Sleeping" rather than flapping to offline.
+                const tz          = appData.settings?.timezone || DEFAULT_SETTINGS.timezone;
+                const sleepingNow = screenSleepInfo(linkedKey, tz).sleeping;
+                const intervalMin = src.intervalMinutes || linkedKey?.intervalMinutes || 5;
+                const expectedMs  = intervalMin * 60 * 1000;
+                const grace       = 60 * 1000;   // slack for wake/refresh + clock drift
+                let status, statusLabel;
+                if (sleepingNow)                          { status = 'sleeping'; statusLabel = 'Sleeping'; }
+                else if (ageMs < expectedMs + grace)      { status = 'online';   statusLabel = 'Online'; }
+                else if (ageMs < 3 * expectedMs + grace)  { status = 'recent';   statusLabel = 'Recently seen'; }
+                else                                      { status = 'offline';  statusLabel = 'Offline'; }
                 // Normalize fields from whichever store we used.
                 const batt = src.batt ?? battMvToPercent(src.batteryMv);
                 const w    = src.wifi != null ? { bars: src.wifi, label: src.wlabel || '' }
@@ -1845,6 +1951,8 @@ app.get('/api/screens', (_req, res) => {
                 deviceInfo = {
                     id:          src.deviceId || linkedKey.label || linkedKey.id,
                     batt:        batt ?? null,
+                    charging:    src.charging ?? null,
+                    usb:         src.usb ?? null,
                     level:       src.level || (batt == null ? 'good' : batt <= 15 ? 'bad' : batt <= 30 ? 'warn' : 'good'),
                     wifi:        w.bars,
                     wlabel:      w.label,
@@ -1866,6 +1974,10 @@ app.get('/api/screens', (_req, res) => {
             rotation:    linkedKey?.rotation || 0,
             imageBrightness: linkedKey?.imageBrightness ?? (appData.settings?.imageBrightness ?? DEFAULT_SETTINGS.imageBrightness),
             imageSaturation: linkedKey?.imageSaturation ?? (appData.settings?.imageSaturation ?? DEFAULT_SETTINGS.imageSaturation),
+            imageFit:    linkedKey?.imageFit || s.imageFit || 'contain',
+            sleepEnabled: linkedKey?.sleepEnabled ?? s.sleepEnabled ?? false,
+            sleepStart:  linkedKey?.sleepStart || s.sleepStart || '23:00',
+            sleepEnd:    linkedKey?.sleepEnd   || s.sleepEnd   || '07:00',
             autoUpdate:  linkedKeys.some(k => k.autoUpdate),
             updatePending: linkedKeys.some(k => k.updatePending),
             firmwareVersion: deviceFw,
@@ -1898,7 +2010,7 @@ app.post('/api/screens', (req, res) => {
 app.put('/api/screens/:id', (req, res) => {
     const screen = (appData.screens || []).find(s => s.id === req.params.id);
     if (!screen) return res.status(404).json({ error: 'Screen not found' });
-    const { name, description, color, intervalMinutes, autoUpdate, rotation, imageBrightness, imageSaturation } = req.body;
+    const { name, description, color, intervalMinutes, autoUpdate, rotation, imageBrightness, imageSaturation, imageFit, sleepEnabled, sleepStart, sleepEnd } = req.body;
     if (name !== undefined) screen.name = name.trim();
     if (description !== undefined) screen.description = description.trim();
     if (color !== undefined) screen.color = color;
@@ -1920,6 +2032,30 @@ app.put('/api/screens/:id', (req, res) => {
         const v = Math.min(2, Math.max(0.5, parseFloat(imageSaturation) || 1));
         for (const k of linkedKeys) k.imageSaturation = v;
         screen.imageSaturation = v;
+    }
+    // Fit mode: how photos fill the panel — 'contain' (letterbox) or 'cover' (crop).
+    if (imageFit !== undefined) {
+        const v = imageFit === 'cover' ? 'cover' : 'contain';
+        for (const k of linkedKeys) k.imageFit = v;
+        screen.imageFit = v;
+    }
+    // Sleep schedule: show the "Sleeping" screen and stop refreshing between
+    // sleepStart and sleepEnd (HH:MM, screen timezone; supports overnight).
+    const normTime = (t, fb) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); if (!m) return fb; const h = Math.min(23, +m[1]), mn = Math.min(59, +m[2]); return String(h).padStart(2, '0') + ':' + String(mn).padStart(2, '0'); };
+    if (sleepEnabled !== undefined) {
+        const v = !!sleepEnabled;
+        for (const k of linkedKeys) k.sleepEnabled = v;
+        screen.sleepEnabled = v;
+    }
+    if (sleepStart !== undefined) {
+        const v = normTime(sleepStart, '23:00');
+        for (const k of linkedKeys) k.sleepStart = v;
+        screen.sleepStart = v;
+    }
+    if (sleepEnd !== undefined) {
+        const v = normTime(sleepEnd, '07:00');
+        for (const k of linkedKeys) k.sleepEnd = v;
+        screen.sleepEnd = v;
     }
     // Refresh rate and auto-update live on the device's API key. Apply to every
     // key linked to this screen.
@@ -2046,6 +2182,21 @@ app.put('/api/images/:filename/screen', (req, res) => {
     appData.imageMetadata[filename].screenId = screenId || null;
     saveData(appData);
     res.json({ ok: true });
+});
+
+// Per-image fit override: 'cover' (crop to fill), 'contain' (letterbox), or
+// null/'default' to fall back to the screen's setting.
+app.put('/api/images/:filename/fit', (req, res) => {
+    const filename = path.basename(req.params.filename);
+    const { imageFit } = req.body;
+    if (!appData.imageMetadata) appData.imageMetadata = {};
+    if (!appData.imageMetadata[filename]) appData.imageMetadata[filename] = {};
+    if (imageFit === 'cover' || imageFit === 'contain')
+        appData.imageMetadata[filename].imageFit = imageFit;
+    else
+        delete appData.imageMetadata[filename].imageFit;   // back to screen default
+    saveData(appData);
+    res.json({ ok: true, imageFit: appData.imageMetadata[filename].imageFit || null });
 });
 
 // ── Inactivity notifications ───────────────────────────────────────────────

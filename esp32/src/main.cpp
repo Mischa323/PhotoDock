@@ -8,6 +8,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <esp_sleep.h>
+#include <esp_system.h>
 #include <esp_mac.h>
 #include "JPEGDEC.h"
 #include "config.h"
@@ -30,6 +31,24 @@
 #define PMIC_SCL  48
 
 static XPowersPMU PMU;
+
+// Survive deep sleep: cache the AP we last connected to so we can skip the slow
+// channel scan on the next wake (the scan is one of the longest WiFi-on steps).
+RTC_DATA_ATTR static uint8_t g_wifiChan = 0;
+RTC_DATA_ATTR static uint8_t g_wifiBssid[6] = {0};
+RTC_DATA_ATTR static bool    g_wifiHint = false;
+
+// Last good battery reading (mV), kept across deep sleep so a wake where the
+// PMIC isn't re-read still reports a sensible level instead of dropping to 0%.
+RTC_DATA_ATTR static int     g_lastBattMv = 0;
+
+// True when the PMIC initialised successfully this boot, so charge/USB/voltage
+// reads are valid. Not kept across sleep.
+static bool g_pmicReady = false;
+
+// Whether the "Sleeping" screen is already on the panel, so we render it once
+// when entering the scheduled sleep window and not on every check during it.
+RTC_DATA_ATTR static bool g_sleepShown = false;
 
 // â”€â”€ Display dimensions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #define EPD_W        800
@@ -396,8 +415,10 @@ static void epd_init() {
     epd_cmd(0x61); epd_dat(0x03); epd_dat(0x20); epd_dat(0x01); epd_dat(0xE0);
     epd_cmd(0x84); epd_dat(0x01);
     epd_cmd(0xE3); epd_dat(0x2F);
-    epd_cmd(0x04);                  // power on
-    epd_busy_wait(8000);            // power-up is fast
+    // NOTE: no power-on (0x04) here. epd_display() powers the panel on right
+    // before the refresh; doing it here too was a redundant power-up cycle
+    // (extra ~1-3s and an extra panel settle) on every photo. Matches the
+    // official Waveshare 7.3" E6 driver, which powers on only in the show step.
 }
 static void epd_display(uint8_t *buf) {
     epd_cmd(0x10);
@@ -680,33 +701,105 @@ static String jsonStr(const String &body, const char *key) {
 
 // â”€â”€ Battery voltage reading (via AXP2101 PMIC) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static int read_battery_mv() {
-    int mv = PMU.getBattVoltage();
-    return mv > 0 ? mv : -1;
+    int mv = PMU.getBattVoltage();          // 0 if PMIC not init this wake / no batt
+    // Only trust a plausible single-cell LiPo voltage. The AXP2101 sometimes
+    // reports garbage (e.g. 41mV) right after a charge state change or when no
+    // battery is actually present — don't let that show as a real 0%.
+    if (mv >= 2500 && mv <= 4500) { g_lastBattMv = mv; return mv; }
+    return g_lastBattMv > 0 ? g_lastBattMv : -1;   // fall back to last known good
+}
+
+// Manually unstick the I2C bus. Coming out of deep sleep the AXP2101 can be
+// left mid-transaction holding SDA low, which jams the bus so every PMU.begin()
+// fails (a full power-up clears it, which is why a cold boot always works). The
+// standard recovery is to bit-bang up to 9 clock pulses on SCL to let the slave
+// finish, then issue a STOP condition, before handing the pins back to Wire.
+static void i2c_bus_recover() {
+    pinMode(PMIC_SCL, OUTPUT_OPEN_DRAIN);
+    pinMode(PMIC_SDA, INPUT_PULLUP);
+    digitalWrite(PMIC_SCL, HIGH);
+    delayMicroseconds(10);
+    for (int i = 0; i < 9 && digitalRead(PMIC_SDA) == LOW; i++) {
+        digitalWrite(PMIC_SCL, LOW);  delayMicroseconds(10);
+        digitalWrite(PMIC_SCL, HIGH); delayMicroseconds(10);
+    }
+    // STOP: SDA goes low->high while SCL is high.
+    pinMode(PMIC_SDA, OUTPUT_OPEN_DRAIN);
+    digitalWrite(PMIC_SDA, LOW);  delayMicroseconds(10);
+    digitalWrite(PMIC_SCL, HIGH); delayMicroseconds(10);
+    digitalWrite(PMIC_SDA, HIGH); delayMicroseconds(10);
+    // Release both lines.
+    pinMode(PMIC_SCL, INPUT_PULLUP);
+    pinMode(PMIC_SDA, INPUT_PULLUP);
 }
 
 // â”€â”€ Power up the AXP2101 PMIC and the e-paper power rails â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static bool pmic_init() {
-    Wire.begin(PMIC_SDA, PMIC_SCL);
-    Wire.setClock(100000);          // be gentle; the bus can be flaky on wake
-    // The AXP2101 (and the I2C bus) can need a moment to settle after a deep-
-    // sleep wake, so retry a few times instead of giving up on one bad attempt.
+    // The AXP2101 only re-inits over I2C after a true power-on reset, never on a
+    // deep-sleep timer wake. On a cold boot we try hard (and on success enable
+    // the panel rails, which then stay on across sleep). On a wake the AXP is
+    // unreachable anyway and the rails are already on from the cold boot, so we
+    // try just once quickly and move on instead of burning ~1s every wake.
+    const bool fromSleep = (esp_reset_reason() == ESP_RST_DEEPSLEEP);
+    const int  attempts  = fromSleep ? 1 : 6;
     bool ok = false;
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < attempts; i++) {
+        Wire.end();                     // drop any latched/half-open bus state
+        i2c_bus_recover();              // clock out a stuck slave + STOP
+        delay(40);
+        Wire.begin(PMIC_SDA, PMIC_SCL);
+        Wire.setClock(100000);          // be gentle; the bus can be flaky on wake
+        if (i == 0) delay(60);          // let the bus settle
         if (PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, PMIC_SDA, PMIC_SCL)) { ok = true; break; }
-        logf("PMIC: AXP2101 init attempt %d failed, retrying...\n", i + 1);
-        delay(120);
+        if (attempts > 1) logf("PMIC: AXP2101 init attempt %d failed, retrying...\n", i + 1);
+        delay(60 + i * 60);             // escalating back-off
     }
     if (!ok) {
-        logln("PMIC: AXP2101 init FAILED (giving up)");
+        g_pmicReady = false;
+        logln(fromSleep ? "PMIC: AXP2101 not re-init on wake (rails stay on from boot)"
+                        : "PMIC: AXP2101 init FAILED (giving up)");
         return false;
     }
     // ALDO3/ALDO4 = 3.3V feed the e-paper panel. Without these the panel has
     // no power and BUSY never goes high.
     PMU.setALDO3Voltage(3300); PMU.enableALDO3();
     PMU.setALDO4Voltage(3300); PMU.enableALDO4();
+
+    // Battery operation: configure the AXP2101 as a charger/power-path so the
+    // board can run from a 3.7V LiPo and top it up when USB is present.
+    PMU.setVbusCurrentLimit(XPOWERS_AXP2101_VBUS_CUR_LIM_2000MA);
+    PMU.setSysPowerDownVoltage(2800);  // keep system alive until the cell is low
+    PMU.enableBattDetection();
     PMU.enableBattVoltageMeasure();
+    PMU.enableVbusVoltageMeasure();
+    PMU.enableSystemVoltageMeasure();
+    PMU.enableGauge();                 // fuel gauge → battery percent
+    // Charging: a precharge step revives a deeply-discharged cell, then constant
+    // current up to 4.2V. enableCellbatteryCharge() is the actual charge-enable
+    // bit for the main LiPo — without it the battery never tops up.
+    PMU.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_75MA);
+    PMU.setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_500MA);
+    PMU.setChargeTargetVoltage(XPOWERS_AXP2101_CHG_VOL_4V2);
+    PMU.enableCellbatteryCharge();
     delay(80);                       // let the panel rails come up
-    logln("PMIC: AXP2101 ready, panel rails on");
+    g_pmicReady = true;
+
+    // Detailed battery/charger diagnostics. On battery-only the device can't
+    // send logs (no power if the cell is flat), so we capture the full picture
+    // here while on USB to see whether the cell is present and actually charging.
+    const char *cs;
+    switch (PMU.getChargerStatus()) {
+        case XPOWERS_AXP2101_CHG_TRI_STATE:  cs = "tri(no/again)"; break;
+        case XPOWERS_AXP2101_CHG_PRE_STATE:  cs = "pre-charge";    break;
+        case XPOWERS_AXP2101_CHG_CC_STATE:   cs = "cc";            break;
+        case XPOWERS_AXP2101_CHG_CV_STATE:   cs = "cv";            break;
+        case XPOWERS_AXP2101_CHG_DONE_STATE: cs = "done";          break;
+        default:                             cs = "stopped";       break;
+    }
+    logf("PMIC: batt=%s %dmV %d%% | chg=%s(%s) | VBUS=%s %dmV | sys=%dmV\n",
+         PMU.isBatteryConnect() ? "yes" : "no", PMU.getBattVoltage(), PMU.getBatteryPercent(),
+         PMU.isCharging() ? "on" : "off", cs,
+         PMU.isVbusIn() ? "yes" : "no", PMU.getVbusVoltage(), PMU.getSystemVoltage());
     return true;
 }
 
@@ -731,6 +824,9 @@ static void post_status(uint32_t sleep_s) {
     String body = "{\"device_id\":\"" + String(device_id) + "\""
                 + ",\"wifi_rssi\":"  + rssi
                 + (bat_mv > 0 ? ",\"battery_mv\":" + String(bat_mv) : "")
+                + (g_pmicReady ? String(",\"charging\":") + (PMU.isCharging() ? "true" : "false")
+                                 + ",\"usb\":" + (PMU.isVbusIn() ? "true" : "false")
+                               : "")
                 + (fwver.length() ? ",\"firmware_version\":\"" + fwver + "\"" : "")
                 + "}";
     int code = http.POST(body);
@@ -764,9 +860,12 @@ static void deep_sleep(uint32_t seconds) {
     flushLogs();
     Serial.flush();
     WiFi.disconnect(true);
-    // Cut the e-paper power rails â€” the image persists on e-ink without power.
-    PMU.disableALDO3();
-    PMU.disableALDO4();
+    // NOTE: We intentionally leave the e-paper power rails (ALDO3/ALDO4) ON
+    // across deep sleep. The AXP2101 reliably re-inits over I2C on a cold boot
+    // but NOT on a timer wake, so if we cut the rails here we can never turn
+    // them back on next wake and the panel stays dark. Leaving them powered
+    // costs a little sleep current but guarantees the display works every wake.
+    // (The image itself persists on e-ink with or without power.)
     esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
     esp_deep_sleep_start();
 }
@@ -864,6 +963,10 @@ static void otaCheck() {
     }
 
     logf("OTA: updating %s -> %s\n", applied.c_str(), version.c_str());
+    // Show the "Updating firmware" screen so it's clear what's happening, and
+    // leave a flag so the next boot can show an "Update complete" confirmation.
+    showServerScreen("updating");
+    p.putBool("didupd", true);
     p.putString("fwver", version);               // optimistic; revert on failure
     p.end();
     flushLogs();                                  // get the pre-update log out first
@@ -876,6 +979,7 @@ static void otaCheck() {
              httpUpdate.getLastErrorString().c_str());
         Preferences p2; p2.begin("ota", false);
         p2.putString("fwver", applied);
+        p2.putBool("didupd", false);             // update didn't happen
         p2.end();
     }
     // HTTP_UPDATE_OK reboots automatically into the new firmware.
@@ -946,8 +1050,16 @@ void setup() {
     if (!epd_buf || !jpeg_buf || !rgb_buf) { logln("PSRAM alloc failed"); deep_sleep(60); }
     memset(epd_buf, 0x11, EPD_BUF_SIZE);
 
-    // Bring up the PMIC first â€” it powers the e-paper panel.
-    pmic_init();
+    // Bring up the PMIC first â€” it powers the e-paper panel. The retrying
+    // bus-reset init below handles the latched-I2C-after-wake problem. If it
+    // still can't bring the PMIC up we just carry on: the device stays online
+    // (it still reports status), the panel simply isn't refreshed this cycle,
+    // and the next timer wake tries again. We deliberately do NOT reboot here â€”
+    // a reboot mid-cycle risks dropping into the setup portal and never coming
+    // back until a manual power cycle.
+    if (!pmic_init()) {
+        logln("PMIC: not ready, continuing without panel power (will retry next wake)");
+    }
 
     pinMode(EPD_CS,   OUTPUT); digitalWrite(EPD_CS,   HIGH);
     pinMode(EPD_DC,   OUTPUT);
@@ -960,8 +1072,11 @@ void setup() {
     // seconds *after* a normal boot. (GPIO0 cannot be read at power-on on the
     // ESP32-S3 â€” holding it low at reset enters ROM download mode and the app
     // never runs. So we watch it briefly once the app is already executing.)
-    pinMode(0, INPUT_PULLUP);
-    {
+    // Only do this on a real power-on: on an unattended deep-sleep timer wake
+    // nobody is here to hold BOOT, and spending 3s of full-power CPU watching it
+    // every single wake is a big, pointless battery drain.
+    if (esp_reset_reason() != ESP_RST_DEEPSLEEP) {
+        pinMode(0, INPUT_PULLUP);
         const uint32_t WINDOW_MS = 3000;   // how long to watch after boot
         const uint32_t HOLD_MS   = 800;    // how long BOOT must stay pressed
         logf("Press BOOT within %u ms to reconfigure...\n", WINDOW_MS);
@@ -1008,22 +1123,66 @@ void setup() {
     }
 
     logf("WiFi: connecting to %s", cfg.wifiSsid.c_str());
-    WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str());
-    for (int i = 0; i < 30 && WiFi.status() != WL_CONNECTED; i++) {
-        delay(500); logp(".");
+    WiFi.persistent(false);
+    WiFi.mode(WIFI_STA);
+    // Fast path: reuse the AP's channel + BSSID from last wake to skip scanning.
+    if (g_wifiHint && g_wifiChan > 0)
+        WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str(), g_wifiChan, g_wifiBssid);
+    else
+        WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str());
+    for (int i = 0; i < 24 && WiFi.status() != WL_CONNECTED; i++) {
+        delay(250); logp(".");
+    }
+    // If the cached AP didn't work (moved channel, etc.), fall back to a scan.
+    if (WiFi.status() != WL_CONNECTED && g_wifiHint) {
+        g_wifiHint = false;
+        WiFi.disconnect(true);
+        WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str());
+        for (int i = 0; i < 30 && WiFi.status() != WL_CONNECTED; i++) {
+            delay(500); logp(".");
+        }
     }
     if (WiFi.status() != WL_CONNECTED) {
-        logln("\nWiFi failed â€” starting setup portal");
-        String ap = apNameFromMac();
-        epd_show_setup(ap.c_str());
-        startCaptivePortal();
+        // A device that's still being set up should open the portal so the user
+        // can enter credentials. But an already-configured device that just
+        // can't reach WiFi this wake (router reboot, transient outage) must NOT
+        // get stuck in the AP portal forever â€” it should sleep and retry so it
+        // recovers on its own without a manual reboot.
+        if (firstBoot) {
+            logln("\nWiFi failed on first boot â€” starting setup portal");
+            String ap = apNameFromMac();
+            epd_show_setup(ap.c_str());
+            startCaptivePortal();
+        }
+        logln("\nWiFi failed â€” sleeping and retrying next wake");
+        deep_sleep(60);
     }
     logf("\nIP: %s\n", WiFi.localIP().toString().c_str());
+
+    // Remember which AP we connected to so the next wake can skip the scan.
+    {
+        uint8_t *b = WiFi.BSSID();
+        if (b) { memcpy(g_wifiBssid, b, 6); g_wifiChan = WiFi.channel(); g_wifiHint = true; }
+    }
 
     // No API key yet â†’ run the QR pairing flow to obtain one.
     if (cfg.apiKey.length() == 0) {
         logln("No API key â€” starting QR pairing");
         if (!pairDevice()) { logln("Pairing not completed; retry after sleep"); deep_sleep(120); }
+    }
+
+    // If we just rebooted from a completed OTA update, show an "Update complete"
+    // confirmation for 10 seconds so it's clear the update landed.
+    {
+        Preferences pu; pu.begin("ota", false);
+        bool didUpdate = pu.getBool("didupd", false);
+        if (didUpdate) pu.putBool("didupd", false);
+        pu.end();
+        if (didUpdate) {
+            logln("OTA: update complete â€” showing confirmation");
+            showServerScreen("updated");
+            delay(10000);
+        }
     }
 
     // Check for a newer firmware and self-update (reboots on success).
@@ -1034,6 +1193,7 @@ void setup() {
     post_status(0);
 
     uint32_t sleep_s = DEFAULT_SLEEP_S;
+    bool nowSleeping = false;
     {
         HTTPClient http;
         String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
@@ -1041,6 +1201,19 @@ void setup() {
         http.begin(url);
         if (http.GET() == 200) {
             String body = http.getString();
+            // Scheduled sleep window: server tells us to show the sleeping screen
+            // and sleep until the wake time (carried in next_in_ms).
+            nowSleeping = body.indexOf("\"sleeping\":true") >= 0;
+            // Base the sleep on the screen's configured refresh interval, so a
+            // missing/too-small next_in_ms falls back to the user's setting
+            // (e.g. 1 min) instead of the hardcoded 5-minute default.
+            int im = body.indexOf("\"interval_minutes\":");
+            if (im >= 0) {
+                long mins = body.substring(im + 19).toInt();
+                if (mins > 0) sleep_s = (uint32_t)mins * 60;
+            }
+            // Prefer the precise time to the next slot boundary when it's a
+            // meaningful amount (keeps multiple devices in sync).
             int idx = body.indexOf("\"next_in_ms\":");
             if (idx >= 0) {
                 long ms = body.substring(idx + 13).toInt();
@@ -1049,6 +1222,19 @@ void setup() {
         }
         http.end();
     }
+    // Reference point for aligning the next wake to the exact minute/hour: the
+    // server's next_in_ms is the time to the next slot boundary measured now, so
+    // we subtract however long the image fetch + refresh takes before sleeping.
+    uint32_t tRefMs = millis();
+
+    // Scheduled sleep: show the "Sleeping" screen once and sleep until wake.
+    if (nowSleeping) {
+        if (!g_sleepShown) { showServerScreen("sleeping"); g_sleepShown = true; }
+        uint32_t chunk = sleep_s > 21600 ? 21600 : sleep_s;   // re-check at least every 6h
+        logf("Sleep schedule active â€” sleeping %u s\n", chunk);
+        deep_sleep(chunk);                                    // never returns
+    }
+    g_sleepShown = false;   // not sleeping any more â€” allow a re-render next time
 
     size_t jpeg_len = 0;
     {
@@ -1092,6 +1278,14 @@ void setup() {
         http.end();
     }
 
+    // The e-ink refresh below takes ~15-25s and doesn't need the network. Flush
+    // logs while we still have a link, then power the radio down so it isn't
+    // drawing current (~tens of mA) through the whole refresh. This is one of
+    // the biggest per-wake battery savings.
+    flushLogs();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+
     memset(rgb_buf, 0, EPD_W * EPD_H * 3);   // black where the image doesn't cover
     if (jpeg.openRAM(jpeg_buf, (int)jpeg_len, jpegDraw)) {
         jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
@@ -1107,7 +1301,12 @@ void setup() {
     epd_init();
     epd_display(epd_buf);
     epd_sleep_mode();
-    deep_sleep(sleep_s);
+
+    // Subtract the time spent fetching + refreshing so we wake on the slot
+    // boundary (exact minute/hour) rather than drifting later each cycle.
+    uint32_t elapsed_s = (millis() - tRefMs) / 1000;
+    uint32_t final_s   = (sleep_s > elapsed_s + 2) ? (sleep_s - elapsed_s) : 5;
+    deep_sleep(final_s);
 }
 
 void loop() {}
