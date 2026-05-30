@@ -247,6 +247,12 @@
       <option value="270">Portrait (270° / 90° counter-clockwise)</option>
     </select>
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Rotate the image to match how the frame is mounted.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Fit to screen</div>
+    <select class="glass-input modal-input" id="editFit" style="margin-bottom:0">
+      <option value="contain">Fit whole photo (black bars)</option>
+      <option value="cover">Fill screen (crop edges)</option>
+    </select>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">“Fill screen” crops a little off the edges so the photo covers the whole panel with no bars. You can override this per photo in the Gallery.</div>
     <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Photo look (e-ink)</div>
     <select class="glass-input modal-input" id="editLookPreset" style="margin-bottom:10px" onchange="applyLookPreset(this.value)">
       <option value="vivid">Vivid — punchy colours</option>
@@ -266,6 +272,22 @@
       <span id="editSaturationVal" style="font-family:monospace;font-size:12px;min-width:34px">1.20</span>
     </div>
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Brightens &amp; saturates photos so they pop on e-ink.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Sleep schedule</div>
+    <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
+      <input type="checkbox" id="editSleepEnabled" style="width:16px;height:16px;cursor:pointer" onchange="document.getElementById('sleepTimes').style.opacity=this.checked?'1':'0.4'">
+      Turn the screen off on a schedule
+    </label>
+    <div id="sleepTimes" style="display:flex;gap:14px;margin-top:10px;opacity:0.4">
+      <div style="flex:1">
+        <span style="font-size:11px;color:rgba(255,255,255,0.5)">Sleeps at</span>
+        <input type="time" class="glass-input modal-input" id="editSleepStart" value="23:00" style="margin-bottom:0">
+      </div>
+      <div style="flex:1">
+        <span style="font-size:11px;color:rgba(255,255,255,0.5)">Wakes at</span>
+        <input type="time" class="glass-input modal-input" id="editSleepEnd" value="07:00" style="margin-bottom:0">
+      </div>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">During these hours the screen shows a “Sleeping” page and stops refreshing — saving battery. Times use the server timezone.</div>
     <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Firmware</div>
     <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
       <input type="checkbox" id="editAutoUpdate" style="width:16px;height:16px;cursor:pointer">
@@ -285,15 +307,10 @@
 <!-- Firmware changelog modal -->
 <div class="modal-backdrop" id="fwLogModal" onclick="if(event.target===this)closeFwLog()">
   <div class="glass modal-box" style="width:480px;max-height:80vh;display:flex;flex-direction:column">
-    <div class="modal-title">Firmware changelog</div>
+    <div class="modal-title">Firmware updates</div>
+    <div style="font-size:11.5px;color:rgba(255,255,255,0.45);margin:-6px 0 12px">What we've shipped for each supported screen.</div>
     <div id="fwLogBody" style="overflow:auto;font-size:13px;color:rgba(255,255,255,0.85)">Loading…</div>
-    <div id="fwLogAdmin" style="display:none;border-top:1px solid rgba(255,255,255,0.12);margin-top:14px;padding-top:14px">
-      <input class="glass-input" id="fwLogTitle" placeholder="Version title — e.g. Faster refresh & PMIC fix" style="margin-bottom:8px">
-      <textarea class="glass-input" id="fwLogChanges" placeholder="One change per line" rows="4" style="width:100%;resize:vertical;font-family:inherit"></textarea>
-      <div style="font-size:11px;color:rgba(255,255,255,0.4);margin:6px 0 10px">Tagged to the current build automatically.</div>
-    </div>
     <div class="modal-footer">
-      <button class="glass-btn modal-btn" id="fwLogAddBtn" style="display:none" onclick="addFwLog()">&#65291; Add entry</button>
       <button class="cyan-btn modal-btn" onclick="closeFwLog()" style="margin-left:auto">Close</button>
     </div>
   </div>
@@ -496,6 +513,7 @@ const HEALTH = { good:'#22c55e', warn:'#f59e0b', bad:'#ef4444' };
 const STATUS_STYLE = {
   online:  { bg:'rgba(34,197,94,0.14)',   fg:'rgba(134,239,172,0.95)', dot:HEALTH.good, bd:'rgba(34,197,94,0.25)' },
   recent:  { bg:'rgba(245,158,11,0.14)',  fg:'rgba(253,210,138,0.95)', dot:HEALTH.warn, bd:'rgba(245,158,11,0.25)' },
+  sleeping:{ bg:'rgba(59,130,246,0.14)',  fg:'rgba(147,197,253,0.95)', dot:'#3b82f6', bd:'rgba(59,130,246,0.25)' },
   offline: { bg:'rgba(255,255,255,0.07)', fg:'rgba(255,255,255,0.45)', dot:'rgba(255,255,255,0.4)', bd:'rgba(255,255,255,0.12)' },
 };
 const SCREEN_COLORS = ['#06b6d4','#d97706','#22c55e','#a855f7','#f43f5e','#3b82f6','#eab308','#ec4899'];
@@ -542,6 +560,12 @@ async function loadScreens() {
 }
 
 function battMeter(d) {
+  // Charging: show a lightning bolt instead of a (often unreliable) percentage.
+  if (d.charging) {
+    const lbl = (d.batt != null && d.batt > 0) ? d.batt + '%' : 'Charging';
+    const w   = (d.batt != null && d.batt > 0) ? d.batt : 100;
+    return `<div class="batt-meter" title="Charging"><div class="batt-shell"><div class="batt-fill" style="width:${w}%;background:#34d399"></div></div><span class="batt-label" style="color:#34d399;font-weight:600">⚡ ${lbl}</span></div>`;
+  }
   const color = HEALTH[d.level] || HEALTH.good;
   const batt = d.batt ?? 0;
   return `<div class="batt-meter"><div class="batt-shell"><div class="batt-fill" style="width:${batt}%;background:${color}"></div></div><span class="batt-label">${d.batt ?? '—'}%</span></div>`;
@@ -568,57 +592,40 @@ function albumChip(a) {
   const count = a.photoCount || 0;
   return `<div class="album-chip${a.fav ? ' fav' : ''}"><span class="album-chip-name"><span class="album-chip-heart" style="color:${a.fav ? HEALTH.warn : 'rgba(255,255,255,0.25)'}">&#9829;</span>${esc(a.name)}</span><span class="album-chip-count">${count} photo${count===1?'':'s'}</span></div>`;
 }
-// ── Firmware changelog ─────────────────────────────────────
-let _fwIsAdmin = false;
+// ── Firmware updates (read-only, per supported screen) ─────────────
 async function openFwLog() {
   document.getElementById('fwLogModal').style.display = 'flex';
-  try {
-    const me = await (await fetch('/api/me')).json();
-    _fwIsAdmin = !!me.permissions?.canManage;
-  } catch { _fwIsAdmin = false; }
-  document.getElementById('fwLogAdmin').style.display = _fwIsAdmin ? 'block' : 'none';
-  document.getElementById('fwLogAddBtn').style.display = _fwIsAdmin ? 'inline-block' : 'none';
   await renderFwLog();
 }
 function closeFwLog() { document.getElementById('fwLogModal').style.display = 'none'; }
 async function renderFwLog() {
   const body = document.getElementById('fwLogBody');
+  body.innerHTML = 'Loading…';
   try {
     const r = await fetch('/api/firmware/changelog');
-    const { current, entries } = await r.json();
-    if (!entries.length) { body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No firmware notes yet.</div>'; return; }
-    body.innerHTML = entries.map(e => {
-      const isCur = current && e.version === current;
-      const ver = e.version ? `<span class="fw-chip">${esc(e.version.slice(0,8))}</span>` : '';
-      const cur = isCur ? `<span style="font-size:11px;color:#34d399;font-weight:600">● running now</span>` : '';
-      const list = (e.changes||[]).map(c => `<li>${esc(c)}</li>`).join('');
-      const del = _fwIsAdmin ? `<button class="glass-btn" style="font-size:11px;padding:3px 9px;border-radius:7px" onclick="delFwLog('${e.id}')">Delete</button>` : '';
-      return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.08)">
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
-          <strong style="font-size:14px">${esc(e.title||'Update')}</strong>${cur}
-          <span style="margin-left:auto;display:flex;gap:6px;align-items:center">${ver}${del}</span>
-        </div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">${new Date(e.date).toLocaleDateString()}${e.author?' · '+esc(e.author):''}</div>
-        <ul style="margin:0;padding-left:18px;line-height:1.6">${list}</ul>
+    const { models } = await r.json();
+    if (!models || !models.length) { body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No firmware updates published yet.</div>'; return; }
+    body.innerHTML = models.map(m => {
+      const releases = (m.releases || []).map(rel => {
+        const cur = rel.isCurrentBuild ? `<span style="font-size:11px;color:#34d399;font-weight:600">● latest build</span>` : '';
+        const ver = rel.version ? `<span class="fw-chip">${esc(rel.version)}</span>` : '';
+        const when = rel.date ? new Date(rel.date).toLocaleDateString() : '';
+        const list = (rel.changes||[]).map(c => `<li>${esc(c)}</li>`).join('');
+        return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.08)">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <strong style="font-size:14px">${esc(rel.title||'Update')}</strong>${cur}
+            <span style="margin-left:auto">${ver}</span>
+          </div>
+          ${when?`<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">${when}</div>`:''}
+          <ul style="margin:0;padding-left:18px;line-height:1.6">${list}</ul>
+        </div>`;
+      }).join('');
+      return `<div style="margin-bottom:18px">
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,0.55);margin-bottom:2px">${esc(m.name)}</div>
+        ${releases}
       </div>`;
     }).join('');
-  } catch { body.innerHTML = '<div style="color:#f87171">Could not load changelog.</div>'; }
-}
-async function addFwLog() {
-  const title = document.getElementById('fwLogTitle').value.trim();
-  const changes = document.getElementById('fwLogChanges').value;
-  if (!title && !changes.trim()) { showToast('Add a title or changes', 'error'); return; }
-  const r = await fetch('/api/admin/firmware/changelog', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, changes }) });
-  if (!r.ok) { showToast('Could not save entry', 'error'); return; }
-  document.getElementById('fwLogTitle').value = '';
-  document.getElementById('fwLogChanges').value = '';
-  showToast('Changelog entry added.');
-  await renderFwLog();
-}
-async function delFwLog(id) {
-  if (!confirm('Delete this changelog entry?')) return;
-  await fetch('/api/admin/firmware/changelog/' + id, { method: 'DELETE' });
-  await renderFwLog();
+  } catch { body.innerHTML = '<div style="color:#f87171">Could not load firmware updates.</div>'; }
 }
 async function updateFirmware(id) {
   if (!confirm('Send a firmware update to this screen\'s device? It will apply the next time the device wakes.')) return;
@@ -731,6 +738,11 @@ function openEditModal(id) {
   document.getElementById('editName').value = s.name || '';
   document.getElementById('editInterval').value = String(s.intervalMinutes || 5);
   document.getElementById('editRotation').value = String(s.rotation || 0);
+  document.getElementById('editFit').value = (s.imageFit === 'cover') ? 'cover' : 'contain';
+  document.getElementById('editSleepEnabled').checked = !!s.sleepEnabled;
+  document.getElementById('editSleepStart').value = s.sleepStart || '23:00';
+  document.getElementById('editSleepEnd').value = s.sleepEnd || '07:00';
+  document.getElementById('sleepTimes').style.opacity = s.sleepEnabled ? '1' : '0.4';
   setLook(s.imageBrightness ?? 1.15, s.imageSaturation ?? 1.2);
   document.getElementById('editAutoUpdate').checked = !!s.autoUpdate;
   renderEditColors();
@@ -748,10 +760,14 @@ async function saveEdit() {
   if (!name) return;
   const intervalMinutes = Number(document.getElementById('editInterval').value) || 5;
   const rotation = Number(document.getElementById('editRotation').value) || 0;
+  const imageFit = document.getElementById('editFit').value === 'cover' ? 'cover' : 'contain';
   const imageBrightness = Number(document.getElementById('editBrightness').value) || 1.15;
   const imageSaturation = Number(document.getElementById('editSaturation').value) || 1.2;
   const autoUpdate = document.getElementById('editAutoUpdate').checked;
-  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, imageBrightness, imageSaturation, autoUpdate }) });
+  const sleepEnabled = document.getElementById('editSleepEnabled').checked;
+  const sleepStart = document.getElementById('editSleepStart').value || '23:00';
+  const sleepEnd = document.getElementById('editSleepEnd').value || '07:00';
+  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, imageFit, imageBrightness, imageSaturation, autoUpdate, sleepEnabled, sleepStart, sleepEnd }) });
   if (!res.ok) { showToast('Could not update screen', 'error'); return; }
   closeEditModal();
   await loadScreens();

@@ -446,6 +446,26 @@
 
     .photo-tile:hover .photo-delete { display: flex; }
 
+    .photo-fit {
+      position: absolute;
+      bottom: 7px;
+      left: 7px;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .photo-tile:hover .photo-fit { display: inline-flex; }
+
     .photo-add-tile {
       aspect-ratio: 1 / 1;
       border-radius: 13px;
@@ -699,7 +719,7 @@
 <script>
 const SCREEN_COLORS = ['#06b6d4','#d97706','#22c55e','#a855f7','#f43f5e','#3b82f6','#eab308','#ec4899'];
 const HEALTH_COLOR = { good: '#22c55e', warn: '#f59e0b', bad: '#ef4444' };
-const STATUS_DOT   = { online: '#22c55e', recent: '#f59e0b', offline: '#6b7280' };
+const STATUS_DOT   = { online: '#22c55e', recent: '#f59e0b', sleeping: '#3b82f6', offline: '#6b7280' };
 
 // Human-readable labels for firmware-reported states
 const FW_STATE_LABELS = {
@@ -857,13 +877,20 @@ function renderScreensView() {
       const dc = STATUS_DOT[d.status]  || '#6b7280';
       const fwStateLabel = fwStateDisplay(d.deviceStatus);
       const lastSeenStr  = d.lastSeen ? relativeTime(d.lastSeen) : '';
+      // Charging: green fill + lightning bolt instead of a (often unreliable) %.
+      const charging  = !!d.charging;
+      const battColor = charging ? '#34d399' : hc;
+      const battFill  = charging ? ((d.batt != null && d.batt > 0) ? d.batt : 100) : (d.batt ?? 0);
+      const battText  = charging
+        ? '⚡ ' + ((d.batt != null && d.batt > 0) ? d.batt + '%' : 'Charging')
+        : (d.batt ?? '—') + '%';
       healthHtml = `<div class="health-strip">
         <div style="display:flex;align-items:center;gap:5px">
           <div class="health-batt-shell">
-            <div class="health-batt-fill" style="width:${d.batt ?? 0}%;background:${hc}"></div>
+            <div class="health-batt-fill" style="width:${battFill}%;background:${battColor}"></div>
             <div class="health-batt-nub"></div>
           </div>
-          <span>${d.batt ?? '—'}%</span>
+          <span${charging ? ' style="color:#34d399;font-weight:600"' : ''}>${battText}</span>
         </div>
         <div class="divider-v"></div>
         <div style="display:flex;align-items:center;gap:5px">
@@ -946,9 +973,13 @@ function renderPhotosView() {
 
   let photosHtml = '';
   for (const p of photos) {
+    const fit = p.imageFit === 'cover' ? 'cover' : p.imageFit === 'contain' ? 'contain' : 'auto';
+    const fitLabel = fit === 'cover' ? 'Fill' : fit === 'contain' ? 'Fit' : 'Auto';
+    const fitTitle = 'Fit on screen: ' + (fit === 'cover' ? 'Fill (crop edges)' : fit === 'contain' ? 'Fit whole photo (bars)' : 'Follow screen setting') + ' — click to change';
     photosHtml += `<div class="photo-tile glass">
       <img src="${esc(p.url)}" alt="${esc(p.filename)}">
       <button class="photo-delete" onclick="deletePhoto('${esc(p.filename)}')">✕</button>
+      <button class="photo-fit" title="${esc(fitTitle)}" onclick="cycleFit('${esc(p.filename)}','${fit}')">${fitLabel}</button>
     </div>`;
   }
 
@@ -1076,6 +1107,21 @@ async function deletePhoto(filename) {
   await loadPhotos(curAlbum.id);
   renderPhotosView();
   renderBreadcrumb();
+}
+
+// ── Per-photo fit override ────────────────────────────────
+// Cycle: auto (follow screen) → cover (fill) → contain (fit) → auto
+async function cycleFit(filename, current) {
+  const next = current === 'auto' ? 'cover' : current === 'cover' ? 'contain' : 'default';
+  const res = await fetch('/api/images/' + encodeURIComponent(filename) + '/fit', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageFit: next }),
+  });
+  if (!res.ok) { alert('Could not update fit'); return; }
+  // Reflect locally without a full reload.
+  const p = photos.find(x => x.filename === filename);
+  if (p) p.imageFit = (next === 'default') ? null : next;
+  renderPhotosView();
 }
 
 // ── New Screen modal ──────────────────────────────────────

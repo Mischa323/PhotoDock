@@ -1,0 +1,82 @@
+{
+  "_comment": "Source-controlled firmware release notes shown read-only in the dashboard. Edit this file in the repo when you push a new firmware build — do NOT edit it through the web UI. The newest release of each model is the build the server currently serves over OTA. Keyed by the model string the device reports during pairing.",
+  "models": {
+    "PhotoPainter-E6": {
+      "name": "Waveshare 7.3\" PhotoPainter (E6 Spectra 6)",
+      "releases": [
+        {
+          "version": "2026.05.31-4",
+          "date": "2026-05-31",
+          "title": "Battery charging & charge indicator",
+          "changes": [
+            "Actually enable the AXP2101 LiPo charger (it was configured but never switched on), with a precharge step to revive a deeply-discharged cell.",
+            "Enable the fuel gauge so the battery percentage reads correctly.",
+            "Report charging/USB state — the dashboard now shows a ⚡ charging indicator instead of a bogus 0%.",
+            "Reject implausible battery voltage readings so the level no longer flickers to 0%."
+          ]
+        },
+        {
+          "version": "2026.05.31-3",
+          "date": "2026-05-31",
+          "title": "Sleep schedule (quiet hours)",
+          "changes": [
+            "New per-screen sleep schedule — the panel shows a Sleeping page and stops refreshing between a set start and end time, saving battery.",
+            "Wakes are now aligned to the exact minute/hour instead of drifting later each cycle."
+          ]
+        },
+        {
+          "version": "2026.05.31-2",
+          "date": "2026-05-31",
+          "title": "Battery life & reliability",
+          "changes": [
+            "Keep the panel rails powered across sleep so the display refreshes reliably on every wake (the AXP2101 wouldn't re-init on a timer wake).",
+            "Power the WiFi radio down during the long e-ink refresh — a big per-wake battery saving.",
+            "Skip the boot-button reconfigure window on unattended wakes; faster, cheaper wake-ups via cached WiFi channel.",
+            "A configured device that briefly can't reach WiFi now sleeps and retries instead of getting stuck in setup mode."
+          ]
+        },
+        {
+          "version": "2026.05.31-1",
+          "date": "2026-05-31",
+          "title": "Refresh interval & update screens",
+          "changes": [
+            "Honour the screen's configured refresh interval as the base, instead of falling back to a fixed 5 minutes.",
+            "Show an 'Updating firmware' screen during an update and an 'Update complete' confirmation afterwards.",
+            "Removed a redundant panel power-on for a slightly shorter refresh."
+          ]
+        },
+        {
+          "version": "2026.05.30-2",
+          "date": "2026-05-30",
+          "title": "Reliable wake-up display",
+          "changes": [
+            "Fix the screen staying blank after a deep-sleep wake — the AXP2101 power chip sometimes failed to re-init coming out of sleep, so the panel never got power.",
+            "Power chip now fully resets the I2C bus between attempts instead of retrying a stuck bus.",
+            "Added a one-shot clean restart that reliably recovers a failed power-up, guarded so it can never boot-loop."
+          ]
+        },
+        {
+          "version": "2026.05.30-1",
+          "date": "2026-05-30",
+          "title": "Faster refresh & on-screen version",
+          "changes": [
+            "Shorter, per-step display timeouts so refreshes complete sooner.",
+            "Device now reports the firmware version it is running, shown on the screen page.",
+            "Logs are sent to the server so issues can be diagnosed without a serial cable."
+          ]
+        },
+        {
+          "version": "2026.05.29-1",
+          "date": "2026-05-29",
+          "title": "E6 panel bring-up & OTA",
+          "changes": [
+            "Correct E6 Spectra-6 init sequence, pin map and panel power via the AXP2101 PMIC.",
+            "Fixed upside-down images (180° rotation).",
+            "Opt-in over-the-air updates — update from the screen page or enable auto-update per screen, no reflashing.",
+            "QR-code pairing flow to link a device to a screen."
+          ]
+        }
+      ]
+    }
+  }
+}

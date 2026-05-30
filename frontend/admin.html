@@ -1025,6 +1025,33 @@
         /* Remove old dark mode - we're always dark now */
         [data-theme="dark"] section { background: rgba(255,255,255,0.07) !important; }
         [data-theme="dark"] body { background: #000 !important; }
+
+        /* Settings tab navigation */
+        .settings-tabs {
+            display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+            padding: 14px 24px 0; max-width: 1400px; margin: 0 auto;
+        }
+        .settings-tab {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.6);
+            font-family: inherit; font-size: 13.5px; font-weight: 600;
+            padding: 9px 18px; border-radius: 10px; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .settings-tab:hover { background: rgba(6,182,212,0.1); color: #22d3ee; }
+        .settings-tab.active { background: rgba(6,182,212,0.16); border-color: rgba(6,182,212,0.45); color: #22d3ee; }
+
+        /* Usage gauges */
+        .gauge-grid { display: flex; flex-wrap: wrap; gap: 18px; padding: 22px 24px; }
+        .gauge-card {
+            flex: 1; min-width: 160px;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 14px; padding: 18px 12px;
+        }
+        .gauge-sub { font-size: 12px; color: rgba(255,255,255,0.55); text-align: center; }
+        .usage-meta { padding: 0 24px 20px; font-size: 12px; color: rgba(255,255,255,0.45); display: flex; flex-wrap: wrap; gap: 16px; }
     </style>
 </head>
 <body>
@@ -1039,7 +1066,26 @@
     </div>
 </header>
 
+<nav class="settings-tabs" id="settingsTabs">
+    <button class="settings-tab active" data-tab="usage"  onclick="switchTab('usage')">Usage</button>
+    <button class="settings-tab"        data-tab="logs"   onclick="switchTab('logs')">Logs</button>
+    <button class="settings-tab"        data-tab="users"  onclick="switchTab('users')">Users &amp; Groups</button>
+    <button class="settings-tab"        data-tab="server" onclick="switchTab('server')">Server settings</button>
+</nav>
+
 <main>
+
+    <!-- Usage -->
+    <section id="sec-usage" class="full-width">
+        <div class="section-header">
+            <h2>Server usage</h2>
+            <button class="back-btn" style="background:var(--accent-light);color:var(--accent-header);font-size:12px" onclick="loadSystemMetrics()">&#8635; Refresh</button>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+            <div id="usageGauges" class="gauge-grid"><p style="padding:24px;color:#bbb">Loading…</p></div>
+            <div id="usageMeta" class="usage-meta"></div>
+        </div></div>
+    </section>
 
     <!-- Activity Log -->
     <section id="sec-activity">
@@ -1416,18 +1462,10 @@
             </div>
 
             <div class="settings-row">
-                <label for="imageBrightness">Photo brightness <span class="help" data-tip="Brightens photos before they are sent to e-ink displays, which tend to look dull. 1.0 = original, higher = brighter.">?</span><small>For e-ink displays · 1.0 = original</small></label>
-                <div style="display:flex;align-items:center;gap:10px">
-                    <input type="range" id="imageBrightness" min="0.8" max="1.6" step="0.05" value="1.15" style="flex:1" oninput="document.getElementById('imageBrightnessVal').textContent=(+this.value).toFixed(2)">
-                    <span id="imageBrightnessVal" style="font-family:monospace;font-size:13px;min-width:34px">1.15</span>
-                </div>
-            </div>
-
-            <div class="settings-row">
-                <label for="imageSaturation">Photo saturation <span class="help" data-tip="Boosts colour vividness before dithering to the 6-colour e-ink palette. 1.0 = original, higher = more saturated.">?</span><small>For e-ink displays · 1.0 = original</small></label>
-                <div style="display:flex;align-items:center;gap:10px">
-                    <input type="range" id="imageSaturation" min="0.8" max="1.8" step="0.05" value="1.2" style="flex:1" oninput="document.getElementById('imageSaturationVal').textContent=(+this.value).toFixed(2)">
-                    <span id="imageSaturationVal" style="font-family:monospace;font-size:13px;min-width:34px">1.20</span>
+                <label>Photo look (brightness &amp; saturation)<small>Now set per screen</small></label>
+                <div style="font-size:12.5px;color:rgba(255,255,255,0.5);line-height:1.5">
+                    Brightness &amp; saturation are now configured <strong>per screen</strong> — open a screen's
+                    <strong>Settings → Photo look</strong> on the <a href="/screens" style="color:#22d3ee">screens page</a>.
                 </div>
             </div>
 
@@ -2312,11 +2350,6 @@
         applyTheme(color);
         document.getElementById('userInactivityDays').value    = s.userInactivityDays    ?? 0;
         document.getElementById('apiKeyInactivityDays').value  = s.apiKeyInactivityDays  ?? 0;
-        const br = s.imageBrightness ?? 1.15, sat = s.imageSaturation ?? 1.2;
-        document.getElementById('imageBrightness').value = br;
-        document.getElementById('imageBrightnessVal').textContent = (+br).toFixed(2);
-        document.getElementById('imageSaturation').value = sat;
-        document.getElementById('imageSaturationVal').textContent = (+sat).toFixed(2);
         renderBgThemePresets();
     }
 
@@ -2331,8 +2364,6 @@
             slideshowInterval: parseInt(document.getElementById('slideshowInterval').value) || 30,
             datePosition:      document.getElementById('datePosition').value || 'top-right',
             logRetentionDays:  parseInt(document.getElementById('logRetentionDays').value) || 30,
-            imageBrightness:   parseFloat(document.getElementById('imageBrightness').value) || 1.15,
-            imageSaturation:   parseFloat(document.getElementById('imageSaturation').value) || 1.2,
         };
         const res  = await fetch('/api/settings', {
             method: 'PUT',
@@ -2405,10 +2436,15 @@
             if (!r.ok) { el.textContent = 'Could not load logs.'; return; }
             const list = await r.json();
             if (!list.length) { el.textContent = 'No device logs yet. They appear after a paired device wakes.'; return; }
+            const lastAt = d => (d.entries || []).reduce((m, e) => Math.max(m, +new Date(e.at) || 0), 0);
+            // Most recently active device first…
+            const devices = [...list].sort((a, b) => lastAt(b) - lastAt(a));
             const out = [];
-            for (const dev of list) {
+            for (const dev of devices) {
                 out.push(`━━ ${dev.deviceId} ━━`);
-                for (const e of dev.entries) {
+                // …and newest log entry on top within each device.
+                const entries = [...(dev.entries || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+                for (const e of entries) {
                     out.push(`[${new Date(e.at).toLocaleString()}]`);
                     out.push(e.text.trimEnd());
                     out.push('');
@@ -2890,6 +2926,7 @@
 
     // ── Grid layout — drag to reorder, toggle full/half width ─────────────
     const GRID_DEFAULTS = {
+        'sec-usage':     'full',
         'sec-activity':  'full',
         'sec-security':  'half',
         'sec-email':     'half',
@@ -2980,6 +3017,82 @@
         dragClass:  'sortable-drag',
         onEnd: saveGridLayout,
     });
+
+    // ── Settings tabs ────────────────────────────────────────────────────────
+    const SECTION_GROUP = {
+        'sec-usage':       'usage',
+        'sec-activity':    'logs',
+        'sec-users':       'users',
+        'sec-roles':       'users',
+        'sec-security':    'server',
+        'sec-email':       'server',
+        'sec-display':     'server',
+        'sec-api-ref':     'server',
+        'sec-device-setup':'logs',
+        'sec-api-keys':    'server',
+        'sec-version':     'server',
+    };
+    let _metricsTimer = null;
+    function switchTab(group) {
+        document.querySelectorAll('.settings-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === group));
+        document.querySelectorAll('main > section').forEach(s => {
+            s.style.display = (SECTION_GROUP[s.id] || 'server') === group ? '' : 'none';
+        });
+        localStorage.setItem('adminActiveTab', group);
+        // Only poll metrics while the Usage tab is open.
+        if (_metricsTimer) { clearInterval(_metricsTimer); _metricsTimer = null; }
+        if (group === 'usage') { loadSystemMetrics(); _metricsTimer = setInterval(loadSystemMetrics, 5000); }
+    }
+    window.switchTab = switchTab;
+
+    // ── Usage gauges ─────────────────────────────────────────────────────────
+    function fmtBytes(b) {
+        if (b == null) return '—';
+        if (b >= 1e9) return (b / 1073741824).toFixed(1) + ' GB';
+        if (b >= 1e6) return (b / 1048576).toFixed(0) + ' MB';
+        return (b / 1024).toFixed(0) + ' KB';
+    }
+    function gaugeColor(p) { return p >= 90 ? '#ef4444' : p >= 70 ? '#f59e0b' : '#22c55e'; }
+    function gaugeCard(label, pct, sub) {
+        const r = 42, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(100, pct)) / 100);
+        const col = gaugeColor(pct);
+        return `<div class="gauge-card">
+            <svg width="110" height="110" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="${r}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="10"/>
+              <circle cx="55" cy="55" r="${r}" fill="none" stroke="${col}" stroke-width="10" stroke-linecap="round"
+                stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 55 55)"/>
+              <text x="55" y="59" text-anchor="middle" font-size="24" font-weight="700" fill="#fff">${pct}%</text>
+            </svg>
+            <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.85)">${label}</div>
+            <div class="gauge-sub">${sub}</div>
+        </div>`;
+    }
+    async function loadSystemMetrics() {
+        const el = document.getElementById('usageGauges');
+        const meta = document.getElementById('usageMeta');
+        if (!el) return;
+        try {
+            const r = await fetch('/api/admin/system-metrics');
+            if (!r.ok) { el.innerHTML = '<p style="padding:24px;color:#f87171">Could not load metrics.</p>'; return; }
+            const m = await r.json();
+            let html = '';
+            html += gaugeCard('CPU', m.cpu.pct, `${m.cpu.cores} core${m.cpu.cores === 1 ? '' : 's'}`);
+            html += gaugeCard('Memory', m.ram.pct, `${fmtBytes(m.ram.used)} / ${fmtBytes(m.ram.total)}`);
+            if (m.storage && m.storage.kind === 'disk')
+                html += gaugeCard('Disk', m.storage.pct, `${fmtBytes(m.storage.used)} / ${fmtBytes(m.storage.total)} used`);
+            else if (m.storage)
+                html += `<div class="gauge-card"><div style="font-size:26px;font-weight:700;color:#fff">${fmtBytes(m.storage.used)}</div><div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.85)">Photos on disk</div><div class="gauge-sub">disk free space unavailable</div></div>`;
+            el.innerHTML = html;
+            const up = s => { s = Math.floor(s); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), mn = Math.floor(s % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${mn}m` : `${mn}m`; };
+            if (meta) meta.innerHTML = `<span>📷 ${m.uploads.count} photos · ${fmtBytes(m.uploads.bytes)}</span>`
+                + `<span>🖥 ${m.host.platform} · up ${up(m.host.uptime)}</span>`
+                + `<span>⚙ Node ${m.proc.node} · server up ${up(m.proc.uptime)} · ${fmtBytes(m.proc.rss)} RSS</span>`;
+        } catch { el.innerHTML = '<p style="padding:24px;color:#f87171">Could not load metrics.</p>'; }
+    }
+    window.loadSystemMetrics = loadSystemMetrics;
+
+    // Restore last tab (default Usage).
+    switchTab(localStorage.getItem('adminActiveTab') || 'usage');
 
     // ── Global help tooltip (body-level so overflow:hidden never clips it) ──
     const helpTip = document.createElement('div');
