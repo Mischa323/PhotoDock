@@ -1763,15 +1763,18 @@ app.get('/api/screens', (_req, res) => {
     const now      = Date.now();
 
     const screens = (appData.screens || []).map(s => {
-        // Find the API key tied to this screen, then its most recent check-in
-        // from either device store (firmware uses deviceStatus).
-        const linkedKey = (appData.apiKeys || []).find(k => k.screenId === s.id);
+        // A screen can have several API keys (e.g. re-paired devices). Match the
+        // device check-in against ANY key on this screen, not just the first.
+        const linkedKeys   = (appData.apiKeys || []).filter(k => k.screenId === s.id);
+        const linkedKeyIds = new Set(linkedKeys.map(k => k.id));
+        // For settings display, prefer the key the device actually reports under.
+        const linkedKey = linkedKeys[0];
         let deviceInfo  = null;
-        if (linkedKey) {
-            const fw  = Object.values(statuses).find(d => d.apiKeyId === linkedKey.id);
-            const leg = states[linkedKey.id];
-            // Prefer the most recently seen of the two sources.
-            const src = [fw, leg].filter(Boolean)
+        if (linkedKeys.length) {
+            const fwList = Object.values(statuses).filter(d => linkedKeyIds.has(d.apiKeyId) || d.screenId === s.id);
+            const legList = linkedKeys.map(k => states[k.id]).filter(Boolean);
+            // Prefer the most recently seen across all keys and both stores.
+            const src = [...fwList, ...legList]
                 .sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen))[0];
             if (src) {
                 const ageMs = now - new Date(src.lastSeen).getTime();
@@ -1786,7 +1789,7 @@ app.get('/api/screens', (_req, res) => {
                 const w    = src.wifi != null ? { bars: src.wifi, label: src.wlabel || '' }
                                               : rssiToBars(src.wifiRssi);
                 deviceInfo = {
-                    id:          linkedKey.label || linkedKey.id,
+                    id:          src.deviceId || linkedKey.label || linkedKey.id,
                     batt:        batt ?? null,
                     level:       src.level || (batt == null ? 'good' : batt <= 15 ? 'bad' : batt <= 30 ? 'warn' : 'good'),
                     wifi:        w.bars,
