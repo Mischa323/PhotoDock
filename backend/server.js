@@ -1460,9 +1460,11 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     const imgH = (qH > 0 ? qH : null) || keyRecord?.imageHeight || settings.imageHeight;
     const rotation = [0, 90, 180, 270].includes(Number(keyRecord?.rotation)) ? Number(keyRecord.rotation) : 0;
     // Brighten/saturate before the device dithers to 6 colours, so e-ink photos
-    // look less dull. Clamped to sane ranges.
-    const brightness = Math.min(2, Math.max(0.5, Number(settings.imageBrightness) || 1));
-    const saturation = Math.min(2, Math.max(0.5, Number(settings.imageSaturation) || 1));
+    // look less dull. Per-screen override wins, else global setting, else default.
+    const brRaw = keyRecord?.imageBrightness ?? settings.imageBrightness ?? 1;
+    const saRaw = keyRecord?.imageSaturation ?? settings.imageSaturation ?? 1;
+    const brightness = Math.min(2, Math.max(0.5, Number(brRaw) || 1));
+    const saturation = Math.min(2, Math.max(0.5, Number(saRaw) || 1));
     try {
         const pipeline = sharp(filepath)
             .rotate(rotation, { background: { r: 0, g: 0, b: 0 } })   // user-chosen orientation
@@ -1818,6 +1820,8 @@ app.get('/api/screens', (_req, res) => {
             albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
             intervalMinutes: linkedKey?.intervalMinutes || 5,
             rotation:    linkedKey?.rotation || 0,
+            imageBrightness: linkedKey?.imageBrightness ?? (appData.settings?.imageBrightness ?? DEFAULT_SETTINGS.imageBrightness),
+            imageSaturation: linkedKey?.imageSaturation ?? (appData.settings?.imageSaturation ?? DEFAULT_SETTINGS.imageSaturation),
             autoUpdate:  linkedKey?.autoUpdate || false,
             updatePending: linkedKey?.updatePending || false,
             firmwareVersion: deviceFw,
@@ -1850,18 +1854,28 @@ app.post('/api/screens', (req, res) => {
 app.put('/api/screens/:id', (req, res) => {
     const screen = (appData.screens || []).find(s => s.id === req.params.id);
     if (!screen) return res.status(404).json({ error: 'Screen not found' });
-    const { name, description, color, intervalMinutes, autoUpdate, rotation } = req.body;
+    const { name, description, color, intervalMinutes, autoUpdate, rotation, imageBrightness, imageSaturation } = req.body;
     if (name !== undefined) screen.name = name.trim();
     if (description !== undefined) screen.description = description.trim();
     if (color !== undefined) screen.color = color;
+    const linkedKeys = (appData.apiKeys || []).filter(k => k.screenId === screen.id);
     // Rotation (0/90/180/270) — applied server-side to the image sent to the device.
     if (rotation !== undefined) {
         const allowed = [0, 90, 180, 270];
         const rot = allowed.includes(Number(rotation)) ? Number(rotation) : 0;
-        for (const k of (appData.apiKeys || [])) {
-            if (k.screenId === screen.id) k.rotation = rot;
-        }
+        for (const k of linkedKeys) k.rotation = rot;
         screen.rotation = rot;
+    }
+    // Per-display image look (brightness/saturation), clamped to sane ranges.
+    if (imageBrightness !== undefined) {
+        const v = Math.min(2, Math.max(0.5, parseFloat(imageBrightness) || 1));
+        for (const k of linkedKeys) k.imageBrightness = v;
+        screen.imageBrightness = v;
+    }
+    if (imageSaturation !== undefined) {
+        const v = Math.min(2, Math.max(0.5, parseFloat(imageSaturation) || 1));
+        for (const k of linkedKeys) k.imageSaturation = v;
+        screen.imageSaturation = v;
     }
     // Refresh rate and auto-update live on the device's API key. Apply to every
     // key linked to this screen.

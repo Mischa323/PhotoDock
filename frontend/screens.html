@@ -246,6 +246,25 @@
       <option value="270">Portrait (270° / 90° counter-clockwise)</option>
     </select>
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Rotate the image to match how the frame is mounted.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Photo look (e-ink)</div>
+    <select class="glass-input modal-input" id="editLookPreset" style="margin-bottom:10px" onchange="applyLookPreset(this.value)">
+      <option value="vivid">Vivid — punchy colours</option>
+      <option value="balanced">Balanced (recommended)</option>
+      <option value="soft">Soft — gentle</option>
+      <option value="original">Original — no boost</option>
+      <option value="custom">Custom…</option>
+    </select>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <span style="font-size:12px;color:rgba(255,255,255,0.6);min-width:70px">Brightness</span>
+      <input type="range" id="editBrightness" min="0.8" max="1.6" step="0.05" value="1.15" style="flex:1" oninput="onLookSlider()">
+      <span id="editBrightnessVal" style="font-family:monospace;font-size:12px;min-width:34px">1.15</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:12px;color:rgba(255,255,255,0.6);min-width:70px">Saturation</span>
+      <input type="range" id="editSaturation" min="0.8" max="1.8" step="0.05" value="1.2" style="flex:1" oninput="onLookSlider()">
+      <span id="editSaturationVal" style="font-family:monospace;font-size:12px;min-width:34px">1.20</span>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Brightens &amp; saturates photos so they pop on e-ink.</div>
     <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Firmware</div>
     <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
       <input type="checkbox" id="editAutoUpdate" style="width:16px;height:16px;cursor:pointer">
@@ -538,6 +557,33 @@ async function updateFirmware(id) {
   showToast('Update queued — applies on next wake.');
   await loadScreens();
 }
+const LOOK_PRESETS = {
+  vivid:    { b: 1.25, s: 1.4 },
+  balanced: { b: 1.15, s: 1.2 },
+  soft:     { b: 1.05, s: 1.05 },
+  original: { b: 1.0,  s: 1.0 },
+};
+function setLook(b, s) {
+  document.getElementById('editBrightness').value = b;
+  document.getElementById('editSaturation').value = s;
+  document.getElementById('editBrightnessVal').textContent = (+b).toFixed(2);
+  document.getElementById('editSaturationVal').textContent = (+s).toFixed(2);
+  // Reflect a matching preset in the dropdown, else "custom".
+  const match = Object.entries(LOOK_PRESETS).find(([, p]) => Math.abs(p.b - b) < 0.001 && Math.abs(p.s - s) < 0.001);
+  document.getElementById('editLookPreset').value = match ? match[0] : 'custom';
+}
+function applyLookPreset(name) {
+  const p = LOOK_PRESETS[name];
+  if (p) setLook(p.b, p.s);
+}
+function onLookSlider() {
+  const b = +document.getElementById('editBrightness').value;
+  const s = +document.getElementById('editSaturation').value;
+  document.getElementById('editBrightnessVal').textContent = b.toFixed(2);
+  document.getElementById('editSaturationVal').textContent = s.toFixed(2);
+  const match = Object.entries(LOOK_PRESETS).find(([, p]) => Math.abs(p.b - b) < 0.001 && Math.abs(p.s - s) < 0.001);
+  document.getElementById('editLookPreset').value = match ? match[0] : 'custom';
+}
 function fmtInterval(m) {
   if (m % 1440 === 0) return (m/1440) + 'd';
   if (m % 60 === 0)   return (m/60) + 'h';
@@ -615,6 +661,7 @@ function openEditModal(id) {
   document.getElementById('editName').value = s.name || '';
   document.getElementById('editInterval').value = String(s.intervalMinutes || 5);
   document.getElementById('editRotation').value = String(s.rotation || 0);
+  setLook(s.imageBrightness ?? 1.15, s.imageSaturation ?? 1.2);
   document.getElementById('editAutoUpdate').checked = !!s.autoUpdate;
   renderEditColors();
   document.getElementById('editModal').style.display = 'flex';
@@ -631,8 +678,10 @@ async function saveEdit() {
   if (!name) return;
   const intervalMinutes = Number(document.getElementById('editInterval').value) || 5;
   const rotation = Number(document.getElementById('editRotation').value) || 0;
+  const imageBrightness = Number(document.getElementById('editBrightness').value) || 1.15;
+  const imageSaturation = Number(document.getElementById('editSaturation').value) || 1.2;
   const autoUpdate = document.getElementById('editAutoUpdate').checked;
-  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, autoUpdate }) });
+  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, imageBrightness, imageSaturation, autoUpdate }) });
   if (!res.ok) { showToast('Could not update screen', 'error'); return; }
   closeEditModal();
   await loadScreens();
