@@ -1170,12 +1170,12 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
 });
 
 // ── Display settings ───────────────────────────────────────────────────────
-const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0, logRetentionDays: 30, maxLoginAttempts: 5 };
+const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0, logRetentionDays: 30, maxLoginAttempts: 5, imageBrightness: 1.15, imageSaturation: 1.2 };
 
 app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays, logRetentionDays, maxLoginAttempts } = req.body;
+    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays, logRetentionDays, maxLoginAttempts, imageBrightness, imageSaturation } = req.body;
     try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
     if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
     const interval    = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
@@ -1187,7 +1187,9 @@ app.put('/api/settings', requireAdmin, (req, res) => {
     const keyDays     = Math.max(0, parseInt(apiKeyInactivityDays) || 0);
     const retentionDays   = Math.max(1, parseInt(logRetentionDays) || DEFAULT_SETTINGS.logRetentionDays);
     const maxAttempts = Math.max(0, parseInt(maxLoginAttempts) ?? DEFAULT_SETTINGS.maxLoginAttempts);
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays, logRetentionDays: retentionDays, maxLoginAttempts: maxAttempts };
+    const brightness  = Math.min(2, Math.max(0.5, parseFloat(imageBrightness) || DEFAULT_SETTINGS.imageBrightness));
+    const saturation  = Math.min(2, Math.max(0.5, parseFloat(imageSaturation) || DEFAULT_SETTINGS.imageSaturation));
+    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays, logRetentionDays: retentionDays, maxLoginAttempts: maxAttempts, imageBrightness: brightness, imageSaturation: saturation };
     saveData(appData);
     res.json(appData.settings);
 });
@@ -1457,10 +1459,16 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     const imgW = (qW > 0 ? qW : null) || keyRecord?.imageWidth  || settings.imageWidth;
     const imgH = (qH > 0 ? qH : null) || keyRecord?.imageHeight || settings.imageHeight;
     const rotation = [0, 90, 180, 270].includes(Number(keyRecord?.rotation)) ? Number(keyRecord.rotation) : 0;
+    // Brighten/saturate before the device dithers to 6 colours, so e-ink photos
+    // look less dull. Clamped to sane ranges.
+    const brightness = Math.min(2, Math.max(0.5, Number(settings.imageBrightness) || 1));
+    const saturation = Math.min(2, Math.max(0.5, Number(settings.imageSaturation) || 1));
     try {
         const pipeline = sharp(filepath)
             .rotate(rotation, { background: { r: 0, g: 0, b: 0 } })   // user-chosen orientation
             .resize(imgW, imgH, { fit: 'contain', background: { r: 0, g: 0, b: 0 } });
+
+        if (brightness !== 1 || saturation !== 1) pipeline.modulate({ brightness, saturation });
 
         const overlay = buildDateOverlaySvg(imgW, imgH, settings);
         if (overlay) pipeline.composite([{ input: overlay, top: 0, left: 0 }]);

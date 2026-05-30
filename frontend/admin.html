@@ -1416,6 +1416,22 @@
             </div>
 
             <div class="settings-row">
+                <label for="imageBrightness">Photo brightness <span class="help" data-tip="Brightens photos before they are sent to e-ink displays, which tend to look dull. 1.0 = original, higher = brighter.">?</span><small>For e-ink displays · 1.0 = original</small></label>
+                <div style="display:flex;align-items:center;gap:10px">
+                    <input type="range" id="imageBrightness" min="0.8" max="1.6" step="0.05" value="1.15" style="flex:1" oninput="document.getElementById('imageBrightnessVal').textContent=(+this.value).toFixed(2)">
+                    <span id="imageBrightnessVal" style="font-family:monospace;font-size:13px;min-width:34px">1.15</span>
+                </div>
+            </div>
+
+            <div class="settings-row">
+                <label for="imageSaturation">Photo saturation <span class="help" data-tip="Boosts colour vividness before dithering to the 6-colour e-ink palette. 1.0 = original, higher = more saturated.">?</span><small>For e-ink displays · 1.0 = original</small></label>
+                <div style="display:flex;align-items:center;gap:10px">
+                    <input type="range" id="imageSaturation" min="0.8" max="1.8" step="0.05" value="1.2" style="flex:1" oninput="document.getElementById('imageSaturationVal').textContent=(+this.value).toFixed(2)">
+                    <span id="imageSaturationVal" style="font-family:monospace;font-size:13px;min-width:34px">1.20</span>
+                </div>
+            </div>
+
+            <div class="settings-row">
                 <label for="logRetentionDays">Log retention <span class="help" data-tip="How many days to keep activity log entries. Older entries are pruned automatically once per hour.">?</span><small>Days to keep log entries</small></label>
                 <div style="display:flex;align-items:center;gap:8px">
                     <input type="number" id="logRetentionDays" min="1" max="3650"
@@ -2276,6 +2292,11 @@
         applyTheme(color);
         document.getElementById('userInactivityDays').value    = s.userInactivityDays    ?? 0;
         document.getElementById('apiKeyInactivityDays').value  = s.apiKeyInactivityDays  ?? 0;
+        const br = s.imageBrightness ?? 1.15, sat = s.imageSaturation ?? 1.2;
+        document.getElementById('imageBrightness').value = br;
+        document.getElementById('imageBrightnessVal').textContent = (+br).toFixed(2);
+        document.getElementById('imageSaturation').value = sat;
+        document.getElementById('imageSaturationVal').textContent = (+sat).toFixed(2);
         renderBgThemePresets();
     }
 
@@ -2290,6 +2311,8 @@
             slideshowInterval: parseInt(document.getElementById('slideshowInterval').value) || 30,
             datePosition:      document.getElementById('datePosition').value || 'top-right',
             logRetentionDays:  parseInt(document.getElementById('logRetentionDays').value) || 30,
+            imageBrightness:   parseFloat(document.getElementById('imageBrightness').value) || 1.15,
+            imageSaturation:   parseFloat(document.getElementById('imageSaturation').value) || 1.2,
         };
         const res  = await fetch('/api/settings', {
             method: 'PUT',
