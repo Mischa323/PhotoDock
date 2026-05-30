@@ -154,7 +154,7 @@ function maskEmail(email) {
 
 function otpEmailHtml(code) {
     return `<div style="font-family:sans-serif;max-width:420px;margin:0 auto;padding:32px 24px">
-        <h2 style="color:#0e7490;margin:0 0 8px">Photo Display for TNMLS</h2>
+        <h2 style="color:#0e7490;margin:0 0 8px">PhotoDock</h2>
         <p style="color:#444;margin:0 0 24px">Your verification code is:</p>
         <div style="font-size:40px;font-weight:700;letter-spacing:12px;color:#0e7490;padding:16px 0;font-family:monospace">${code}</div>
         <p style="color:#888;font-size:13px;margin-top:24px">This code expires in 5 minutes.<br>If you did not request this, you can safely ignore this email.</p>
@@ -610,7 +610,7 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
             if (boot0) fs.copyFileSync(boot0, path.join(FIRMWARE_DIR, 'boot_app0.bin'));
             else send('log', '⚠ boot_app0.bin not found — flash may require a full erase\n');
             const manifest = {
-                name: 'Photo Display Firmware',
+                name: 'PhotoDock Firmware',
                 version: '1.0.0',
                 builds: [{ chipFamily: 'ESP32-S3', parts: [
                     { path: '/firmware/bootloader.bin', offset: 0 },
@@ -708,7 +708,7 @@ app.post('/login', async (req, res) => {
                 const otp = generateOtp();
                 const pendingToken = createPending2FA(user.id, otp);
                 try {
-                    await sendEmail(user.email, 'Your login code — Photo Display for TNMLS', otpEmailHtml(otp));
+                    await sendEmail(user.email, 'Your login code — PhotoDock', otpEmailHtml(otp));
                 } catch (e) {
                     console.error('Failed to send 2FA email:', e.message);
                     pending2FA.delete(pendingToken);
@@ -856,7 +856,7 @@ app.post('/api/2fa/email/send-code', async (req, res) => {
     const otp = generateOtp();
     emailVerifyOtps.set(u.id, { otp, expiresAt: Date.now() + 5 * 60 * 1000, purpose });
     try {
-        await sendEmail(u.email, 'Your verification code — Photo Display for TNMLS', otpEmailHtml(otp));
+        await sendEmail(u.email, 'Your verification code — PhotoDock', otpEmailHtml(otp));
         res.json({ ok: true, email: maskEmail(u.email) });
     } catch (e) {
         emailVerifyOtps.delete(u.id);
@@ -876,7 +876,7 @@ app.post('/api/2fa/email/resend', async (req, res) => {
     rec.emailOtp  = newOtp;
     rec.expiresAt = Date.now() + 5 * 60 * 1000;
     try {
-        await sendEmail(user.email, 'Your login code — Photo Display for TNMLS', otpEmailHtml(newOtp));
+        await sendEmail(user.email, 'Your login code — PhotoDock', otpEmailHtml(newOtp));
         res.json({ ok: true, email: maskEmail(user.email) });
     } catch (e) {
         res.status(502).json({ error: 'Could not send email. Check the email configuration.' });
@@ -1115,9 +1115,9 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
     const { to } = req.body;
     if (!to) return res.status(400).json({ error: 'Recipient address required' });
     try {
-        await sendEmail(to, 'Test email — Photo Display for TNMLS',
+        await sendEmail(to, 'Test email — PhotoDock',
             `<div style="font-family:sans-serif;padding:32px 24px;max-width:420px">
-                <h2 style="color:#0e7490">Photo Display for TNMLS</h2>
+                <h2 style="color:#0e7490">PhotoDock</h2>
                 <p>This is a test email. Your email configuration is working correctly.</p>
             </div>`);
         res.json({ ok: true });
@@ -1578,7 +1578,7 @@ app.put('/api/images/:filename/screen', (req, res) => {
 // ── Inactivity notifications ───────────────────────────────────────────────
 function inactivityEmailHtml(staleUsers, staleKeys) {
     let html = `<div style="font-family:sans-serif;padding:32px 24px;max-width:540px">
-        <h2 style="color:#0e7490;margin-bottom:4px">Photo Display for TNMLS</h2>
+        <h2 style="color:#0e7490;margin-bottom:4px">PhotoDock</h2>
         <p style="color:#555;margin-top:0">Inactivity alert — ${new Date().toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })}</p>`;
     if (staleUsers.length) {
         html += `<h3 style="margin-bottom:8px">Inactive users</h3>
@@ -1600,7 +1600,7 @@ function inactivityEmailHtml(staleUsers, staleKeys) {
         }
         html += `</table>`;
     }
-    html += `<p style="font-size:12px;color:#aaa;margin-top:24px">Sent by Photo Display for TNMLS · Manage notification settings in the admin panel</p></div>`;
+    html += `<p style="font-size:12px;color:#aaa;margin-top:24px">Sent by PhotoDock · Manage notification settings in the admin panel</p></div>`;
     return html;
 }
 
@@ -1637,7 +1637,7 @@ async function runInactivityCheck() {
     if (!adminEmails.length) return;
 
     const html = inactivityEmailHtml(staleUsers, staleKeys);
-    const subject = 'Inactivity alert — Photo Display for TNMLS';
+    const subject = 'Inactivity alert — PhotoDock';
     let sent = false;
     for (const email of adminEmails) {
         try { await sendEmail(email, subject, html); sent = true; } catch { /* skip */ }
