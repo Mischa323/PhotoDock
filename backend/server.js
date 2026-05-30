@@ -366,6 +366,9 @@ function requireAuth(req, res, next) {
     if (req.path === '/api/2fa/complete') return next();
     if (req.path === '/api/2fa/email/resend') return next();
     if (req.path.startsWith('/api/slideshow/')) return next();
+    // Device-facing endpoints authenticate with an API key (requireApiKey), not
+    // a user session — let them through the session wall.
+    if (req.path.startsWith('/api/device/')) return next();
     if (req.path === '/pair') return next();
     if (req.path === '/api/devices/pair/request') return next();
     if (req.method === 'GET' && req.path.startsWith('/api/devices/pair/')) return next();
