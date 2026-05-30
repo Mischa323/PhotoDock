@@ -2025,9 +2025,9 @@
             </tr>
             <tr id="expand-${k.id}" style="display:none">
                 <td colspan="4" style="padding:0">
-                    <div style="background:#f8fafc;border-top:1px solid #e8edf2;border-bottom:1px solid #e8edf2;padding:14px 16px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+                    <div style="background:rgba(255,255,255,0.04);border-top:1px solid rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);padding:14px 16px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API Key</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API Key</div>
                             <div class="key-cell">
                                 <span class="key-masked" id="keyval-${k.id}">••••••••••••</span>
                                 <button class="icon-btn" title="Show/hide" onclick="toggleKey('${k.id}', '${escHtml(k.key)}')">&#128065;</button>
@@ -2035,7 +2035,7 @@
                             </div>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Image size</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Image size</div>
                             <div style="display:flex;align-items:center;gap:4px">
                                 <input type="number" min="1" max="7680" value="${k.imageWidth || ''}" placeholder="1920"
                                     id="imgw-${k.id}" style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
@@ -2047,7 +2047,7 @@
                             </div>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Endpoints</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Endpoints</div>
                             <div style="display:flex;flex-direction:column;gap:4px">
                                 <label class="ep-toggle"><input type="checkbox" id="ep-current-${k.id}" ${hasEp(k,'current') ? 'checked' : ''} onchange="saveKeySettings('${k.id}')"> current</label>
                                 <label class="ep-toggle"><input type="checkbox" id="ep-all-${k.id}"     ${hasEp(k,'all')     ? 'checked' : ''} onchange="saveKeySettings('${k.id}')"> all</label>
@@ -2055,7 +2055,7 @@
                             </div>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Date overlay</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Date overlay</div>
                             <select id="showdate-${k.id}"
                                 style="border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
                                 onchange="saveKeySettings('${k.id}')">
@@ -2065,7 +2065,7 @@
                             </select>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Screen</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Screen</div>
                             <select id="screen-${k.id}"
                                 style="border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
                                 onchange="saveKeySettings('${k.id}')">
@@ -2074,7 +2074,7 @@
                             </select>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Created</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Created</div>
                             <div style="font-size:13px">${new Date(k.createdAt).toLocaleDateString()}</div>
                         </div>
                     </div>
