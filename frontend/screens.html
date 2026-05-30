@@ -7,6 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/glass.css">
+  <script src="/theme.js"></script>
   <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -26,6 +27,7 @@
     }
 
     .cards-grid {
+      position: relative; z-index: 5;
       max-width: 1000px; margin: 16px auto; padding: 0 16px 90px;
       display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
       gap: 14px; align-items: start;
@@ -197,12 +199,13 @@
 </head>
 <body>
 
-<div class="space-bg-3"></div>
+<div class="space-bg" id="bgEl"></div>
 
 <div class="page-header glass">
   <span class="title">Screens</span>
   <div class="header-actions">
     <button class="cyan-btn hbtn" onclick="openSetup()">&#65291; Set up a device</button>
+    <a href="/pair" class="glass-btn hbtn" title="Pair a device that's already on your WiFi and showing a QR code">&#128241; Pair a device</a>
     <a href="/" class="glass-btn hbtn">&#8962; Gallery</a>
     <a href="/admin" class="glass-btn hbtn">&#9881; Settings</a>
   </div>
@@ -220,6 +223,34 @@
       onkeydown="if(event.key==='Enter')saveEdit();if(event.key==='Escape')closeEditModal()">
     <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:9px">Colour</div>
     <div class="color-picker" id="editColors"></div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Refresh rate</div>
+    <select class="glass-input modal-input" id="editInterval" style="margin-bottom:0">
+      <option value="1">Every 1 minute</option>
+      <option value="5">Every 5 minutes</option>
+      <option value="10">Every 10 minutes</option>
+      <option value="15">Every 15 minutes</option>
+      <option value="30">Every 30 minutes</option>
+      <option value="60">Every hour</option>
+      <option value="180">Every 3 hours</option>
+      <option value="360">Every 6 hours</option>
+      <option value="720">Every 12 hours</option>
+      <option value="1440">Once a day</option>
+    </select>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">How often the paired device wakes to fetch a new photo.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Orientation</div>
+    <select class="glass-input modal-input" id="editRotation" style="margin-bottom:0">
+      <option value="0">Landscape (0°)</option>
+      <option value="90">Portrait (90° clockwise)</option>
+      <option value="180">Landscape upside-down (180°)</option>
+      <option value="270">Portrait (270° / 90° counter-clockwise)</option>
+    </select>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Rotate the image to match how the frame is mounted.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Firmware</div>
+    <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
+      <input type="checkbox" id="editAutoUpdate" style="width:16px;height:16px;cursor:pointer">
+      Auto-update firmware when a new version is available
+    </label>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">When off, updates only happen when you click “Update now”.</div>
     <div class="modal-footer">
       <button class="glass-btn modal-btn" style="color:#f87171" onclick="deleteFromModal()">Delete</button>
       <div style="display:flex;gap:8px">
@@ -229,6 +260,7 @@
     </div>
   </div>
 </div>
+
 
 <!-- Device Setup wizard -->
 <div class="modal-backdrop" id="setupModal" onclick="if(event.target===this)closeSetup()">
@@ -245,7 +277,7 @@
         <div class="wizard-step-line" id="line2"></div>
         <div class="wizard-step-item"><div class="wizard-step-dot" id="dot3">3</div><span class="wizard-step-label" id="lbl3">Flash</span></div>
         <div class="wizard-step-line" id="line3"></div>
-        <div class="wizard-step-item"><div class="wizard-step-dot" id="dot4">4</div><span class="wizard-step-label" id="lbl4">Done</span></div>
+        <div class="wizard-step-item"><div class="wizard-step-dot" id="dot4">4</div><span class="wizard-step-label" id="lbl4">Pair</span></div>
       </div>
 
       <!-- Step 1: Name -->
@@ -283,10 +315,10 @@
           </div>
         </div>
         <div id="wzExistingFields" style="display:none">
-          <div class="wizard-title">Select the device to reflash</div>
+          <div class="wizard-title">Select the screen to reflash</div>
           <div class="wz-field">
-            <label>Existing device</label>
-            <select id="wzExistingKey"><option value="">— loading devices… —</option></select>
+            <label>Screen</label>
+            <select id="wzExistingKey"><option value="">— loading screens… —</option></select>
           </div>
         </div>
         <div class="wizard-actions">
@@ -359,6 +391,7 @@
           <div class="flash-instructions">
             <div class="flash-step"><div class="flash-step-num">1</div><div>Hold the <strong>BOOT</strong> button on the ESP32, connect it via USB, then release BOOT</div></div>
             <div class="flash-step"><div class="flash-step-num">2</div><div>Click <strong>Flash Device</strong> and select the serial port when prompted</div></div>
+            <div class="flash-step"><div class="flash-step-num">3</div><div>When flashing finishes, <strong>unplug & replug USB</strong> (or press <strong>RESET/EN</strong>) <em>without</em> holding BOOT, so it boots the new firmware</div></div>
           </div>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
             <esp-web-install-button manifest="/firmware/manifest.json" id="espInstallBtn">
@@ -367,13 +400,14 @@
             </esp-web-install-button>
             <span style="font-size:12px;color:#94a3b8">Requires Chrome or Edge.</span>
           </div>
-          <div id="wzFlashDone" style="display:none;margin-top:12px">
-            <span style="font-size:13px;color:#22c55e;font-weight:600">&#10003; Flash complete!</span>
+          <div id="wzFlashDone" style="display:none;margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.35)">
+            <div style="font-size:14px;color:#22c55e;font-weight:700;margin-bottom:4px">&#10003; Flash complete!</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.8)">Now <strong>unplug and replug the USB cable</strong> (or press <strong>RESET/EN</strong>) <em>without</em> holding BOOT. If the device's log shows <code>waiting for download</code>, it's still in flash mode — just reset it once more without BOOT held.</div>
           </div>
         </div>
         <div class="wizard-actions">
           <button class="btn-cancel" onclick="wizardBack(3)">&#8592; Back</button>
-          <button class="btn-add" id="wzFlashContinue" style="display:none" onclick="wizardSetStep(4)">Continue &#8594;</button>
+          <button class="btn-add" id="wzFlashContinue" style="display:none" onclick="wizardSetStep(4)">I've flashed it &#8594;</button>
         </div>
       </div>
 
@@ -397,14 +431,20 @@
             <div class="setup-step"><div class="setup-step-num">4</div><div><div class="setup-step-title">Enter your settings</div><div style="font-size:13px;color:#334155">Fill in WiFi name &amp; password, then copy these values:</div>
               <div class="setup-config-row"><span class="setup-config-lbl">Host</span><code class="setup-val" id="wzSetupHost">—</code><button class="btn-copy" onclick="copySetup('wzSetupHost')" title="Copy">&#128203;</button></div>
               <div class="setup-config-row"><span class="setup-config-lbl">Port</span><code class="setup-val" id="wzSetupPort">—</code><button class="btn-copy" onclick="copySetup('wzSetupPort')" title="Copy">&#128203;</button></div>
-              <div class="setup-config-row"><span class="setup-config-lbl">API key</span><code class="setup-val" id="wzSetupKey">—</code><button class="btn-copy" onclick="copySetup('wzSetupKey')" title="Copy">&#128203;</button></div>
             </div></div>
-            <div class="setup-step"><div class="setup-step-num">5</div><div><div class="setup-step-title">Save &amp; restart</div><div class="setup-step-sub">The device saves its settings, reboots, and starts fetching photos.</div></div></div>
+            <div class="setup-step"><div class="setup-step-num">5</div><div><div class="setup-step-title">Save &amp; restart</div><div class="setup-step-sub">The device saves its settings, reboots, joins your WiFi, and shows a <strong>QR code</strong>.</div></div></div>
+            <div class="setup-step"><div class="setup-step-num">6</div><div><div class="setup-step-title">Pair the device to this screen</div><div style="font-size:13px;color:#334155">Scan the QR code on the device, or tap below, then pick this screen.</div>
+              <div style="margin-top:8px"><a href="/pair" class="btn-add" style="display:inline-block;text-decoration:none">&#128241; Pair a device</a></div>
+            </div></div>
           </div>
         </div>
         <div class="wizard-actions" style="margin-top:24px">
           <button class="btn-cancel" onclick="wizardBack(4)">&#8592; Back</button>
-          <button class="btn-add" onclick="wizardDone()">Done &#10003;</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn-cancel" id="wzSkipBtn" onclick="wizardDone()" title="Finish without pairing now — you can pair later from the Pair a device button">Skip pairing</button>
+            <a href="/pair" class="btn-add" style="display:inline-flex;align-items:center;text-decoration:none" id="wzPairBtn">&#128241; Pair now</a>
+            <button class="btn-add" id="wzFinishBtn" style="display:none" onclick="wizardDone()">Done &#10003;</button>
+          </div>
         </div>
       </div>
     </div>
@@ -486,17 +526,38 @@ function albumChip(a) {
   const count = a.photoCount || 0;
   return `<div class="album-chip${a.fav ? ' fav' : ''}"><span class="album-chip-name"><span class="album-chip-heart" style="color:${a.fav ? HEALTH.warn : 'rgba(255,255,255,0.25)'}">&#9829;</span>${esc(a.name)}</span><span class="album-chip-count">${count} photo${count===1?'':'s'}</span></div>`;
 }
+async function updateFirmware(id) {
+  if (!confirm('Send a firmware update to this screen\'s device? It will apply the next time the device wakes.')) return;
+  const res = await fetch('/api/screens/' + id + '/update-firmware', { method: 'POST' });
+  if (!res.ok) { showToast('Could not queue update', 'error'); return; }
+  showToast('Update queued — applies on next wake.');
+  await loadScreens();
+}
+function fmtInterval(m) {
+  if (m % 1440 === 0) return (m/1440) + 'd';
+  if (m % 60 === 0)   return (m/60) + 'h';
+  return m + 'm';
+}
 function screenCard(s) {
   const deviceCount = s.device ? 1 : 0;
   const albums = s.albums || [];
   const deviceHtml = s.device && s.deviceInfo ? deviceRow(s.deviceInfo) : `<div class="device-empty">No device paired to this screen.</div>`;
+  let fwHtml = '';
+  if (s.updatePending) {
+    fwHtml = `<div style="margin-top:10px;font-size:12px;color:#fbbf24">⏳ Firmware update queued — applies next time the device wakes.</div>`;
+  } else if (s.firmwareUpdateAvailable) {
+    fwHtml = `<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#34d399">● Firmware update available</span>
+      <button class="glass-btn" style="font-size:12px;padding:5px 12px;border-radius:8px" onclick="updateFirmware('${s.id}')">Update now</button>
+    </div>`;
+  }
   const albumHtml = albums.length ? albums.map(albumChip).join('') : `<div class="albums-empty">No albums yet.</div>`;
   const accent = s.color || '#06b6d4';
   return `<div class="screen-card glass" style="box-shadow:0 0 0 1px ${hexA(accent,0.12)}, 0 8px 32px rgba(0,0,0,0.3)">
     <div class="screen-card-head">
       <div>
         <div class="screen-card-name"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${accent};margin-right:7px;vertical-align:middle"></span>${esc(s.name)}</div>
-        <div class="screen-card-meta">${deviceCount} device${deviceCount===1?'':'s'} · ${s.imageCount || 0} image${s.imageCount===1?'':'s'}</div>
+        <div class="screen-card-meta">${deviceCount} device${deviceCount===1?'':'s'} · ${s.imageCount || 0} image${s.imageCount===1?'':'s'} · refresh ${fmtInterval(s.intervalMinutes || 5)}</div>
       </div>
       <div style="display:flex;gap:4px">
         <button class="glass-btn card-icon-btn" title="Edit screen" onclick="openEditModal('${s.id}')">&#9998;</button>
@@ -505,6 +566,7 @@ function screenCard(s) {
     </div>
     <div class="screen-card-body">
       ${deviceHtml}
+      ${fwHtml}
       <div class="albums-section"><div class="albums-label">Albums</div><div class="album-list">${albumHtml}</div></div>
     </div>
   </div>`;
@@ -546,6 +608,9 @@ function openEditModal(id) {
   editId = id;
   editColor = s.color || SCREEN_COLORS[0];
   document.getElementById('editName').value = s.name || '';
+  document.getElementById('editInterval').value = String(s.intervalMinutes || 5);
+  document.getElementById('editRotation').value = String(s.rotation || 0);
+  document.getElementById('editAutoUpdate').checked = !!s.autoUpdate;
   renderEditColors();
   document.getElementById('editModal').style.display = 'flex';
   setTimeout(() => document.getElementById('editName').focus(), 50);
@@ -559,7 +624,10 @@ async function saveEdit() {
   if (!editId) return;
   const name = document.getElementById('editName').value.trim();
   if (!name) return;
-  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor }) });
+  const intervalMinutes = Number(document.getElementById('editInterval').value) || 5;
+  const rotation = Number(document.getElementById('editRotation').value) || 0;
+  const autoUpdate = document.getElementById('editAutoUpdate').checked;
+  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, autoUpdate }) });
   if (!res.ok) { showToast('Could not update screen', 'error'); return; }
   closeEditModal();
   await loadScreens();
@@ -621,14 +689,18 @@ async function loadExistingDevices() {
     const res = await fetch('/api/admin/apikeys');
     if (!res.ok) throw new Error('Failed to load');
     const allKeys = await res.json();
-    // Only offer devices that still belong to an existing screen — orphaned
-    // keys (whose screen was deleted) should not appear.
-    const screenIds = new Set(screens.map(s => s.id));
-    const keys = allKeys.filter(k => k.screenId && screenIds.has(k.screenId));
-    sel.innerHTML = keys.length
-      ? keys.map(k => `<option value="${k.key}" data-name="${escHtml(k.name)}">${escHtml(k.name)} — ${k.key.slice(0, 8)}…</option>`).join('')
-      : '<option value="">— no devices configured yet —</option>';
-  } catch { sel.innerHTML = '<option value="">— error loading devices —</option>'; }
+    const keyByScreen = {};
+    allKeys.forEach(k => { if (k.screenId) keyByScreen[k.screenId] = k; });
+    // List every screen. A screen with no device key yet gets one created when
+    // you proceed to reflash it.
+    sel.innerHTML = screens.length
+      ? screens.map(s => {
+          const k = keyByScreen[s.id];
+          const tail = k ? ` — ${k.key.slice(0, 8)}…` : ' — (no device yet)';
+          return `<option value="${s.id}" data-name="${escHtml(s.name)}">${escHtml(s.name)}${tail}</option>`;
+        }).join('')
+      : '<option value="">— no screens yet —</option>';
+  } catch { sel.innerHTML = '<option value="">— error loading screens —</option>'; }
 }
 function wizardSetStep(step) {
   _wizardStep = step;
@@ -644,12 +716,26 @@ function wizardSetStep(step) {
 async function wizardStep1Next() {
   if (_setupType === 'reflash') {
     const sel = document.getElementById('wzExistingKey');
-    const key = sel.value;
-    if (!key) return showToast('Select a device to reflash', 'error');
+    const screenId = sel.value;
+    if (!screenId) return showToast('Select a screen to reflash', 'error');
     const opt = sel.options[sel.selectedIndex];
-    _wizardKey = key;
     _wizardKeyName = opt.dataset.name || opt.text.split(' —')[0];
-    wizardSetStep(2);
+    const btn = document.getElementById('wzStep1Btn');
+    btn.disabled = true; btn.textContent = 'Loading…';
+    try {
+      // Find this screen's device key, creating one if it has none yet.
+      const allKeys = await (await fetch('/api/admin/apikeys')).json();
+      let key = allKeys.find(k => k.screenId === screenId);
+      if (!key) {
+        const kRes = await fetch('/api/admin/apikeys', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: _wizardKeyName, interval: 5, screenId, imageWidth: 800, imageHeight: 480, allowedEndpoints: ['current', 'image'] }) });
+        if (!kRes.ok) { const e = await kRes.json().catch(() => ({})); return showToast(e.error || 'Could not create device', 'error'); }
+        key = await kRes.json();
+        await loadScreens();
+      }
+      _wizardKey = key.key;
+      wizardSetStep(2);
+    } finally { btn.disabled = false; btn.textContent = 'Next →'; }
     return;
   }
   const name = document.getElementById('wzName').value.trim();
@@ -727,7 +813,9 @@ async function initFlashStep() {
   const statusEl  = document.getElementById('wzFwStatus');
   const buildCtrl = document.getElementById('wzBuildControls');
   const flashCtrl = document.getElementById('wzFlashControls');
-  document.getElementById('wzFlashContinue').style.display = 'none';
+  // Always allow moving on — flashing can't always be auto-detected, and the
+  // user may have flashed by other means.
+  document.getElementById('wzFlashContinue').style.display = '';
   document.getElementById('wzFlashDone').style.display = 'none';
   if (_wizardMode === 'auto') {
     statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Build required — your config will be embedded in the firmware</span>`;
@@ -753,9 +841,15 @@ async function initFlashStep() {
   }
 }
 function initDoneStep() {
-  document.getElementById('wzDoneAuto').style.display   = _wizardMode === 'auto'   ? 'block' : 'none';
-  document.getElementById('wzDoneManual').style.display = _wizardMode === 'manual' ? 'block' : 'none';
-  if (_wizardMode === 'auto') {
+  const isAuto = _wizardMode === 'auto';
+  document.getElementById('wzDoneAuto').style.display   = isAuto ? 'block' : 'none';
+  document.getElementById('wzDoneManual').style.display = isAuto ? 'none'  : 'block';
+  // Auto mode bakes the key in, so no pairing is needed — just finish.
+  // Manual mode needs pairing, which the user can do now or skip.
+  document.getElementById('wzSkipBtn').style.display   = isAuto ? 'none' : '';
+  document.getElementById('wzPairBtn').style.display   = isAuto ? 'none' : 'inline-flex';
+  document.getElementById('wzFinishBtn').style.display = isAuto ? 'inline-flex' : 'none';
+  if (isAuto) {
     document.getElementById('wzDoneWifi').textContent   = _wizardSsid || '—';
     document.getElementById('wzDoneServer').textContent = `${_wizardHost}:${_wizardPort}`;
     document.getElementById('wzDoneScreen').textContent = _wizardKeyName || '—';
@@ -763,7 +857,6 @@ function initDoneStep() {
     const port = location.port || (location.protocol === 'https:' ? '443' : '80');
     document.getElementById('wzSetupHost').textContent = location.hostname;
     document.getElementById('wzSetupPort').textContent = port;
-    document.getElementById('wzSetupKey').textContent  = _wizardKey || '—';
   }
 }
 function wizardBuild() {
@@ -842,6 +935,38 @@ function wizardDone() {
   closeSetup();
   loadScreens();
   if (name) showToast(`"${name}" setup complete!`);
+}
+
+// ── Background theme ──────────────────────────────────────
+function openTheme() {
+  renderThemePresets();
+  const t = TPDTheme.get();
+  if (t.preset === 'custom' && t.color) document.getElementById('themeCustom').value = t.color;
+  document.getElementById('themeModal').style.display = 'flex';
+}
+function closeTheme() { document.getElementById('themeModal').style.display = 'none'; }
+function renderThemePresets() {
+  const cur = TPDTheme.get();
+  const wrap = document.getElementById('themePresets');
+  wrap.innerHTML = Object.entries(TPDTheme.PRESETS).map(([id, p]) => {
+    const active = cur.preset === id;
+    return `<button onclick="selectPresetTheme('${id}')" style="
+      display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px;cursor:pointer;
+      background:${TPDTheme.gradientFor({preset:id})};
+      border:1.5px solid ${active ? 'rgba(34,211,238,0.8)' : 'rgba(255,255,255,0.12)'};
+      box-shadow:${active ? '0 0 0 2px rgba(34,211,238,0.3)' : 'none'};
+      color:#fff;font-family:inherit;font-size:13px;font-weight:600;text-align:left">
+      <span style="width:16px;height:16px;border-radius:50%;background:${p.swatch};box-shadow:0 0 0 1px rgba(255,255,255,0.3)"></span>
+      ${p.name}
+    </button>`;
+  }).join('');
+}
+function selectPresetTheme(id) { TPDTheme.set({ preset: id }); renderThemePresets(); }
+function selectCustomTheme(color) { TPDTheme.set({ preset: 'custom', color }); renderThemePresets(); }
+function resetTheme() {
+  TPDTheme.set({ preset: 'blue' });
+  document.getElementById('themeCustom').value = '#06b6d4';
+  renderThemePresets();
 }
 
 document.addEventListener('keydown', e => {

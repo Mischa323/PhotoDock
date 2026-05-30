@@ -1,8 +1,9 @@
-#include <Arduino.h>
+﻿#include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include <Preferences.h>
 #include <SPI.h>
 #include <Wire.h>
@@ -13,8 +14,9 @@
 
 #define XPOWERS_CHIP_AXP2101
 #include "XPowersLib.h"
+#include "qrcode.h"
 
-// ── Pin mapping — Waveshare ESP32-S3-PhotoPainter (7.3" E6) ───────────────
+// â”€â”€ Pin mapping â€” Waveshare ESP32-S3-PhotoPainter (7.3" E6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Values taken from Waveshare's official factory source (bsp_config.h).
 #define EPD_DC    8
 #define EPD_CS    9
@@ -29,12 +31,12 @@
 
 static XPowersPMU PMU;
 
-// ── Display dimensions ────────────────────────────────────────────────────
+// â”€â”€ Display dimensions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #define EPD_W        800
 #define EPD_H        480
 #define EPD_BUF_SIZE (EPD_W * EPD_H / 2)
 
-// ── Spectra 6 (E6) color palette ──────────────────────────────────────────
+// â”€â”€ Spectra 6 (E6) color palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The E6 panel accepts these 4-bit color codes (index 4 is unused). Order and
 // codes match Waveshare's official E6 driver.
 #define C_BLACK   0
@@ -44,21 +46,58 @@ static XPowersPMU PMU;
 #define C_BLUE    5
 #define C_GREEN   6
 
+// RGB values are tuned to the colors the Spectra 6 panel can actually render
+// (not pure sRGB primaries), which keeps quantized hues closer to the source.
 static const struct { uint8_t code; uint8_t r, g, b; } PALETTE[] = {
     {C_BLACK,    0,   0,   0},
     {C_WHITE,  255, 255, 255},
-    {C_YELLOW, 255, 255,   0},
-    {C_RED,    255,   0,   0},
-    {C_BLUE,     0,   0, 255},
-    {C_GREEN,    0, 255,   0},
+    {C_YELLOW, 240, 220,  40},
+    {C_RED,    190,  40,  40},
+    {C_BLUE,    40,  60, 150},
+    {C_GREEN,   50, 125,  70},
 };
 static const int PALETTE_N = sizeof(PALETTE) / sizeof(PALETTE[0]);
 
 static uint8_t *epd_buf  = nullptr;
 static uint8_t *jpeg_buf = nullptr;
+static uint8_t *rgb_buf  = nullptr;   // full decoded RGB888 image, for dithering
 static JPEGDEC  jpeg;
 
-// ── Runtime config — stored in NVS, set via setup portal ─────────────────
+// â”€â”€ Logging: mirror to Serial AND a RAM buffer that is uploaded to the server
+// each wake (the device deep-sleeps, so USB serial isn't readable in normal use)
+static String g_logbuf;
+static void logSink(const char *s) {
+    Serial.print(s);
+    g_logbuf += s;
+    if (g_logbuf.length() > 6000) g_logbuf.remove(0, g_logbuf.length() - 6000);
+}
+static void logp(const char *s)    { logSink(s); }
+static void logp(const String &s)  { logSink(s.c_str()); }
+static void logln(const char *s)   { logSink(s); logSink("\n"); }
+static void logln(const String &s) { logSink(s.c_str()); logSink("\n"); }
+static void logf(const char *fmt, ...) {
+    char b[220]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof(b), fmt, a); va_end(a);
+    logSink(b);
+}
+static String jsonEscape(const String &in) {
+    String o; o.reserve(in.length() + 16);
+    for (size_t i = 0; i < in.length(); i++) {
+        char c = in[i];
+        switch (c) {
+            case '"':  o += "\\\""; break;
+            case '\\': o += "\\\\"; break;
+            case '\n': o += "\\n";  break;
+            case '\r': o += "\\r";  break;
+            case '\t': o += "\\t";  break;
+            default:
+                if ((uint8_t)c < 0x20) { char u[8]; snprintf(u, sizeof(u), "\\u%04x", c); o += u; }
+                else o += c;
+        }
+    }
+    return o;
+}
+
+// â”€â”€ Runtime config â€” stored in NVS, set via setup portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 struct Config {
     String wifiSsid;
     String wifiPassword;
@@ -93,13 +132,14 @@ static void saveConfig(const Config &c) {
     p.end();
 }
 
+// WiFi + server are enough to come online; the API key can be obtained later
+// via the QR pairing flow.
 static bool configComplete(const Config &c) {
     return c.wifiSsid.length() > 0 &&
-           c.serverHost.length() > 0 &&
-           c.apiKey.length() > 0;
+           c.serverHost.length() > 0;
 }
 
-// ── Captive portal ────────────────────────────────────────────────────────
+// â”€â”€ Captive portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static WebServer apServer(80);
 static DNSServer dnsServer;
 
@@ -136,8 +176,7 @@ button:hover{background:#0891b2}
     <p class="hint">IP of the computer running Photo Display</p>
     <label>Server port</label>
     <input type="number" name="port" value="8080">
-    <label>API key</label>
-    <input type="text" name="key" placeholder="Paste your API key here" required>
+    <p class="hint">After connecting, the device shows a QR code to pair it to a screen.</p>
     <button type="submit">Save &amp; Connect &#8594;</button>
   </form>
 </div>
@@ -168,7 +207,7 @@ static void startCaptivePortal() {
     char apName[24];
     snprintf(apName, sizeof(apName), "PhotoDisplay-%02X%02X", mac[4], mac[5]);
 
-    Serial.printf("Starting setup portal: %s\n", apName);
+    logf("Starting setup portal: %s\n", apName);
     WiFi.mode(WIFI_AP);
     WiFi.softAP(apName);
     delay(500);
@@ -186,7 +225,7 @@ static void startCaptivePortal() {
         c.serverHost   = apServer.arg("host");
         const String ps = apServer.arg("port");
         c.serverPort   = ps.length() > 0 ? ps.toInt() : 8080;
-        c.apiKey       = apServer.arg("key");
+        c.apiKey       = "";   // obtained later via QR pairing
 
         if (!configComplete(c)) {
             apServer.send(400, "text/html",
@@ -213,7 +252,7 @@ static void startCaptivePortal() {
     apServer.onNotFound(redir);
 
     apServer.begin();
-    Serial.printf("Portal: http://%s\n", WiFi.softAPIP().toString().c_str());
+    logf("Portal: http://%s\n", WiFi.softAPIP().toString().c_str());
 
     while (true) {
         dnsServer.processNextRequest();
@@ -221,20 +260,27 @@ static void startCaptivePortal() {
     }
 }
 
-// ── Nearest-color quantization ────────────────────────────────────────────
-static inline uint8_t quantize(uint8_t r, uint8_t g, uint8_t b) {
-    int bestCode = C_BLACK, bestDist = INT_MAX;
+// â”€â”€ Nearest-color quantization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Find nearest palette entry. Returns its array index; weighted for perceived
+// luma so greys don't drift toward colored cells.
+static inline int quantizeIdx(int r, int g, int b) {
+    int best = 0, bestDist = INT_MAX;
     for (int i = 0; i < PALETTE_N; i++) {
-        int dr = (int)r - PALETTE[i].r;
-        int dg = (int)g - PALETTE[i].g;
-        int db = (int)b - PALETTE[i].b;
+        int dr = r - PALETTE[i].r;
+        int dg = g - PALETTE[i].g;
+        int db = b - PALETTE[i].b;
         int d  = dr*dr*2 + dg*dg*4 + db*db;
-        if (d < bestDist) { bestDist = d; bestCode = PALETTE[i].code; }
+        if (d < bestDist) { bestDist = d; best = i; }
     }
-    return (uint8_t)bestCode;
+    return best;
+}
+static inline uint8_t quantize(uint8_t r, uint8_t g, uint8_t b) {
+    return PALETTE[quantizeIdx(r, g, b)].code;
 }
 
-// ── JPEGDEC draw callback ─────────────────────────────────────────────────
+// â”€â”€ JPEGDEC draw callback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Store the decoded RGB888 into the full-image buffer (unrotated). Quantizing
+// and 180Â° rotation happen later in dither_and_pack().
 static int jpegDraw(JPEGDRAW *pDraw) {
     for (int row = 0; row < pDraw->iHeight; row++) {
         int py = pDraw->y + row;
@@ -243,21 +289,64 @@ static int jpegDraw(JPEGDRAW *pDraw) {
             int px = pDraw->x + col;
             if (px >= EPD_W) continue;
             uint16_t c = pDraw->pPixels[row * pDraw->iWidth + col];
-            uint8_t r = ( c >> 11)         << 3;
-            uint8_t g = ((c >>  5) & 0x3F) << 2;
-            uint8_t b = ( c        & 0x1F) << 3;
-            uint8_t idx = quantize(r, g, b);
-            int pos = (EPD_H - 1 - py) * EPD_W + (EPD_W - 1 - px);  // 180° rotate
-            if (pos & 1)
-                epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | idx;
-            else
-                epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0x0F) | (idx << 4);
+            int idx = (py * EPD_W + px) * 3;
+            rgb_buf[idx + 0] = ( c >> 11)         << 3;   // R
+            rgb_buf[idx + 1] = ((c >>  5) & 0x3F) << 2;   // G
+            rgb_buf[idx + 2] = ( c        & 0x1F) << 3;   // B
         }
     }
     return 1;
 }
 
-// ── EPD SPI helpers ───────────────────────────────────────────────────────
+static inline void epd_set_code(int x, int y, uint8_t code) {
+    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180Â° rotate
+    if (pos & 1) epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | code;
+    else         epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0x0F) | (code << 4);
+}
+
+// Floyd-Steinberg dithering from rgb_buf into epd_buf. Diffuses quantization
+// error to neighboring pixels so a 6-color photo looks far less posterized.
+static void dither_and_pack() {
+    const int W = EPD_W;
+    // Two running error rows (current + next), 3 channels, fixed-point-free ints.
+    int *errCur  = (int *)calloc(W * 3, sizeof(int));
+    int *errNext = (int *)calloc(W * 3, sizeof(int));
+    if (!errCur || !errNext) {     // fall back to plain nearest-color
+        free(errCur); free(errNext);
+        for (int y = 0; y < EPD_H; y++)
+            for (int x = 0; x < W; x++) {
+                int i = (y * W + x) * 3;
+                epd_set_code(x, y, PALETTE[quantizeIdx(rgb_buf[i], rgb_buf[i+1], rgb_buf[i+2])].code);
+            }
+        return;
+    }
+    for (int y = 0; y < EPD_H; y++) {
+        memset(errNext, 0, W * 3 * sizeof(int));
+        for (int x = 0; x < W; x++) {
+            int i = (y * W + x) * 3;
+            int r = rgb_buf[i + 0] + errCur[x*3 + 0] / 16;
+            int g = rgb_buf[i + 1] + errCur[x*3 + 1] / 16;
+            int b = rgb_buf[i + 2] + errCur[x*3 + 2] / 16;
+            if (r < 0) r = 0; if (r > 255) r = 255;
+            if (g < 0) g = 0; if (g > 255) g = 255;
+            if (b < 0) b = 0; if (b > 255) b = 255;
+            int pi = quantizeIdx(r, g, b);
+            epd_set_code(x, y, PALETTE[pi].code);
+            int er = r - PALETTE[pi].r;
+            int eg = g - PALETTE[pi].g;
+            int eb = b - PALETTE[pi].b;
+            // distribute: right 7, below-left 3, below 5, below-right 1 (/16)
+            if (x + 1 < W) { errCur[(x+1)*3]+=er*7; errCur[(x+1)*3+1]+=eg*7; errCur[(x+1)*3+2]+=eb*7; }
+            if (x > 0)     { errNext[(x-1)*3]+=er*3; errNext[(x-1)*3+1]+=eg*3; errNext[(x-1)*3+2]+=eb*3; }
+            errNext[x*3]+=er*5; errNext[x*3+1]+=eg*5; errNext[x*3+2]+=eb*5;
+            if (x + 1 < W) { errNext[(x+1)*3]+=er; errNext[(x+1)*3+1]+=eg; errNext[(x+1)*3+2]+=eb; }
+        }
+        int *tmp = errCur; errCur = errNext; errNext = tmp;
+    }
+    free(errCur); free(errNext);
+}
+
+// â”€â”€ EPD SPI helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void epd_cmd(uint8_t cmd) {
     digitalWrite(EPD_DC, LOW);  digitalWrite(EPD_CS, LOW);
     SPI.transfer(cmd);
@@ -275,7 +364,7 @@ static void epd_busy_wait() {
     uint32_t start = millis();
     while (!digitalRead(EPD_BUSY)) {
         if (millis() - start > TIMEOUT_MS) {
-            Serial.println("epd_busy_wait: TIMEOUT (BUSY never went high)");
+            logln("epd_busy_wait: TIMEOUT (BUSY never went high)");
             return;
         }
         delay(10);
@@ -288,10 +377,10 @@ static void epd_reset() {
 }
 // E6 init sequence (from Waveshare's official ESP32-S3-PhotoPainter driver).
 static void epd_init() {
-    Serial.printf("epd_init: BUSY=%d\n", digitalRead(EPD_BUSY));
+    logf("epd_init: BUSY=%d\n", digitalRead(EPD_BUSY));
     epd_reset();
     epd_busy_wait();
-    Serial.printf("epd_init: after reset, BUSY=%d\n", digitalRead(EPD_BUSY));
+    logf("epd_init: after reset, BUSY=%d\n", digitalRead(EPD_BUSY));
     delay(50);
     epd_cmd(0xAA);
     epd_dat(0x49); epd_dat(0x55); epd_dat(0x20); epd_dat(0x08);
@@ -320,22 +409,22 @@ static void epd_display(uint8_t *buf) {
         SPI.writeBytes(buf + i, n);
         digitalWrite(EPD_CS, HIGH);
     }
-    Serial.println("epd_display: data sent, power on (0x04)");
+    logln("epd_display: data sent, power on (0x04)");
     epd_cmd(0x04);                  // power on
     epd_busy_wait();
     epd_cmd(0x06); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x17); epd_dat(0x49);
-    Serial.println("epd_display: refresh (0x12)");
+    logln("epd_display: refresh (0x12)");
     epd_cmd(0x12); epd_dat(0x00);   // display refresh
     epd_busy_wait();
     epd_cmd(0x02); epd_dat(0x00);   // power off
     epd_busy_wait();
-    Serial.println("epd_display: done");
+    logln("epd_display: done");
 }
 static void epd_sleep_mode() {
     epd_cmd(0x07); epd_dat(0xA5);   // deep sleep
 }
 
-// ── 8×8 bitmap font (IBM PC, printable ASCII 0x20–0x7E) ──────────────────
+// â”€â”€ 8Ã—8 bitmap font (IBM PC, printable ASCII 0x20â€“0x7E) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Each char: 8 bytes = 8 rows, MSB of each byte = leftmost pixel
 static const uint8_t FONT8[95][8] PROGMEM = {
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}, // 0x20 space
@@ -435,14 +524,14 @@ static const uint8_t FONT8[95][8] PROGMEM = {
     {0x3B,0x6E,0x00,0x00,0x00,0x00,0x00,0x00}, // 0x7E ~
 };
 
-// ── Display drawing helpers ────────────────────────────────────────────────
+// â”€â”€ Display drawing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void epd_fill(uint8_t color) {
     uint8_t b = (uint8_t)((color << 4) | color);
     memset(epd_buf, b, EPD_BUF_SIZE);
 }
 static void epd_pix(int x, int y, uint8_t color) {
     if (x < 0 || x >= EPD_W || y < 0 || y >= EPD_H) return;
-    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180° rotate
+    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180Â° rotate
 
     if (pos & 1) epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | color;
     else         epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0x0F) | (color << 4);
@@ -521,17 +610,86 @@ static void epd_show_error(const char *host, int port) {
     epd_sleep_mode();
 }
 
-// ── Battery voltage reading (via AXP2101 PMIC) ────────────────────────────
+// Show a "no photos yet" screen — the device is paired & online, but its screen
+// has no images assigned on the server.
+static void epd_show_no_photos() {
+    epd_fill(C_WHITE);
+    epd_rect(0, 0, EPD_W, 64, C_BLUE);
+    epd_text(16, 12, "Paired & connected", C_WHITE, C_BLUE, 3);
+    epd_rect(0, 64, EPD_W, 2, C_BLACK);
+
+    epd_text(24, 100, "No photos on this screen yet.", C_BLACK, C_WHITE, 3);
+    epd_text(24, 170, "Open Photo Display, go to this", C_BLACK, C_WHITE, 2);
+    epd_text(24, 192, "screen, and upload some photos.", C_BLACK, C_WHITE, 2);
+    epd_text(24, 232, "The display will show them", C_BLACK, C_WHITE, 2);
+    epd_text(24, 254, "automatically on the next refresh.", C_BLACK, C_WHITE, 2);
+
+    epd_init();
+    epd_display(epd_buf);
+    epd_sleep_mode();
+}
+
+// Draw a QR code into the buffer at (ox,oy) with the given module pixel size.
+static void epd_draw_qr(const char *text, int ox, int oy, int scale) {
+    QRCode qr;
+    static uint8_t qrData[256];   // ample for version 6 (holds ~134 byte URL)
+    if (qrcode_initText(&qr, qrData, 6, ECC_LOW, text) != 0) return;
+    // Quiet zone
+    epd_rect(ox - scale*2, oy - scale*2,
+             qr.size*scale + scale*4, qr.size*scale + scale*4, C_WHITE);
+    for (int y = 0; y < qr.size; y++)
+        for (int x = 0; x < qr.size; x++)
+            if (qrcode_getModule(&qr, x, y))
+                epd_rect(ox + x*scale, oy + y*scale, scale, scale, C_BLACK);
+}
+
+// Show the QR pairing screen: scan to link this device to a screen.
+static void epd_show_pairing(const char *code, const char *pairUrl) {
+    epd_fill(C_WHITE);
+    epd_rect(0, 0, EPD_W, 64, C_BLUE);
+    epd_text(16, 12, "Pair this display", C_WHITE, C_BLUE, 3);
+    epd_rect(0, 64, EPD_W, 2, C_BLACK);
+
+    epd_draw_qr(pairUrl, 470, 110, 6);   // QR on the right
+
+    epd_text(24, 96,  "Scan the QR code, or open", C_BLACK, C_WHITE, 2);
+    epd_text(24, 122, "the Photo Display site and", C_BLACK, C_WHITE, 2);
+    epd_text(24, 148, "go to /pair, then enter:", C_BLACK, C_WHITE, 2);
+
+    epd_text(24, 196, "Pairing code", C_BLACK, C_WHITE, 2);
+    epd_rect(16, 222, 300, 56, C_BLUE);
+    epd_text(32, 232, code, C_WHITE, C_BLUE, 5);
+
+    epd_text(24, 320, "Pick a screen to finish.", C_BLACK, C_WHITE, 2);
+    epd_text(24, 360, "The display updates", C_BLACK, C_WHITE, 2);
+    epd_text(24, 384, "automatically once paired.", C_BLACK, C_WHITE, 2);
+
+    epd_init();
+    epd_display(epd_buf);
+    epd_sleep_mode();
+}
+
+// Extract a JSON string value: "key":"value"  (no nesting/escapes expected).
+static String jsonStr(const String &body, const char *key) {
+    String pat = String("\"") + key + "\":\"";
+    int i = body.indexOf(pat);
+    if (i < 0) return "";
+    i += pat.length();
+    int j = body.indexOf('"', i);
+    return j < 0 ? "" : body.substring(i, j);
+}
+
+// â”€â”€ Battery voltage reading (via AXP2101 PMIC) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static int read_battery_mv() {
     int mv = PMU.getBattVoltage();
     return mv > 0 ? mv : -1;
 }
 
-// ── Power up the AXP2101 PMIC and the e-paper power rails ─────────────────
+// â”€â”€ Power up the AXP2101 PMIC and the e-paper power rails â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static bool pmic_init() {
     Wire.begin(PMIC_SDA, PMIC_SCL);
     if (!PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, PMIC_SDA, PMIC_SCL)) {
-        Serial.println("PMIC: AXP2101 init FAILED");
+        logln("PMIC: AXP2101 init FAILED");
         return false;
     }
     // ALDO3/ALDO4 = 3.3V feed the e-paper panel. Without these the panel has
@@ -540,11 +698,11 @@ static bool pmic_init() {
     PMU.setALDO4Voltage(3300); PMU.enableALDO4();
     PMU.enableBattVoltageMeasure();
     delay(50);
-    Serial.println("PMIC: AXP2101 ready, panel rails on");
+    logln("PMIC: AXP2101 ready, panel rails on");
     return true;
 }
 
-// ── Post device status to server ──────────────────────────────────────────
+// â”€â”€ Post device status to server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void post_status(uint32_t sleep_s) {
     int bat_mv = read_battery_mv();
     int rssi   = WiFi.RSSI();
@@ -559,28 +717,53 @@ static void post_status(uint32_t sleep_s) {
                + "/api/device/status?key=" + cfg.apiKey;
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
+    Preferences fp; fp.begin("ota", true);
+    String fwver = fp.getString("fwver", "");
+    fp.end();
     String body = "{\"device_id\":\"" + String(device_id) + "\""
                 + ",\"wifi_rssi\":"  + rssi
                 + (bat_mv > 0 ? ",\"battery_mv\":" + String(bat_mv) : "")
+                + (fwver.length() ? ",\"firmware_version\":\"" + fwver + "\"" : "")
                 + "}";
     int code = http.POST(body);
-    Serial.printf("Status POST %d\n", code);
+    logf("Status POST %d\n", code);
     http.end();
 }
 
-// ── Deep sleep ────────────────────────────────────────────────────────────
+// Upload the captured log buffer to the server (best effort).
+static void flushLogs() {
+    if (g_logbuf.length() == 0) return;
+    if (WiFi.status() != WL_CONNECTED || cfg.apiKey.length() == 0) return;
+    uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char device_id[18];
+    snprintf(device_id, sizeof(device_id), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    HTTPClient http;
+    String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
+               + "/api/device/log?key=" + cfg.apiKey;
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    String body = String("{\"device_id\":\"") + device_id + "\",\"log\":\""
+                + jsonEscape(g_logbuf) + "\"}";
+    http.POST(body);
+    http.end();
+    g_logbuf = "";
+}
+
+// â”€â”€ Deep sleep â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void deep_sleep(uint32_t seconds) {
-    Serial.printf("Deep sleep for %u s\n", seconds);
+    logf("Deep sleep for %u s\n", seconds);
+    flushLogs();
     Serial.flush();
     WiFi.disconnect(true);
-    // Cut the e-paper power rails — the image persists on e-ink without power.
+    // Cut the e-paper power rails â€” the image persists on e-ink without power.
     PMU.disableALDO3();
     PMU.disableALDO4();
     esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
     esp_deep_sleep_start();
 }
 
-// ── Clear NVS config ──────────────────────────────────────────────────────
+// â”€â”€ Clear NVS config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void clearConfig() {
     Preferences p;
     p.begin("photodisplay", false);
@@ -588,19 +771,174 @@ static void clearConfig() {
     p.end();
 }
 
-// ── setup ─────────────────────────────────────────────────────────────────
+// â”€â”€ Fetch a JPEG URL and render it to the panel ──────────────────────────
+static bool fetchAndShow(const String &url) {
+    HTTPClient http;
+    http.begin(url);
+    if (http.GET() != 200) { http.end(); return false; }
+    int total = http.getSize();
+    WiFiClient *stream = http.getStreamPtr();
+    size_t len = 0;
+    while (http.connected() && (total < 0 || len < (size_t)total)) {
+        int avail = stream->available();
+        if (avail > 0) {
+            int room = (int)(JPEG_BUF_SIZE - len);
+            if (room <= 0) break;
+            len += stream->readBytes(jpeg_buf + len, min(room, avail));
+        } else {
+            delay(1);
+        }
+    }
+    http.end();
+    if (len == 0) return false;
+    memset(rgb_buf, 0, EPD_W * EPD_H * 3);
+    if (!jpeg.openRAM(jpeg_buf, (int)len, jpegDraw)) return false;
+    jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
+    jpeg.decode(0, 0, 0);
+    jpeg.close();
+    dither_and_pack();
+    epd_init();
+    epd_display(epd_buf);
+    epd_sleep_mode();
+    return true;
+}
+
+// Show a server-rendered status screen (paired/empty/sleeping/etc). Returns
+// false if it can't be fetched, so the caller can fall back to a local screen.
+static bool showServerScreen(const char *state) {
+    if (cfg.apiKey.length() == 0) return false;
+    uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char id[18];
+    snprintf(id, sizeof(id), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    int mv  = read_battery_mv();
+    int pct = mv > 0 ? constrain((mv - 3300) * 100 / (4200 - 3300), 0, 100) : -1;
+    Preferences fp; fp.begin("ota", true);
+    String fw = fp.getString("fwver", "");
+    fp.end();
+    String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
+               + "/api/device/screen?key=" + cfg.apiKey + "&state=" + state
+               + "&id=" + id + "&rssi=" + WiFi.RSSI();
+    if (pct >= 0)       url += "&batt=" + String(pct);
+    if (fw.length())    url += "&fw=" + fw;
+    return fetchAndShow(url);
+}
+
+// â”€â”€ OTA firmware update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Ask the server which firmware version it has; if it differs from the version
+// we last applied, download and flash it (the device reboots on success). A
+// freshly hand-flashed device "adopts" the server version without re-flashing.
+static void otaCheck() {
+    const String base = String("http://") + cfg.serverHost + ":" + cfg.serverPort;
+    Preferences p;
+    p.begin("ota", false);
+    String applied = p.getString("fwver", "");
+
+    HTTPClient http;
+    http.begin(base + "/api/device/firmware?key=" + cfg.apiKey + "&current=" + applied);
+    if (http.GET() != 200) { http.end(); p.end(); return; }
+    String resp = http.getString(); http.end();
+    String version = jsonStr(resp, "version");
+    String url     = jsonStr(resp, "url");
+    String update  = jsonStr(resp, "update");
+    if (version.length() == 0 || url.length() == 0) { p.end(); return; }
+
+    if (applied.length() == 0) {                 // adopt current build, no flash
+        p.putString("fwver", version);
+        p.end();
+        logf("OTA: adopting version %s\n", version.c_str());
+        return;
+    }
+    if (update != "yes" || version == applied) {
+        p.end();
+        logln(version == applied ? "OTA: up to date" : "OTA: update available (not enabled)");
+        return;
+    }
+
+    logf("OTA: updating %s -> %s\n", applied.c_str(), version.c_str());
+    p.putString("fwver", version);               // optimistic; revert on failure
+    p.end();
+    flushLogs();                                  // get the pre-update log out first
+
+    WiFiClient client;
+    httpUpdate.rebootOnUpdate(true);
+    t_httpUpdate_return r = httpUpdate.update(client, url);
+    if (r == HTTP_UPDATE_FAILED) {                // reverts so we retry next wake
+        logf("OTA failed (%d): %s\n", httpUpdate.getLastError(),
+             httpUpdate.getLastErrorString().c_str());
+        Preferences p2; p2.begin("ota", false);
+        p2.putString("fwver", applied);
+        p2.end();
+    }
+    // HTTP_UPDATE_OK reboots automatically into the new firmware.
+}
+
+// â”€â”€ QR device pairing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Request a pairing token, show a QR + code on the panel, then poll until the
+// user links this device to a screen. On success the API key is saved to NVS.
+static bool pairDevice() {
+    uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    char hwId[18];
+    snprintf(hwId, sizeof(hwId), "%02x:%02x:%02x:%02x:%02x:%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    const String base = String("http://") + cfg.serverHost + ":" + cfg.serverPort;
+
+    HTTPClient http;
+    http.begin(base + "/api/devices/pair/request");
+    http.addHeader("Content-Type", "application/json");
+    int code = http.POST(String("{\"hwId\":\"") + hwId + "\",\"model\":\"PhotoPainter-E6\"}");
+    if (code != 200) { logf("pair/request HTTP %d\n", code); http.end(); return false; }
+    String resp = http.getString(); http.end();
+
+    String token   = jsonStr(resp, "token");
+    String pcode   = jsonStr(resp, "code");
+    String pairUrl = jsonStr(resp, "pairUrl");
+    if (token.length() == 0) { logln("pair: no token"); return false; }
+    logf("Pairing code %s  url %s\n", pcode.c_str(), pairUrl.c_str());
+    epd_show_pairing(pcode.c_str(), pairUrl.c_str());
+
+    const int MAX_POLLS = 150;            // ~10 min at 4s each
+    for (int i = 0; i < MAX_POLLS; i++) {
+        delay(4000);
+        HTTPClient h2;
+        h2.begin(base + "/api/devices/pair/" + token);
+        if (h2.GET() == 200) {
+            String r2 = h2.getString(); h2.end();
+            String st = jsonStr(r2, "status");
+            if (st == "complete") {
+                String key = jsonStr(r2, "apiKey");
+                if (key.length() > 0) {
+                    cfg.apiKey = key;
+                    saveConfig(cfg);
+                    logln("Paired â€” API key saved");
+                    return true;
+                }
+            } else if (st == "expired") {
+                logln("Pairing token expired");
+                return false;
+            }
+        } else {
+            h2.end();
+        }
+    }
+    logln("Pairing timed out");
+    return false;
+}
+
+// â”€â”€ setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 void setup() {
     Serial.begin(115200);
     delay(300);
-    Serial.println("\n=== PhotoDisplay ===");
+    logln("\n=== PhotoDisplay ===");
 
     // Allocate display buffers and init hardware first so we can show screens anywhere
     epd_buf  = (uint8_t *)ps_malloc(EPD_BUF_SIZE);
     jpeg_buf = (uint8_t *)ps_malloc(JPEG_BUF_SIZE);
-    if (!epd_buf || !jpeg_buf) { Serial.println("PSRAM alloc failed"); deep_sleep(60); }
+    rgb_buf  = (uint8_t *)ps_malloc(EPD_W * EPD_H * 3);
+    if (!epd_buf || !jpeg_buf || !rgb_buf) { logln("PSRAM alloc failed"); deep_sleep(60); }
     memset(epd_buf, 0x11, EPD_BUF_SIZE);
 
-    // Bring up the PMIC first — it powers the e-paper panel.
+    // Bring up the PMIC first â€” it powers the e-paper panel.
     pmic_init();
 
     pinMode(EPD_CS,   OUTPUT); digitalWrite(EPD_CS,   HIGH);
@@ -612,27 +950,27 @@ void setup() {
 
     // Reconfigure trigger: press & hold BOOT (GPIO 0) within the first few
     // seconds *after* a normal boot. (GPIO0 cannot be read at power-on on the
-    // ESP32-S3 — holding it low at reset enters ROM download mode and the app
+    // ESP32-S3 â€” holding it low at reset enters ROM download mode and the app
     // never runs. So we watch it briefly once the app is already executing.)
     pinMode(0, INPUT_PULLUP);
     {
         const uint32_t WINDOW_MS = 3000;   // how long to watch after boot
         const uint32_t HOLD_MS   = 800;    // how long BOOT must stay pressed
-        Serial.printf("Press BOOT within %u ms to reconfigure...\n", WINDOW_MS);
+        logf("Press BOOT within %u ms to reconfigure...\n", WINDOW_MS);
         uint32_t windowStart = millis();
         uint32_t pressStart  = 0;
         while (millis() - windowStart < WINDOW_MS) {
             if (digitalRead(0) == LOW) {
                 if (pressStart == 0) pressStart = millis();
                 if (millis() - pressStart >= HOLD_MS) {
-                    Serial.println("BOOT held — clearing config, starting portal");
+                    logln("BOOT held â€” clearing config, starting portal");
                     clearConfig();
                     String ap = apNameFromMac();
                     epd_show_setup(ap.c_str());
                     startCaptivePortal(); // never returns
                 }
             } else {
-                pressStart = 0; // released — reset the hold timer
+                pressStart = 0; // released â€” reset the hold timer
             }
             delay(10);
         }
@@ -642,8 +980,9 @@ void setup() {
 
     bool firstBoot = false;
     if (!configComplete(cfg)) {
-        // Auto mode: firmware built with credentials baked in
-        if (strlen(DEFAULT_WIFI_SSID) > 0 && strlen(DEFAULT_API_KEY) > 0) {
+        // Auto mode: WiFi/server baked in at compile time. The API key is
+        // optional â€” if it's empty the device falls through to QR pairing.
+        if (strlen(DEFAULT_WIFI_SSID) > 0 && strlen(DEFAULT_SERVER_HOST) > 0) {
             cfg.wifiSsid     = String(DEFAULT_WIFI_SSID);
             cfg.wifiPassword = String(DEFAULT_WIFI_PASS);
             cfg.serverHost   = String(DEFAULT_SERVER_HOST);
@@ -651,27 +990,40 @@ void setup() {
             cfg.apiKey       = String(DEFAULT_API_KEY);
             saveConfig(cfg);
             firstBoot = true;
-            Serial.println("Loaded compile-time config");
+            logln("Loaded compile-time config");
         } else {
-            Serial.println("No config — starting setup portal");
+            logln("No config â€” starting setup portal");
             String ap = apNameFromMac();
             epd_show_setup(ap.c_str());
             startCaptivePortal();
         }
     }
 
-    Serial.printf("WiFi: connecting to %s", cfg.wifiSsid.c_str());
+    logf("WiFi: connecting to %s", cfg.wifiSsid.c_str());
     WiFi.begin(cfg.wifiSsid.c_str(), cfg.wifiPassword.c_str());
     for (int i = 0; i < 30 && WiFi.status() != WL_CONNECTED; i++) {
-        delay(500); Serial.print(".");
+        delay(500); logp(".");
     }
     if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("\nWiFi failed — starting setup portal");
+        logln("\nWiFi failed â€” starting setup portal");
         String ap = apNameFromMac();
         epd_show_setup(ap.c_str());
         startCaptivePortal();
     }
-    Serial.printf("\nIP: %s\n", WiFi.localIP().toString().c_str());
+    logf("\nIP: %s\n", WiFi.localIP().toString().c_str());
+
+    // No API key yet â†’ run the QR pairing flow to obtain one.
+    if (cfg.apiKey.length() == 0) {
+        logln("No API key â€” starting QR pairing");
+        if (!pairDevice()) { logln("Pairing not completed; retry after sleep"); deep_sleep(120); }
+    }
+
+    // Check for a newer firmware and self-update (reboots on success).
+    otaCheck();
+
+    // Report in early so the dashboard shows the device as online and knows its
+    // firmware version, even if this screen has no photos yet.
+    post_status(0);
 
     uint32_t sleep_s = DEFAULT_SLEEP_S;
     {
@@ -699,11 +1051,18 @@ void setup() {
         http.begin(url);
         int code = http.GET();
         if (code != 200) {
-            Serial.printf("HTTP %d\n", code);
+            logf("HTTP %d\n", code);
             http.end();
+            if (code == 404) {
+                // Reached the server fine — the screen just has no photos yet.
+                logln("No photos assigned to this screen");
+                if (!showServerScreen("empty")) epd_show_no_photos();
+                deep_sleep(sleep_s);
+            }
+            // Genuine connection/server problem.
             epd_show_error(cfg.serverHost.c_str(), cfg.serverPort);
             if (firstBoot) {
-                Serial.println("Server unreachable on first boot — starting portal");
+                logln("Server unreachable on first boot â€” starting portal");
                 clearConfig();
                 String ap = apNameFromMac();
                 epd_show_setup(ap.c_str());
@@ -713,7 +1072,7 @@ void setup() {
         }
         WiFiClient *stream = http.getStreamPtr();
         int total = http.getSize();
-        Serial.printf("JPEG: %d bytes\n", total);
+        logf("JPEG: %d bytes\n", total);
         while (http.connected() && jpeg_len < (size_t)total) {
             int avail = stream->available();
             if (avail > 0) {
@@ -725,16 +1084,18 @@ void setup() {
         http.end();
     }
 
+    memset(rgb_buf, 0, EPD_W * EPD_H * 3);   // black where the image doesn't cover
     if (jpeg.openRAM(jpeg_buf, (int)jpeg_len, jpegDraw)) {
         jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
-        if (!jpeg.decode(0, 0, 0)) Serial.println("JPEG decode error");
-        else                        Serial.println("JPEG decoded");
+        if (!jpeg.decode(0, 0, 0)) logln("JPEG decode error");
+        else                        logln("JPEG decoded");
         jpeg.close();
+        dither_and_pack();           // quantize + dither into epd_buf
+        logln("Dithered to 6 colors");
     } else {
-        Serial.println("JPEG open failed");
+        logln("JPEG open failed");
     }
 
-    post_status(sleep_s);
     epd_init();
     epd_display(epd_buf);
     epd_sleep_mode();
@@ -742,3 +1103,4 @@ void setup() {
 }
 
 void loop() {}
+

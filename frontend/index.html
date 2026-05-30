@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/glass.css">
+  <script src="/theme.js"></script>
   <style>
     body { min-height: 100vh; overflow-y: auto; }
 
@@ -828,10 +829,8 @@ function renderBreadcrumb() {
 }
 
 function renderContent() {
-  const bg = document.getElementById('bgEl');
-  if (curView === 'screens')      { bg.className = 'space-bg'; }
-  else if (curView === 'albums')  { bg.className = 'space-bg space-bg-2'; }
-  else                            { bg.className = 'space-bg space-bg-3'; }
+  // Fixed deep-space backdrop driven by the user's chosen theme
+  if (window.TPDTheme) window.TPDTheme.apply();
 
   if (curView === 'screens')      renderScreensView();
   else if (curView === 'albums')  renderAlbumsView();

@@ -16,7 +16,12 @@
       "WebSearch",
       "Bash(cd /tmp/eppt && grep -rniE \"PIN_NUM|_PIN|GPIO_NUM_|EPD_\\(RST|DC|CS|BUSY|CLK|SCK|MOSI|DIN|PWR\\)|spi.*sclk|busy\" 05_ArduinoExample 03_Firmware 2>/dev/null | grep -iE \"rst|dc|cs|busy|sck|clk|mosi|din|pwr|power|sclk\" | grep -iE \"[0-9]\" | head -50)",
       "Read(//tmp/**)",
-      "Bash(grep -iE \"\\\\.\\(c|h|cpp|ino\\)$\")"
+      "Bash(grep -iE \"\\\\.\\(c|h|cpp|ino\\)$\")",
+      "Bash(ls frontend/pair.html)",
+      "Bash(grep -c \"screen\\\\|/link\\\\|token\" frontend/pair.html)",
+      "Read(//c/Users/MischavanLeuffen/Downloads/**)",
+      "Bash(git remote *)",
+      "Bash(git ls-remote *)"
     ]
   }
 }
