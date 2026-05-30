@@ -1974,9 +1974,23 @@
 
     // ── API Keys ───────────────────────────────────────────────────────────
     async function loadApiKeys() {
-        const res  = await fetch('/api/admin/apikeys');
-        const keys = await res.json();
         const tbody = document.getElementById('keyTableBody');
+        let keys;
+        try {
+            const res = await fetch('/api/admin/apikeys');
+            if (!res.ok) {
+                tbody.innerHTML = `<tr class="empty-row"><td colspan="4">Could not load API keys (${res.status}${res.status===403?' — needs admin permission':''}).</td></tr>`;
+                return;
+            }
+            keys = await res.json();
+        } catch (e) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Could not load API keys (network error).</td></tr>';
+            return;
+        }
+        if (!Array.isArray(keys)) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Unexpected response loading API keys.</td></tr>';
+            return;
+        }
 
         if (keys.length === 0) {
             tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No API keys</td></tr>';
@@ -2844,7 +2858,9 @@
     loadDisplaySettings();
     loadActivityLog();
     loadRoles().then(() => loadUsers());
-    loadScreens().then(() => loadApiKeys());
+    // Load keys regardless of whether the screens fetch succeeds (they share a
+    // dropdown but must not block each other).
+    loadScreens().catch(() => {}).finally(() => loadApiKeys());
     initApiDocs();
     loadVersion();
     initCollapsible();
