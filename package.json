@@ -1,5 +1,5 @@
 {
-  "name": "image-upload-site",
+  "name": "photodock",
   "version": "1.17.0",
   "description": "Image upload site with backend",
   "main": "backend/server.js",
