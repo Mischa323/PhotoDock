@@ -420,6 +420,11 @@ function userCanSeeImage(user, filename) {
 }
 
 function requireAuth(req, res, next) {
+    // Static frontend assets (stylesheet, fonts, icons, client JS) must always load
+    // — the setup and login pages need them before any session/admin account exists.
+    // Page shells (.html) are deliberately excluded so they stay behind their routes.
+    if (req.method === 'GET' && /\.(css|js|mjs|svg|png|jpe?g|gif|ico|webp|woff2?|ttf|map)$/i.test(req.path))
+        return next();
     if (appData.users.length === 0) {
         if (req.path === '/setup' || req.path.startsWith('/api/setup')) return next();
         return res.redirect('/setup');
