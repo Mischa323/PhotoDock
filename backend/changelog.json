@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.0.0",
+    "date": "2026-06-01",
+    "changes": [
+      "ESP32 e-ink photo displays — full device support: first-boot Wi-Fi setup portal, QR-code pairing, in-browser flashing, and a guided setup wizard in the dashboard",
+      "Multi-board firmware from one codebase — Waveshare PhotoPainter (7.3\" 6-colour) and Seeed reTerminal E1001 (7.5\" monochrome); add your own device by pointing at a GitHub firmware repo",
+      "Over-the-air firmware updates with opt-in Update now / auto-update per screen, plus a firmware version history you can roll back to",
+      "Per-screen photo controls — fit mode, look (brightness/saturation), sleep schedule and refresh interval, with offline/sleeping detection",
+      "Device logs in the dashboard, filterable per screen",
+      "Security — firmware downloads now require an API key; the server-side firmware build is hardened against command injection; builds will not publish binaries with baked-in Wi-Fi credentials"
+    ]
+  },
+  {
     "version": "1.17.0",
     "date": "2026-04-14",
     "changes": [

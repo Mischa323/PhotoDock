@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Screens — PhotoDock</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <script src="/theme.js"></script>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', -apple-system, sans-serif; background: #000; min-height: 100vh; color: #fff; -webkit-font-smoothing: antialiased; }
+
+    .page-header {
+      position: sticky; top: 0; z-index: 10;
+      margin: 12px 16px 0; border-radius: 16px; padding: 0 16px;
+      height: 52px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .page-header .title { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; color: rgba(255,255,255,0.9); }
+    .header-actions { display: flex; gap: 6px; align-items: center; }
+    .hbtn {
+      padding: 6px 14px; border-radius: 10px; font-size: 13px; font-weight: 500;
+      text-decoration: none; color: #fff; display: inline-flex; align-items: center; gap: 6px;
+      cursor: pointer; font-family: inherit;
+    }
+
+    .cards-grid {
+      position: relative; z-index: 5;
+      max-width: 1000px; margin: 16px auto; padding: 0 16px 90px;
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 14px; align-items: start;
+    }
+
+    .screen-card { border-radius: 16px; overflow: hidden; }
+    .screen-card-head {
+      padding: 15px 18px 13px; border-bottom: 1px solid rgba(255,255,255,0.07);
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+    }
+    .screen-card-name { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.9); letter-spacing: -0.01em; }
+    .screen-card-meta { font-size: 12px; color: rgba(255,255,255,0.35); margin-top: 3px; }
+    .card-icon-btn { padding: 4px 9px; border-radius: 7px; font-size: 12px; line-height: 1; }
+    .card-icon-btn.danger { color: rgba(255,160,160,0.7); }
+    .card-icon-btn.danger:hover { color: rgba(255,120,120,0.95); }
+
+    .screen-card-body { padding: 14px 18px 16px; display: flex; flex-direction: column; gap: 10px; }
+
+    .device-row {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px;
+    }
+    .device-row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .device-id { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.8); font-family: monospace; letter-spacing: 0.02em; }
+    .fw-chip { font-size: 11px; font-family: monospace; color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 2px 7px; }
+    .device-row-stats { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+
+    .batt-meter { display: flex; align-items: center; gap: 6px; }
+    .batt-shell { width: 52px; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.12); overflow: hidden; }
+    .batt-fill { height: 100%; border-radius: 4px; }
+    .batt-label { font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.6); min-width: 34px; }
+
+    .dev-wifi { display: flex; align-items: center; gap: 6px; font-size: 12px; color: rgba(255,255,255,0.5); }
+    .dev-wifi-bars { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+    .dev-wifi-bar { display: block; width: 3px; border-radius: 1px; }
+
+    .status-pill { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; border: 1px solid; }
+    .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; display: block; }
+
+    .device-empty { font-size: 12px; color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.03); border: 1px dashed rgba(255,255,255,0.12); border-radius: 12px; padding: 12px 14px; }
+
+    .albums-section { margin-top: 4px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.06); }
+    .albums-label { font-size: 11px; font-weight: 700; color: rgba(255,255,255,0.3); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+    .album-list { display: flex; flex-direction: column; gap: 8px; }
+    .album-chip { border-radius: 10px; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .album-chip.fav { border-color: rgba(245,158,11,0.4); background: rgba(245,158,11,0.08); }
+    .album-chip-name { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.8); }
+    .album-chip-heart { font-size: 14px; line-height: 1; }
+    .album-chip-count { font-size: 12px; color: rgba(255,255,255,0.35); }
+    .albums-empty { font-size: 12px; color: rgba(255,255,255,0.35); }
+
+    .add-card { border-radius: 16px; border: 1px dashed rgba(255,255,255,0.18); background: rgba(255,255,255,0.02); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px; justify-content: center; }
+    .add-card-title { font-size: 13px; font-weight: 600; color: rgba(255,255,255,0.55); }
+
+    .color-picker { display: flex; gap: 8px; flex-wrap: wrap; }
+    .color-swatch { width: 26px; height: 26px; border-radius: 50%; border: 2px solid transparent; cursor: pointer; transition: 0.12s; }
+
+    /* Edit modal (dark glass) */
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
+    .modal-box { width: 340px; border-radius: 18px; padding: 22px; }
+    .modal-title { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.92); margin-bottom: 16px; }
+    .modal-input { margin-bottom: 16px; }
+    .modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 18px; }
+    .modal-btn { padding: 9px 16px; border-radius: 10px; font-size: 13px; }
+
+    .loading, .empty-state { text-align: center; color: rgba(255,255,255,0.45); padding: 60px 20px; font-size: 14px; }
+
+    /* ── Device Setup Wizard (dark glass) ───────────────────────────── */
+    .wizard-shell {
+      --accent: #22d3ee; --txt: rgba(255,255,255,0.92); --txt-dim: rgba(255,255,255,0.5);
+      width: min(680px, 96vw); max-height: 90vh; display: flex; flex-direction: column;
+      border-radius: 18px; overflow: hidden; color: var(--txt);
+      background: rgba(17,24,39,0.72);
+      backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.14);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.12) inset, 0 24px 64px rgba(0,0,0,0.55);
+    }
+    .wizard-shell-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+    .wizard-shell-head span { font-size: 16px; font-weight: 600; color: var(--txt); }
+    .wizard-shell-head button { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.14); color: #fff; width: 30px; height: 30px; border-radius: 9px; cursor: pointer; font-size: 14px; }
+    .wizard-shell-head button:hover { background: rgba(255,255,255,0.2); }
+    .wizard-scroll { overflow-y: auto; padding: 20px; }
+
+    .wizard-steps { display: flex; align-items: center; padding: 0 4px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); margin-bottom: 20px; }
+    .wizard-step-item { display: flex; align-items: center; gap: 8px; }
+    .wizard-step-dot { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; background: rgba(255,255,255,0.1); color: var(--txt-dim); flex-shrink: 0; transition: background .2s, color .2s; }
+    .wizard-step-dot.active { background: var(--accent); color: #06222a; }
+    .wizard-step-dot.done { background: #22c55e; color: #052e16; }
+    .wizard-step-label { font-size: 12px; font-weight: 600; color: var(--txt-dim); transition: color .2s; }
+    .wizard-step-label.active { color: var(--accent); }
+    .wizard-step-label.done { color: #4ade80; }
+    .wizard-step-line { flex: 1; height: 2px; background: rgba(255,255,255,0.12); margin: 0 12px; transition: background .2s; }
+    .wizard-step-line.done { background: #22c55e; }
+    .wizard-panel { display: none; }
+    .wizard-panel.active { display: block; }
+    .wizard-title { font-size: 15px; font-weight: 600; color: var(--txt); margin-bottom: 18px; }
+    .wz-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+    .wz-field label { font-size: 12px; font-weight: 500; color: var(--txt-dim); }
+    .wz-field input, .wz-field select {
+      padding: 9px 12px; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px;
+      font-size: 13px; font-family: inherit; background: rgba(255,255,255,0.07); color: var(--txt); outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .wz-field input::placeholder { color: rgba(255,255,255,0.3); }
+    .wz-field input:focus, .wz-field select:focus { border-color: rgba(34,211,238,0.6); box-shadow: 0 0 0 3px rgba(34,211,238,0.15); background: rgba(255,255,255,0.1); }
+    .wz-field select option { background: #111827; color: var(--txt); }
+    .wz-colors { display: flex; flex-wrap: wrap; gap: 9px; }
+    .wz-swatch { width: 30px; height: 30px; border-radius: 50%; cursor: pointer; border: 2px solid transparent; padding: 0; transition: .12s; }
+    .wz-swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px var(--sw); }
+    .wifi-scan-row { display: flex; gap: 8px; }
+    .wifi-scan-row select { flex: 1; }
+    .btn-scan { background: rgba(255,255,255,0.1); color: var(--txt); border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; padding: 9px 14px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+    .btn-scan:hover { background: rgba(255,255,255,0.17); }
+    .host-port-row { display: grid; grid-template-columns: 1fr 84px; gap: 10px; }
+    .wizard-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+    .btn-add { background: linear-gradient(135deg, rgba(6,182,212,0.95), rgba(8,145,178,0.95)); color: #fff; border: 1px solid rgba(6,182,212,0.5); border-radius: 10px; padding: 9px 20px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; box-shadow: 0 0 18px rgba(6,182,212,0.25); }
+    .btn-add:hover { background: linear-gradient(135deg, rgba(34,211,238,0.95), rgba(6,182,212,0.95)); }
+    .btn-add:disabled { opacity: .55; cursor: default; box-shadow: none; }
+    .btn-cancel { background: rgba(255,255,255,0.1); color: var(--txt); border: 1px solid rgba(255,255,255,0.16); border-radius: 10px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .btn-cancel:hover { background: rgba(255,255,255,0.17); }
+    .device-type-toggle { display: flex; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.14); margin-bottom: 20px; }
+    .toggle-btn { flex: 1; padding: 9px 16px; border: none; background: rgba(255,255,255,0.04); cursor: pointer; font-size: 13px; font-weight: 500; color: var(--txt-dim); transition: background .15s, color .15s; font-family: inherit; }
+    .toggle-btn:not(:last-child) { border-right: 1px solid rgba(255,255,255,0.12); }
+    .toggle-btn.selected { background: var(--accent); color: #06222a; font-weight: 600; }
+    .mode-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
+    .mode-card { border: 2px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 16px 18px; cursor: pointer; transition: border-color .15s, background .15s; user-select: none; background: rgba(255,255,255,0.03); }
+    .mode-card:hover { border-color: rgba(34,211,238,0.6); }
+    .mode-card.selected { border-color: var(--accent); background: rgba(34,211,238,0.1); }
+    .mode-card-icon { font-size: 22px; margin-bottom: 8px; }
+    .mode-card-title { font-size: 14px; font-weight: 600; color: var(--txt); margin-bottom: 4px; }
+    .mode-card-desc { font-size: 12px; color: var(--txt-dim); line-height: 1.5; }
+    .wizard-summary { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; }
+    .wizard-summary-row { display: flex; gap: 8px; font-size: 13px; padding: 3px 0; }
+    .wizard-summary-row .lbl { color: var(--txt-dim); font-weight: 500; min-width: 68px; }
+    .wizard-summary-row .val { color: var(--txt); font-weight: 600; }
+    #wzBuildLog { display: none; margin: 12px 0 0; background: rgba(0,0,0,0.5); color: #d1fae5; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.55; border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 12px 14px; max-height: 240px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+    esp-web-install-button { --esp-tools-button-color: #06b6d4; --esp-tools-button-text-color: #fff; }
+    .key-reveal { background: rgba(34,211,238,0.08); border: 1px solid rgba(34,211,238,0.3); border-radius: 10px; padding: 14px 16px; margin: 16px 0; }
+    .key-reveal-label { font-size: 12px; font-weight: 600; color: #67e8f9; margin-bottom: 8px; }
+    .key-reveal-row { display: flex; align-items: center; gap: 8px; }
+    .key-value { flex: 1; font-family: 'Courier New', monospace; font-size: 12px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 7px 10px; color: var(--txt); word-break: break-all; }
+    .btn-copy { background: rgba(255,255,255,0.06); border: 1px solid rgba(34,211,238,0.3); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 14px; color: #67e8f9; flex-shrink: 0; }
+    .btn-copy:hover { background: rgba(34,211,238,0.15); }
+    .flash-instructions { display: flex; flex-direction: column; gap: 12px; margin-bottom: 20px; }
+    .flash-step { display: flex; align-items: flex-start; gap: 12px; font-size: 13px; color: var(--txt); }
+    .flash-step-num { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: #06222a; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .fw-status-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px; margin-bottom: 16px; }
+    .fw-status-badge.ready { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+    .fw-status-badge.missing { background: rgba(245,158,11,0.15); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+    .setup-steps { display: flex; flex-direction: column; gap: 18px; }
+    .setup-step { display: flex; align-items: flex-start; gap: 14px; }
+    .setup-step-num { width: 28px; height: 28px; border-radius: 50%; background: rgba(34,211,238,0.15); color: #67e8f9; font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+    .setup-step-title { font-size: 13px; font-weight: 600; color: var(--txt); margin-bottom: 6px; }
+    .setup-step div[style*="color:#334155"] { color: var(--txt) !important; }
+    .setup-step-sub { font-size: 12px; color: var(--txt-dim); margin-top: 4px; }
+    .setup-val { display: inline-block; font-family: 'Courier New', monospace; font-size: 13px; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12); border-radius: 6px; padding: 5px 10px; color: var(--txt); word-break: break-all; }
+    .setup-config-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+    .setup-config-lbl { font-size: 12px; font-weight: 600; color: var(--txt-dim); min-width: 54px; }
+    #wzDoneAuto p, #wzDoneManual p { color: var(--txt-dim) !important; }
+    #wzBuildStatus { color: var(--txt-dim) !important; }
+
+    /* Toast */
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: #0f172a; color: #fff; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 500; box-shadow: 0 4px 16px rgba(0,0,0,0.25); transition: transform .25s; pointer-events: none; z-index: 9999; }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+    .toast.error { background: #7f1d1d; }
+  </style>
+</head>
+<body>
+
+<div class="space-bg" id="bgEl"></div>
+
+<div class="page-header glass">
+  <span class="title">Screens</span>
+  <div class="header-actions">
+    <button class="cyan-btn hbtn" onclick="openSetup()">&#65291; Set up a device</button>
+    <a href="/pair" class="glass-btn hbtn" title="Pair a device that's already on your WiFi and showing a QR code">&#128241; Pair a device</a>
+    <button class="glass-btn hbtn" onclick="openFwLog()" title="See what changed in the device firmware">&#128221; Firmware log</button>
+    <a href="/" class="glass-btn hbtn">&#8962; Gallery</a>
+    <a href="/admin" class="glass-btn hbtn">&#9881; Settings</a>
+  </div>
+</div>
+
+<div id="grid" class="cards-grid">
+  <div class="loading">Loading screens…</div>
+</div>
+
+<!-- Edit Screen modal -->
+<div class="modal-backdrop" id="editModal" onclick="if(event.target===this)closeEditModal()">
+  <div class="glass modal-box">
+    <div class="modal-title">Screen Settings</div>
+    <input class="glass-input modal-input" type="text" id="editName" placeholder="Screen name"
+      onkeydown="if(event.key==='Enter')saveEdit();if(event.key==='Escape')closeEditModal()">
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:9px">Colour</div>
+    <div class="color-picker" id="editColors"></div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Refresh rate</div>
+    <select class="glass-input modal-input" id="editInterval" style="margin-bottom:0">
+      <option value="1">Every 1 minute</option>
+      <option value="5">Every 5 minutes</option>
+      <option value="10">Every 10 minutes</option>
+      <option value="15">Every 15 minutes</option>
+      <option value="30">Every 30 minutes</option>
+      <option value="60">Every hour</option>
+      <option value="180">Every 3 hours</option>
+      <option value="360">Every 6 hours</option>
+      <option value="720">Every 12 hours</option>
+      <option value="1440">Once a day</option>
+    </select>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">How often the paired device wakes to fetch a new photo.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Orientation</div>
+    <select class="glass-input modal-input" id="editRotation" style="margin-bottom:0">
+      <option value="0">Landscape (0°)</option>
+      <option value="90">Portrait (90° clockwise)</option>
+      <option value="180">Landscape upside-down (180°)</option>
+      <option value="270">Portrait (270° / 90° counter-clockwise)</option>
+    </select>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Rotate the image to match how the frame is mounted.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Fit to screen</div>
+    <select class="glass-input modal-input" id="editFit" style="margin-bottom:0">
+      <option value="contain">Fit whole photo (black bars)</option>
+      <option value="cover">Fill screen (crop edges)</option>
+    </select>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">“Fill screen” crops a little off the edges so the photo covers the whole panel with no bars. You can override this per photo in the Gallery.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Photo look (e-ink)</div>
+    <select class="glass-input modal-input" id="editLookPreset" style="margin-bottom:10px" onchange="applyLookPreset(this.value)">
+      <option value="vivid">Vivid — punchy colours</option>
+      <option value="balanced">Balanced (recommended)</option>
+      <option value="soft">Soft — gentle</option>
+      <option value="original">Original — no boost</option>
+      <option value="custom">Custom…</option>
+    </select>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <span style="font-size:12px;color:rgba(255,255,255,0.6);min-width:70px">Brightness</span>
+      <input type="range" id="editBrightness" min="0.8" max="1.6" step="0.05" value="1.15" style="flex:1" oninput="onLookSlider()">
+      <span id="editBrightnessVal" style="font-family:monospace;font-size:12px;min-width:34px">1.15</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-size:12px;color:rgba(255,255,255,0.6);min-width:70px">Saturation</span>
+      <input type="range" id="editSaturation" min="0.8" max="1.8" step="0.05" value="1.2" style="flex:1" oninput="onLookSlider()">
+      <span id="editSaturationVal" style="font-family:monospace;font-size:12px;min-width:34px">1.20</span>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Brightens &amp; saturates photos so they pop on e-ink.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Sleep schedule</div>
+    <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
+      <input type="checkbox" id="editSleepEnabled" style="width:16px;height:16px;cursor:pointer" onchange="document.getElementById('sleepTimes').style.opacity=this.checked?'1':'0.4'">
+      Turn the screen off on a schedule
+    </label>
+    <div id="sleepTimes" style="display:flex;gap:14px;margin-top:10px;opacity:0.4">
+      <div style="flex:1">
+        <span style="font-size:11px;color:rgba(255,255,255,0.5)">Sleeps at</span>
+        <input type="time" class="glass-input modal-input" id="editSleepStart" value="23:00" style="margin-bottom:0">
+      </div>
+      <div style="flex:1">
+        <span style="font-size:11px;color:rgba(255,255,255,0.5)">Wakes at</span>
+        <input type="time" class="glass-input modal-input" id="editSleepEnd" value="07:00" style="margin-bottom:0">
+      </div>
+    </div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">During these hours the screen shows a “Sleeping” page and stops refreshing — saving battery. Times use the server timezone.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Firmware</div>
+    <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
+      <input type="checkbox" id="editAutoUpdate" style="width:16px;height:16px;cursor:pointer">
+      Auto-update firmware when a new version is available
+    </label>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">When off, updates only happen when you click “Update now”.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Diagnostics</div>
+    <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
+      <input type="checkbox" id="editDebugLogging" style="width:16px;height:16px;cursor:pointer">
+      Debug logging
+    </label>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Keeps the device's WiFi on through each refresh so the full display logs reach the server. Uses more battery — turn off when you're done debugging.</div>
+    <div class="modal-footer">
+      <button class="glass-btn modal-btn" style="color:#f87171" onclick="deleteFromModal()">Delete</button>
+      <div style="display:flex;gap:8px">
+        <button class="glass-btn modal-btn" onclick="closeEditModal()">Cancel</button>
+        <button class="cyan-btn modal-btn" onclick="saveEdit()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Firmware changelog modal -->
+<div class="modal-backdrop" id="fwLogModal" onclick="if(event.target===this)closeFwLog()">
+  <div class="glass modal-box" style="width:480px;max-height:80vh;display:flex;flex-direction:column">
+    <div class="modal-title">Firmware updates</div>
+    <div style="font-size:11.5px;color:rgba(255,255,255,0.45);margin:-6px 0 12px">What we've shipped for each supported screen.</div>
+    <div id="fwLogBody" style="overflow:auto;font-size:13px;color:rgba(255,255,255,0.85)">Loading…</div>
+    <div class="modal-footer">
+      <button class="cyan-btn modal-btn" onclick="closeFwLog()" style="margin-left:auto">Close</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Device Setup wizard -->
+<div class="modal-backdrop" id="setupModal" onclick="if(event.target===this)closeSetup()">
+  <div class="wizard-shell">
+    <div class="wizard-shell-head">
+      <span>Set up a device</span>
+      <button onclick="closeSetup()" title="Close">&#10005;</button>
+    </div>
+    <div class="wizard-scroll">
+      <div class="wizard-steps">
+        <div class="wizard-step-item"><div class="wizard-step-dot active" id="dot1">1</div><span class="wizard-step-label active" id="lbl1">Name</span></div>
+        <div class="wizard-step-line" id="line1"></div>
+        <div class="wizard-step-item"><div class="wizard-step-dot" id="dot2">2</div><span class="wizard-step-label" id="lbl2">Config</span></div>
+        <div class="wizard-step-line" id="line2"></div>
+        <div class="wizard-step-item"><div class="wizard-step-dot" id="dot3">3</div><span class="wizard-step-label" id="lbl3">Flash</span></div>
+        <div class="wizard-step-line" id="line3"></div>
+        <div class="wizard-step-item"><div class="wizard-step-dot" id="dot4">4</div><span class="wizard-step-label" id="lbl4">Pair</span></div>
+      </div>
+
+      <!-- Step 1: Name -->
+      <div class="wizard-panel active" id="wizardPanel1">
+        <div class="device-type-toggle">
+          <button class="toggle-btn selected" id="toggleNewBtn" onclick="setSetupType('new')">New device</button>
+          <button class="toggle-btn" id="toggleReflashBtn" onclick="setSetupType('reflash')">Reflash existing</button>
+        </div>
+        <div id="wzNewFields">
+          <div class="wizard-title">What would you like to call this screen?</div>
+          <div class="wz-field">
+            <label>Screen name</label>
+            <input type="text" id="wzName" placeholder="e.g. Living Room Display" maxlength="60">
+          </div>
+          <div class="wz-field">
+            <label>Description <span style="color:#94a3b8;font-weight:400">(optional)</span></label>
+            <input type="text" id="wzDesc" placeholder="Short description" maxlength="120">
+          </div>
+          <div class="wz-field">
+            <label>Colour</label>
+            <div class="wz-colors" id="wzColors"></div>
+          </div>
+          <div class="wz-field">
+            <label>Device type</label>
+            <select id="wzDeviceType">
+              <option value="waveshare-s3-photopainter" data-manifest="/firmware/manifest.json" data-buildable="1">Waveshare ESP32-S3-PhotoPainter (7.3&quot; E6 6-color, 800×480)</option>
+              <option value="reterminal-e1001" data-manifest="/firmware/reterminal-e1001/manifest.json" data-buildable="1">Seeed reTerminal E1001 (7.5&quot; monochrome, 800×480)</option>
+            </select>
+          </div>
+          <div class="key-reveal" id="wzKeyReveal" style="display:none">
+            <div class="key-reveal-label">Screen &amp; API key created — it's applied automatically (baked into the firmware for automatic setup, or assigned by QR pairing for manual setup). Copy it only if you want it for your own records.</div>
+            <div class="key-reveal-row">
+              <span class="key-value" id="wzCreatedKeyValue"></span>
+              <button class="btn-copy" onclick="copyKey()" title="Copy API key">&#128203;</button>
+            </div>
+          </div>
+        </div>
+        <div id="wzExistingFields" style="display:none">
+          <div class="wizard-title">Select the screen to reflash</div>
+          <div class="wz-field">
+            <label>Screen</label>
+            <select id="wzExistingKey"><option value="">— loading screens… —</option></select>
+          </div>
+        </div>
+        <div class="wizard-actions">
+          <button class="btn-add" id="wzStep1Btn" onclick="wizardStep1Next()">Next &#8594;</button>
+          <button class="btn-add" id="wzContinueBtn" style="display:none" onclick="wizardSetStep(2)">Configure &#8594;</button>
+        </div>
+      </div>
+
+      <!-- Step 2: Config -->
+      <div class="wizard-panel" id="wizardPanel2">
+        <div class="wizard-title">How would you like to configure the device?</div>
+        <div class="mode-cards">
+          <div class="mode-card" id="modeAutoCard" onclick="setWizardMode('auto')">
+            <div class="mode-card-icon">&#9889;</div>
+            <div class="mode-card-title">Automatic</div>
+            <div class="mode-card-desc">Enter your WiFi and server settings here. The firmware will connect automatically after flashing — no setup on the device needed.</div>
+          </div>
+          <div class="mode-card" id="modeManualCard" onclick="setWizardMode('manual')">
+            <div class="mode-card-icon">&#128295;</div>
+            <div class="mode-card-title">Manual</div>
+            <div class="mode-card-desc">Flash generic firmware. After power-on, connect to the device's WiFi hotspot to configure it directly.</div>
+          </div>
+        </div>
+        <div id="wzAutoFields" style="display:none">
+          <div class="wz-field">
+            <label>WiFi network</label>
+            <div class="wifi-scan-row">
+              <select id="wzSsidSelect" onchange="onSsidSelect()"><option value="">— click Scan to load saved networks —</option></select>
+              <button class="btn-scan" id="scanBtn" onclick="scanWifi()">&#8635; Scan</button>
+            </div>
+            <input type="text" id="wzSsidCustom" placeholder="Or type a network name" style="margin-top:6px" autocomplete="off">
+          </div>
+          <div class="wz-field">
+            <label>WiFi password</label>
+            <input type="password" id="wzPassword" placeholder="••••••••" autocomplete="new-password">
+          </div>
+          <div class="wz-field host-port-row">
+            <div class="wz-field" style="margin-bottom:0">
+              <label>Server host</label>
+              <input type="text" id="wzHost" placeholder="192.168.1.100" autocomplete="off">
+            </div>
+            <div class="wz-field" style="margin-bottom:0">
+              <label>Port</label>
+              <input type="number" id="wzPort" value="8080" min="1" max="65535">
+            </div>
+          </div>
+        </div>
+        <div class="wizard-actions">
+          <button class="btn-cancel" onclick="wizardBack(2)">&#8592; Back</button>
+          <button class="btn-add" onclick="wizardStep2Next()">Next &#8594;</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Flash -->
+      <div class="wizard-panel" id="wizardPanel3">
+        <div class="wizard-title">Flash the firmware to your device</div>
+        <div id="wzFwStatus"></div>
+        <div id="wzBuildControls" style="display:none">
+          <div class="flash-instructions">
+            <div class="flash-step"><div class="flash-step-num">1</div><div>Click <strong>Build Firmware</strong> — compiles the firmware (~2 min)</div></div>
+            <div class="flash-step"><div class="flash-step-num">2</div><div>Once built, plug the ESP32 in via USB and click <strong>Flash Device</strong></div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <button class="btn-add" id="wzBuildBtn" onclick="wizardBuild()">Build Firmware</button>
+            <span id="wzBuildStatus" style="font-size:13px;color:#888"></span>
+          </div>
+          <pre id="wzBuildLog"></pre>
+        </div>
+        <div id="wzFlashControls" style="display:none">
+          <div class="flash-instructions">
+            <div class="flash-step"><div class="flash-step-num">1</div><div>Hold the <strong>BOOT</strong> button on the ESP32, connect it via USB, then release BOOT</div></div>
+            <div class="flash-step"><div class="flash-step-num">2</div><div>Click <strong>Flash Device</strong> and select the serial port when prompted</div></div>
+            <div class="flash-step"><div class="flash-step-num">3</div><div>When flashing finishes, <strong>unplug & replug USB</strong> (or press <strong>RESET/EN</strong>) <em>without</em> holding BOOT, so it boots the new firmware</div></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <esp-web-install-button manifest="/firmware/manifest.json" id="espInstallBtn">
+              <button slot="activate" class="btn-add">&#9889; Flash Device</button>
+              <span slot="unsupported" style="font-size:13px;color:#c00">Web Serial not supported — use Chrome or Edge.</span>
+            </esp-web-install-button>
+            <span style="font-size:12px;color:#94a3b8">Requires Chrome or Edge.</span>
+          </div>
+          <div id="wzFlashDone" style="display:none;margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.35)">
+            <div style="font-size:14px;color:#22c55e;font-weight:700;margin-bottom:4px">&#10003; Flash complete!</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.8)">Now <strong>unplug and replug the USB cable</strong> (or press <strong>RESET/EN</strong>) <em>without</em> holding BOOT. If the device's log shows <code>waiting for download</code>, it's still in flash mode — just reset it once more without BOOT held.</div>
+          </div>
+        </div>
+        <div class="wizard-actions">
+          <button class="btn-cancel" onclick="wizardBack(3)">&#8592; Back</button>
+          <button class="btn-add" id="wzFlashContinue" style="display:none" onclick="wizardSetStep(4)">I've flashed it &#8594;</button>
+        </div>
+      </div>
+
+      <!-- Step 4: Done -->
+      <div class="wizard-panel" id="wizardPanel4">
+        <div id="wzDoneAuto" style="display:none">
+          <div class="wizard-title">Your device is ready!</div>
+          <p style="font-size:13px;color:#475569;margin-bottom:16px">The firmware was built with your settings baked in. Power on the device and it will connect automatically.</p>
+          <div class="wizard-summary">
+            <div class="wizard-summary-row"><span class="lbl">WiFi</span><span class="val" id="wzDoneWifi">—</span></div>
+            <div class="wizard-summary-row"><span class="lbl">Server</span><span class="val" id="wzDoneServer">—</span></div>
+            <div class="wizard-summary-row"><span class="lbl">Screen</span><span class="val" id="wzDoneScreen">—</span></div>
+          </div>
+        </div>
+        <div id="wzDoneManual" style="display:none">
+          <div class="wizard-title">Configure the device via its setup portal</div>
+          <div class="setup-steps">
+            <div class="setup-step"><div class="setup-step-num">1</div><div><div class="setup-step-title">Power on the device</div><div class="setup-step-sub">On first boot it creates a temporary WiFi hotspot.</div></div></div>
+            <div class="setup-step"><div class="setup-step-num">2</div><div><div class="setup-step-title">Connect to the setup network</div><div style="font-size:13px;color:#334155">On your phone or laptop, join:</div><div class="setup-config-row"><span class="setup-config-lbl">Network</span><code class="setup-val">PhotoDock-XXXX</code></div><div class="setup-step-sub">XXXX = last 4 hex digits of the device's MAC address.</div></div></div>
+            <div class="setup-step"><div class="setup-step-num">3</div><div><div class="setup-step-title">Open the setup page</div><div style="font-size:13px;color:#334155">A captive-portal page should open automatically. If not:</div><div class="setup-config-row"><code class="setup-val">http://192.168.4.1</code></div></div></div>
+            <div class="setup-step"><div class="setup-step-num">4</div><div><div class="setup-step-title">Enter your settings</div><div style="font-size:13px;color:#334155">Fill in WiFi name &amp; password, then copy these values:</div>
+              <div class="setup-config-row"><span class="setup-config-lbl">Host</span><code class="setup-val" id="wzSetupHost">—</code><button class="btn-copy" onclick="copySetup('wzSetupHost')" title="Copy">&#128203;</button></div>
+              <div class="setup-config-row"><span class="setup-config-lbl">Port</span><code class="setup-val" id="wzSetupPort">—</code><button class="btn-copy" onclick="copySetup('wzSetupPort')" title="Copy">&#128203;</button></div>
+            </div></div>
+            <div class="setup-step"><div class="setup-step-num">5</div><div><div class="setup-step-title">Save &amp; restart</div><div class="setup-step-sub">The device saves its settings, reboots, joins your WiFi, and shows a <strong>QR code</strong>.</div></div></div>
+            <div class="setup-step"><div class="setup-step-num">6</div><div><div class="setup-step-title">Pair the device to this screen</div><div style="font-size:13px;color:#334155">Scan the QR code on the device, or tap below, then pick this screen.</div>
+              <div style="margin-top:8px"><a href="/pair" class="btn-add" style="display:inline-block;text-decoration:none">&#128241; Pair a device</a></div>
+            </div></div>
+          </div>
+        </div>
+        <div class="wizard-actions" style="margin-top:24px">
+          <button class="btn-cancel" onclick="wizardBack(4)">&#8592; Back</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn-cancel" id="wzSkipBtn" onclick="wizardDone()" title="Finish without pairing now — you can pair later from the Pair a device button">Skip pairing</button>
+            <a href="/pair" class="btn-add" style="display:inline-flex;align-items:center;text-decoration:none" id="wzPairBtn">&#128241; Pair now</a>
+            <button class="btn-add" id="wzFinishBtn" style="display:none" onclick="wizardDone()">Done &#10003;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const HEALTH = { good:'#22c55e', warn:'#f59e0b', bad:'#ef4444' };
+const STATUS_STYLE = {
+  online:  { bg:'rgba(34,197,94,0.14)',   fg:'rgba(134,239,172,0.95)', dot:HEALTH.good, bd:'rgba(34,197,94,0.25)' },
+  recent:  { bg:'rgba(245,158,11,0.14)',  fg:'rgba(253,210,138,0.95)', dot:HEALTH.warn, bd:'rgba(245,158,11,0.25)' },
+  sleeping:{ bg:'rgba(59,130,246,0.14)',  fg:'rgba(147,197,253,0.95)', dot:'#3b82f6', bd:'rgba(59,130,246,0.25)' },
+  offline: { bg:'rgba(255,255,255,0.07)', fg:'rgba(255,255,255,0.45)', dot:'rgba(255,255,255,0.4)', bd:'rgba(255,255,255,0.12)' },
+};
+const SCREEN_COLORS = ['#06b6d4','#d97706','#22c55e','#a855f7','#f43f5e','#3b82f6','#eab308','#ec4899'];
+
+let screens = [];
+let editId = null;
+let editColor = SCREEN_COLORS[0];
+let newColor = SCREEN_COLORS[0];
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escHtml(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function hexA(hex, a) {
+  const h = (hex || '#06b6d4').replace('#','');
+  const n = parseInt(h.length === 3 ? h.split('').map(x=>x+x).join('') : h, 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+function relTimeAgo(iso) {
+  if (!iso) return '—';
+  const sec = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (sec < 60)    return 'just now';
+  if (sec < 3600)  return `${Math.floor(sec/60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec/3600)}h ago`;
+  return `${Math.floor(sec/86400)}d ago`;
+}
+
+let _toastTimer;
+function showToast(msg, type = '') {
+  clearTimeout(_toastTimer);
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+async function loadScreens() {
+  const res = await fetch('/api/screens');
+  if (!res.ok) { document.getElementById('grid').innerHTML = '<div class="empty-state">Could not load screens.</div>'; return; }
+  screens = await res.json();
+  await Promise.all(screens.map(async s => {
+    const r = await fetch('/api/screens/' + s.id + '/albums');
+    s.albums = r.ok ? await r.json() : [];
+  }));
+  render();
+}
+
+function battMeter(d) {
+  // Charging: show a lightning bolt instead of a (often unreliable) percentage.
+  if (d.charging) {
+    const lbl = (d.batt != null && d.batt > 0) ? d.batt + '%' : 'Charging';
+    const w   = (d.batt != null && d.batt > 0) ? d.batt : 100;
+    return `<div class="batt-meter" title="Charging"><div class="batt-shell"><div class="batt-fill" style="width:${w}%;background:#34d399"></div></div><span class="batt-label" style="color:#34d399;font-weight:600">⚡ ${lbl}</span></div>`;
+  }
+  const color = HEALTH[d.level] || HEALTH.good;
+  const batt = d.batt ?? 0;
+  return `<div class="batt-meter"><div class="batt-shell"><div class="batt-fill" style="width:${batt}%;background:${color}"></div></div><span class="batt-label">${d.batt ?? '—'}%</span></div>`;
+}
+function wifiBars(d) {
+  const q = d.wifi ?? 0;
+  const heights = [4,7,10,14];
+  const color = q >= 3 ? HEALTH.good : q === 2 ? HEALTH.warn : HEALTH.bad;
+  const bars = heights.map((h,i) => `<span class="dev-wifi-bar" style="height:${h}px;background:${i < q ? color : 'rgba(255,255,255,0.18)'}"></span>`).join('');
+  return `<div class="dev-wifi"><div class="dev-wifi-bars">${bars}</div>${esc(d.wlabel || '')}</div>`;
+}
+function statusPill(d) {
+  const st = STATUS_STYLE[d.status] || STATUS_STYLE.offline;
+  return `<span class="status-pill" style="background:${st.bg};color:${st.fg};border-color:${st.bd}"><span class="dot" style="background:${st.dot}"></span>${esc(d.statusLabel || '')}</span>`;
+}
+function fwChip(d) {
+  if (!d.fw) return '';
+  return `<span class="fw-chip" title="Firmware build the device is running">⚙ fw ${esc(String(d.fw).slice(0,8))}</span>`;
+}
+function powerDetails(d) {
+  const p = d.power;
+  if (!p) return '';
+  const mv  = v => v != null ? v + ' mV' : '—';
+  const row = (label, val) => `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:rgba(255,255,255,0.45)">${label}</span><span style="color:rgba(255,255,255,0.85);font-family:monospace">${val}</span></div>`;
+  const battState = p.battConn === false ? '<span style="color:#f87171">not connected</span>'
+                  : p.battConn === true  ? 'connected' : '—';
+  const cs = p.chargeStatus ? esc(p.chargeStatus) : '—';
+  let verdict = '';
+  if (p.battConn === false || (p.battMv != null && p.battMv < 2500))
+    verdict = `<div style="margin-top:6px;color:#f87171;line-height:1.4">⚠ No usable battery detected (reads ~0). The cell is flat/dead or the connector is reversed/loose — the board can't run on battery until a charged 3.0–4.2 V cell is connected correctly.</div>`;
+  else if (d.usb && /current|voltage|pre-charge/.test(p.chargeStatus || ''))
+    verdict = `<div style="margin-top:6px;color:#34d399">● Charging (${cs}) — voltage should climb toward 4200 mV.</div>`;
+  else if (d.usb && p.battMv != null && p.battMv >= 4100)
+    verdict = `<div style="margin-top:6px;color:#34d399">● Battery full / charge complete.</div>`;
+  else if (d.usb)
+    verdict = `<div style="margin-top:6px;color:#fbbf24">On USB but charger is ${cs} — not actively charging.</div>`;
+  return `<details style="margin-top:8px">
+    <summary style="cursor:pointer;font-size:11px;color:rgba(255,255,255,0.5)">🔋 Power details</summary>
+    <div style="margin-top:8px;font-size:11.5px;display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 12px">
+      ${row('Battery', battState)}
+      ${row('Voltage', mv(p.battMv))}
+      ${row('Level', p.battPct != null ? p.battPct + ' %' : '—')}
+      ${row('Charger', cs)}
+      ${row('USB / VBUS', d.usb ? mv(p.vbusMv) : 'absent')}
+      ${row('System rail', mv(p.sysMv))}
+      ${verdict}
+    </div></details>`;
+}
+function deviceRow(d) {
+  return `<div class="device-row"><div class="device-row-top"><span class="device-id">${esc(d.id)}</span>${statusPill(d)}</div><div class="device-row-stats">${battMeter(d)}${d.wifi != null ? wifiBars(d) : ''}${fwChip(d)}</div>${powerDetails(d)}</div>`;
+}
+function albumChip(a) {
+  const count = a.photoCount || 0;
+  return `<div class="album-chip${a.fav ? ' fav' : ''}"><span class="album-chip-name"><span class="album-chip-heart" style="color:${a.fav ? HEALTH.warn : 'rgba(255,255,255,0.25)'}">&#9829;</span>${esc(a.name)}</span><span class="album-chip-count">${count} photo${count===1?'':'s'}</span></div>`;
+}
+// ── Firmware updates (read-only, per supported screen) ─────────────
+async function openFwLog() {
+  document.getElementById('fwLogModal').style.display = 'flex';
+  await renderFwLog();
+}
+function closeFwLog() { document.getElementById('fwLogModal').style.display = 'none'; }
+async function renderFwLog() {
+  const body = document.getElementById('fwLogBody');
+  body.innerHTML = 'Loading…';
+  try {
+    const r = await fetch('/api/firmware/changelog');
+    const { models } = await r.json();
+    if (!models || !models.length) { body.innerHTML = '<div style="color:rgba(255,255,255,0.45)">No firmware updates published yet.</div>'; return; }
+    body.innerHTML = models.map(m => {
+      const releases = (m.releases || []).map(rel => {
+        const cur = rel.isCurrentBuild ? `<span style="font-size:11px;color:#34d399;font-weight:600">● latest build</span>` : '';
+        const ver = rel.version ? `<span class="fw-chip">${esc(rel.version)}</span>` : '';
+        const when = rel.date ? new Date(rel.date).toLocaleDateString() : '';
+        const list = (rel.changes||[]).map(c => `<li>${esc(c)}</li>`).join('');
+        return `<div style="padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.08)">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+            <strong style="font-size:14px">${esc(rel.title||'Update')}</strong>${cur}
+            <span style="margin-left:auto">${ver}</span>
+          </div>
+          ${when?`<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:6px">${when}</div>`:''}
+          <ul style="margin:0;padding-left:18px;line-height:1.6">${list}</ul>
+        </div>`;
+      }).join('');
+      return `<div style="margin-bottom:18px">
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:rgba(255,255,255,0.55);margin-bottom:2px">${esc(m.name)}</div>
+        ${releases}
+      </div>`;
+    }).join('');
+  } catch { body.innerHTML = '<div style="color:#f87171">Could not load firmware updates.</div>'; }
+}
+async function updateFirmware(id) {
+  if (!confirm('Send a firmware update to this screen\'s device? It will apply the next time the device wakes.')) return;
+  const res = await fetch('/api/screens/' + id + '/update-firmware', { method: 'POST' });
+  if (!res.ok) { showToast('Could not queue update', 'error'); return; }
+  showToast('Update queued — applies on next wake.');
+  await loadScreens();
+}
+const LOOK_PRESETS = {
+  vivid:    { b: 1.25, s: 1.4 },
+  balanced: { b: 1.15, s: 1.2 },
+  soft:     { b: 1.05, s: 1.05 },
+  original: { b: 1.0,  s: 1.0 },
+};
+function setLook(b, s) {
+  document.getElementById('editBrightness').value = b;
+  document.getElementById('editSaturation').value = s;
+  document.getElementById('editBrightnessVal').textContent = (+b).toFixed(2);
+  document.getElementById('editSaturationVal').textContent = (+s).toFixed(2);
+  // Reflect a matching preset in the dropdown, else "custom".
+  const match = Object.entries(LOOK_PRESETS).find(([, p]) => Math.abs(p.b - b) < 0.001 && Math.abs(p.s - s) < 0.001);
+  document.getElementById('editLookPreset').value = match ? match[0] : 'custom';
+}
+function applyLookPreset(name) {
+  const p = LOOK_PRESETS[name];
+  if (p) setLook(p.b, p.s);
+}
+function onLookSlider() {
+  const b = +document.getElementById('editBrightness').value;
+  const s = +document.getElementById('editSaturation').value;
+  document.getElementById('editBrightnessVal').textContent = b.toFixed(2);
+  document.getElementById('editSaturationVal').textContent = s.toFixed(2);
+  const match = Object.entries(LOOK_PRESETS).find(([, p]) => Math.abs(p.b - b) < 0.001 && Math.abs(p.s - s) < 0.001);
+  document.getElementById('editLookPreset').value = match ? match[0] : 'custom';
+}
+function fmtInterval(m) {
+  if (m % 1440 === 0) return (m/1440) + 'd';
+  if (m % 60 === 0)   return (m/60) + 'h';
+  return m + 'm';
+}
+function screenCard(s) {
+  const deviceCount = s.device ? 1 : 0;
+  const albums = s.albums || [];
+  const deviceHtml = s.device && s.deviceInfo ? deviceRow(s.deviceInfo) : `<div class="device-empty">No device paired to this screen.</div>`;
+  let fwHtml = '';
+  if (s.updatePending) {
+    fwHtml = `<div style="margin-top:10px;font-size:12px;color:#fbbf24">⏳ Firmware update queued — applies next time the device wakes.</div>`;
+  } else if (s.firmwareUpdateAvailable) {
+    fwHtml = `<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-size:12px;color:#34d399">● Firmware update available</span>
+      <button class="glass-btn" style="font-size:12px;padding:5px 12px;border-radius:8px" onclick="updateFirmware('${s.id}')">Update now</button>
+    </div>`;
+  }
+  const albumHtml = albums.length ? albums.map(albumChip).join('') : `<div class="albums-empty">No albums yet.</div>`;
+  const accent = s.color || '#06b6d4';
+  return `<div class="screen-card glass" style="box-shadow:0 0 0 1px ${hexA(accent,0.12)}, 0 8px 32px rgba(0,0,0,0.3)">
+    <div class="screen-card-head">
+      <div>
+        <div class="screen-card-name"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${accent};margin-right:7px;vertical-align:middle"></span>${esc(s.name)}</div>
+        <div class="screen-card-meta">${deviceCount} device${deviceCount===1?'':'s'} · ${s.imageCount || 0} image${s.imageCount===1?'':'s'} · refresh ${fmtInterval(s.intervalMinutes || 5)}</div>
+      </div>
+      <div style="display:flex;gap:4px">
+        <button class="glass-btn card-icon-btn" title="Edit screen" onclick="openEditModal('${s.id}')">&#9998;</button>
+        <button class="glass-btn card-icon-btn danger" title="Delete screen" onclick="deleteScreen('${s.id}')">&#128465;</button>
+      </div>
+    </div>
+    <div class="screen-card-body">
+      ${deviceHtml}
+      ${fwHtml}
+      <div class="albums-section"><div class="albums-label">Albums</div><div class="album-list">${albumHtml}</div></div>
+    </div>
+  </div>`;
+}
+function addCard() {
+  const swatches = SCREEN_COLORS.map(c => `<button class="color-swatch" data-c="${c}" style="background:${c};border-color:${c===newColor?'#fff':'transparent'};box-shadow:${c===newColor?'0 0 0 2px '+c:'none'}" onclick="pickNewColor('${c}')"></button>`).join('');
+  return `<div class="add-card">
+    <div class="add-card-title">Add a screen</div>
+    <input class="glass-input" id="newName" placeholder="Screen name" style="font-size:13px;padding:9px 12px" onkeydown="if(event.key==='Enter')createScreen()">
+    <div class="color-picker" style="margin:2px 0">${swatches}</div>
+    <button class="cyan-btn" style="padding:9px 18px;border-radius:10px;font-size:13px;font-weight:600;align-self:flex-start" onclick="createScreen()">&#65291; New screen</button>
+  </div>`;
+}
+function render() {
+  document.getElementById('grid').innerHTML = screens.map(screenCard).join('') + addCard();
+}
+function pickNewColor(c) {
+  newColor = c;
+  document.querySelectorAll('.add-card .color-swatch').forEach(el => {
+    const on = el.dataset.c === c;
+    el.style.borderColor = on ? '#fff' : 'transparent';
+    el.style.boxShadow = on ? '0 0 0 2px ' + c : 'none';
+  });
+}
+async function createScreen() {
+  const input = document.getElementById('newName');
+  const name = input.value.trim();
+  if (!name) { input.focus(); return; }
+  const res = await fetch('/api/screens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: newColor }) });
+  if (!res.ok) { showToast('Could not create screen', 'error'); return; }
+  newColor = SCREEN_COLORS[0];
+  await loadScreens();
+}
+
+// ── Edit modal ────────────────────────────────────────────
+function openEditModal(id) {
+  const s = screens.find(x => x.id === id);
+  if (!s) return;
+  editId = id;
+  editColor = s.color || SCREEN_COLORS[0];
+  document.getElementById('editName').value = s.name || '';
+  document.getElementById('editInterval').value = String(s.intervalMinutes || 5);
+  document.getElementById('editRotation').value = String(s.rotation || 0);
+  document.getElementById('editFit').value = (s.imageFit === 'cover') ? 'cover' : 'contain';
+  document.getElementById('editSleepEnabled').checked = !!s.sleepEnabled;
+  document.getElementById('editSleepStart').value = s.sleepStart || '23:00';
+  document.getElementById('editSleepEnd').value = s.sleepEnd || '07:00';
+  document.getElementById('sleepTimes').style.opacity = s.sleepEnabled ? '1' : '0.4';
+  document.getElementById('editDebugLogging').checked = !!s.debugLogging;
+  setLook(s.imageBrightness ?? 1.15, s.imageSaturation ?? 1.2);
+  document.getElementById('editAutoUpdate').checked = !!s.autoUpdate;
+  renderEditColors();
+  document.getElementById('editModal').style.display = 'flex';
+  setTimeout(() => document.getElementById('editName').focus(), 50);
+}
+function closeEditModal() { document.getElementById('editModal').style.display = 'none'; editId = null; }
+function renderEditColors() {
+  document.getElementById('editColors').innerHTML = SCREEN_COLORS.map(c => `<button class="color-swatch" style="background:${c};border-color:${c===editColor?'#fff':'transparent'};box-shadow:${c===editColor?'0 0 0 2px '+c:'none'}" onclick="pickEditColor('${c}')"></button>`).join('');
+}
+function pickEditColor(c) { editColor = c; renderEditColors(); }
+async function saveEdit() {
+  if (!editId) return;
+  const name = document.getElementById('editName').value.trim();
+  if (!name) return;
+  const intervalMinutes = Number(document.getElementById('editInterval').value) || 5;
+  const rotation = Number(document.getElementById('editRotation').value) || 0;
+  const imageFit = document.getElementById('editFit').value === 'cover' ? 'cover' : 'contain';
+  const imageBrightness = Number(document.getElementById('editBrightness').value) || 1.15;
+  const imageSaturation = Number(document.getElementById('editSaturation').value) || 1.2;
+  const autoUpdate = document.getElementById('editAutoUpdate').checked;
+  const sleepEnabled = document.getElementById('editSleepEnabled').checked;
+  const sleepStart = document.getElementById('editSleepStart').value || '23:00';
+  const sleepEnd = document.getElementById('editSleepEnd').value || '07:00';
+  const debugLogging = document.getElementById('editDebugLogging').checked;
+  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, imageFit, imageBrightness, imageSaturation, autoUpdate, sleepEnabled, sleepStart, sleepEnd, debugLogging }) });
+  if (!res.ok) { showToast('Could not update screen', 'error'); return; }
+  closeEditModal();
+  await loadScreens();
+}
+function deleteFromModal() { const id = editId; closeEditModal(); deleteScreen(id); }
+async function deleteScreen(id) {
+  const s = screens.find(x => x.id === id);
+  if (!confirm(`Delete screen "${s?.name || ''}"?\n\nThis also removes its paired device. Uploaded photos stay in your library but are unassigned.`)) return;
+  const res = await fetch('/api/screens/' + id, { method: 'DELETE' });
+  if (!res.ok) { showToast(res.status === 403 ? 'Only an admin can delete screens.' : 'Could not delete screen', 'error'); return; }
+  await loadScreens();
+}
+
+// ── Device Setup wizard ───────────────────────────────────
+let wzSelectedColor = SCREEN_COLORS[0];
+function renderWzColors() {
+  const wrap = document.getElementById('wzColors');
+  if (!wrap) return;
+  wrap.innerHTML = '';
+  SCREEN_COLORS.forEach(c => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'wz-swatch' + (c === wzSelectedColor ? ' selected' : '');
+    b.style.background = c; b.style.setProperty('--sw', c);
+    b.onclick = () => { wzSelectedColor = c; renderWzColors(); };
+    wrap.appendChild(b);
+  });
+}
+
+let _wizardStep = 1, _wizardKey = '', _wizardKeyName = '', _wizardMode = '';
+let _wizardSsid = '', _wizardPass = '', _wizardHost = '', _wizardPort = '8080', _setupType = 'new';
+const DEVICES = { 'waveshare-s3-photopainter': { width: 800, height: 480 } };
+
+function openSetup() {
+  document.getElementById('setupModal').style.display = 'flex';
+  wzSelectedColor = SCREEN_COLORS[screens.length % SCREEN_COLORS.length];
+  renderWzColors();
+  document.getElementById('wzHost').value = location.hostname;
+  loadDeviceTypes();
+  setTimeout(() => document.getElementById('wzName').focus(), 50);
+}
+// Populate the device-type dropdown from the server (built-in boards + any
+// admin-added custom devices), carrying each one's flash manifest + readiness.
+async function loadDeviceTypes() {
+  const sel = document.getElementById('wzDeviceType');
+  try {
+    const types = await (await fetch('/api/device-types')).json();
+    const cur = sel.value;
+    sel.innerHTML = types.map(t =>
+      `<option value="${esc(t.value)}" data-manifest="${esc(t.manifest)}" data-custom="${t.custom?1:0}" data-buildable="${t.buildable?1:0}" data-ready="${t.ready?1:0}">${esc(t.name)}</option>`
+    ).join('');
+    if (cur && sel.querySelector(`option[value="${CSS.escape(cur)}"]`)) sel.value = cur;
+  } catch { /* keep the static fallback options */ }
+}
+function closeSetup() { document.getElementById('setupModal').style.display = 'none'; }
+
+function setSetupType(type) {
+  _setupType = type;
+  document.getElementById('toggleNewBtn').classList.toggle('selected', type === 'new');
+  document.getElementById('toggleReflashBtn').classList.toggle('selected', type === 'reflash');
+  document.getElementById('wzNewFields').style.display      = type === 'new'     ? '' : 'none';
+  document.getElementById('wzExistingFields').style.display = type === 'reflash' ? '' : 'none';
+  document.getElementById('wzKeyReveal').style.display   = 'none';
+  document.getElementById('wzContinueBtn').style.display = 'none';
+  document.getElementById('wzStep1Btn').style.display    = '';
+  document.getElementById('wzStep1Btn').textContent      = 'Next →';
+  if (type === 'reflash') loadExistingDevices();
+}
+async function loadExistingDevices() {
+  const sel = document.getElementById('wzExistingKey');
+  sel.innerHTML = '<option value="">— loading… —</option>';
+  try {
+    const res = await fetch('/api/admin/apikeys');
+    if (!res.ok) throw new Error('Failed to load');
+    const allKeys = await res.json();
+    const keyByScreen = {};
+    allKeys.forEach(k => { if (k.screenId) keyByScreen[k.screenId] = k; });
+    // List every screen. A screen with no device key yet gets one created when
+    // you proceed to reflash it.
+    sel.innerHTML = screens.length
+      ? screens.map(s => {
+          const k = keyByScreen[s.id];
+          const tail = k ? ` — ${k.key.slice(0, 8)}…` : ' — (no device yet)';
+          return `<option value="${s.id}" data-name="${escHtml(s.name)}">${escHtml(s.name)}${tail}</option>`;
+        }).join('')
+      : '<option value="">— no screens yet —</option>';
+  } catch { sel.innerHTML = '<option value="">— error loading screens —</option>'; }
+}
+function wizardSetStep(step) {
+  _wizardStep = step;
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById(`wizardPanel${i}`).classList.toggle('active', i === step);
+    document.getElementById(`dot${i}`).className = 'wizard-step-dot' + (i < step ? ' done' : i === step ? ' active' : '');
+    document.getElementById(`lbl${i}`).className = 'wizard-step-label' + (i < step ? ' done' : i === step ? ' active' : '');
+  }
+  for (let i = 1; i <= 3; i++) document.getElementById(`line${i}`).className = 'wizard-step-line' + (i < step ? ' done' : '');
+  if (step === 3) initFlashStep();
+  if (step === 4) initDoneStep();
+}
+async function wizardStep1Next() {
+  if (_setupType === 'reflash') {
+    const sel = document.getElementById('wzExistingKey');
+    const screenId = sel.value;
+    if (!screenId) return showToast('Select a screen to reflash', 'error');
+    const opt = sel.options[sel.selectedIndex];
+    _wizardKeyName = opt.dataset.name || opt.text.split(' —')[0];
+    const btn = document.getElementById('wzStep1Btn');
+    btn.disabled = true; btn.textContent = 'Loading…';
+    try {
+      // Find this screen's device key, creating one if it has none yet.
+      const allKeys = await (await fetch('/api/admin/apikeys')).json();
+      let key = allKeys.find(k => k.screenId === screenId);
+      if (!key) {
+        const kRes = await fetch('/api/admin/apikeys', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: _wizardKeyName, interval: 5, screenId, imageWidth: 800, imageHeight: 480, allowedEndpoints: ['current', 'image'] }) });
+        if (!kRes.ok) { const e = await kRes.json().catch(() => ({})); return showToast(e.error || 'Could not create device', 'error'); }
+        key = await kRes.json();
+        await loadScreens();
+      }
+      _wizardKey = key.key;
+      wizardSetStep(2);
+    } finally { btn.disabled = false; btn.textContent = 'Next →'; }
+    return;
+  }
+  const name = document.getElementById('wzName').value.trim();
+  const desc = document.getElementById('wzDesc').value.trim();
+  const devKey = document.getElementById('wzDeviceType').value;
+  if (!name) return showToast('Please enter a screen name', 'error');
+  const device = DEVICES[devKey] || { width: 800, height: 480 };
+  const btn = document.getElementById('wzStep1Btn');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const sRes = await fetch('/api/screens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, description: desc, color: wzSelectedColor }) });
+    if (!sRes.ok) { const e = await sRes.json().catch(() => ({})); return showToast(e.error || 'Could not create screen', 'error'); }
+    const screen = await sRes.json();
+    const kRes = await fetch('/api/admin/apikeys', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, interval: 5, screenId: screen.id, imageWidth: device.width, imageHeight: device.height, allowedEndpoints: ['current', 'image'] }) });
+    if (!kRes.ok) { const e = await kRes.json().catch(() => ({})); return showToast(e.error || 'Could not create API key', 'error'); }
+    const keyObj = await kRes.json();
+    _wizardKey = keyObj.key; _wizardKeyName = name;
+    document.getElementById('wzCreatedKeyValue').textContent = keyObj.key;
+    document.getElementById('wzKeyReveal').style.display = 'block';
+    document.getElementById('wzContinueBtn').style.display = '';
+    btn.style.display = 'none';
+    document.getElementById('wzName').disabled = true;
+    document.getElementById('wzDesc').disabled = true;
+    document.getElementById('wzDeviceType').disabled = true;
+    await loadScreens();
+  } finally { btn.disabled = false; }
+}
+function setWizardMode(mode) {
+  _wizardMode = mode;
+  document.getElementById('modeAutoCard').classList.toggle('selected', mode === 'auto');
+  document.getElementById('modeManualCard').classList.toggle('selected', mode === 'manual');
+  document.getElementById('wzAutoFields').style.display = mode === 'auto' ? 'block' : 'none';
+  if (mode === 'auto' && document.getElementById('wzSsidSelect').options.length <= 1) scanWifi();
+}
+function wizardStep2Next() {
+  if (!_wizardMode) return showToast('Please choose a setup mode', 'error');
+  if (_wizardMode === 'auto') {
+    const ssid = document.getElementById('wzSsidCustom').value.trim() || document.getElementById('wzSsidSelect').value;
+    const pass = document.getElementById('wzPassword').value;
+    const host = document.getElementById('wzHost').value.trim();
+    if (!ssid) return showToast('Select or enter a WiFi network', 'error');
+    if (!pass) return showToast('Enter the WiFi password', 'error');
+    if (!host) return showToast('Enter the server host', 'error');
+    _wizardSsid = ssid; _wizardPass = pass;
+    _wizardHost = host; _wizardPort = document.getElementById('wzPort').value.trim() || '8080';
+  }
+  wizardSetStep(3);
+}
+async function scanWifi() {
+  const btn = document.getElementById('scanBtn');
+  const sel = document.getElementById('wzSsidSelect');
+  btn.disabled = true; btn.textContent = 'Loading…';
+  sel.innerHTML = '<option value="">Loading saved networks…</option>';
+  try {
+    const res = await fetch('/api/admin/wifi-scan');
+    const data = res.ok ? await res.json() : {};
+    const ssids = Array.isArray(data.ssids) ? data.ssids : [];
+    if (ssids.length) {
+      sel.innerHTML = '<option value="">— select a network —</option>' + ssids.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
+    } else {
+      sel.innerHTML = '<option value="">— no saved networks found —</option>';
+      showToast('No saved networks found — type the name below.', 'error');
+    }
+  } catch {
+    sel.innerHTML = '<option value="">— could not load networks —</option>';
+    showToast('Could not load networks — type the name manually.', 'error');
+  } finally { btn.disabled = false; btn.textContent = '⟳ Scan'; }
+}
+function onSsidSelect() {
+  if (document.getElementById('wzSsidSelect').value) document.getElementById('wzSsidCustom').value = '';
+}
+function copyKey() { navigator.clipboard.writeText(document.getElementById('wzCreatedKeyValue').textContent).then(() => showToast('API key copied')); }
+function copySetup(id) { navigator.clipboard.writeText(document.getElementById(id).textContent).then(() => showToast('Copied')); }
+function wzDeviceManifest() {
+  const opt = document.getElementById('wzDeviceType').selectedOptions[0];
+  return (opt && opt.dataset.manifest) || '/firmware/manifest.json';
+}
+async function initFlashStep() {
+  const statusEl  = document.getElementById('wzFwStatus');
+  const buildCtrl = document.getElementById('wzBuildControls');
+  const flashCtrl = document.getElementById('wzFlashControls');
+  const opt       = document.getElementById('wzDeviceType').selectedOptions[0];
+  const device    = document.getElementById('wzDeviceType').value;
+  const isCustom  = opt?.dataset.custom === '1';
+  // Point esp-web-tools at the selected board's firmware manifest.
+  document.getElementById('espInstallBtn').setAttribute('manifest', wzDeviceManifest());
+  // Always allow moving on — flashing can't always be auto-detected, and the
+  // user may have flashed by other means.
+  document.getElementById('wzFlashContinue').style.display = '';
+  document.getElementById('wzFlashDone').style.display = 'none';
+  // Custom devices are built in Settings → Custom devices, not here. Just flash
+  // their prebuilt firmware (config baking isn't available for custom boards).
+  if (isCustom) {
+    if (opt?.dataset.ready === '1') {
+      statusEl.innerHTML = `<span class="fw-status-badge ready">&#10003; Custom firmware ready</span>`;
+      buildCtrl.style.display = 'none'; flashCtrl.style.display = 'block';
+    } else {
+      statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Build this device first in Settings &rarr; Custom devices</span>`;
+      buildCtrl.style.display = 'none'; flashCtrl.style.display = 'none';
+    }
+    return;
+  }
+  if (_wizardMode === 'auto') {
+    statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Build required — your config will be embedded in the firmware</span>`;
+    buildCtrl.style.display = 'block'; flashCtrl.style.display = 'none';
+    return;
+  }
+  statusEl.innerHTML = '<span style="font-size:13px;color:#94a3b8">Checking firmware…</span>';
+  buildCtrl.style.display = 'none'; flashCtrl.style.display = 'none';
+  try {
+    const res = await fetch('/api/admin/firmware/status?device=' + encodeURIComponent(device));
+    const data = res.ok ? await res.json() : {};
+    if (data.ready) {
+      const d = data.builtAt ? ` · built ${relTimeAgo(data.builtAt)}` : '';
+      statusEl.innerHTML = `<span class="fw-status-badge ready">&#10003; Generic firmware ready${d}</span>`;
+      flashCtrl.style.display = 'block';
+    } else {
+      statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Firmware not built yet</span>`;
+      buildCtrl.style.display = 'block';
+    }
+  } catch {
+    statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Could not check firmware</span>`;
+    buildCtrl.style.display = 'block';
+  }
+}
+function initDoneStep() {
+  const isAuto = _wizardMode === 'auto';
+  document.getElementById('wzDoneAuto').style.display   = isAuto ? 'block' : 'none';
+  document.getElementById('wzDoneManual').style.display = isAuto ? 'none'  : 'block';
+  // Auto mode bakes the key in, so no pairing is needed — just finish.
+  // Manual mode needs pairing, which the user can do now or skip.
+  document.getElementById('wzSkipBtn').style.display   = isAuto ? 'none' : '';
+  document.getElementById('wzPairBtn').style.display   = isAuto ? 'none' : 'inline-flex';
+  document.getElementById('wzFinishBtn').style.display = isAuto ? 'inline-flex' : 'none';
+  if (isAuto) {
+    document.getElementById('wzDoneWifi').textContent   = _wizardSsid || '—';
+    document.getElementById('wzDoneServer').textContent = `${_wizardHost}:${_wizardPort}`;
+    document.getElementById('wzDoneScreen').textContent = _wizardKeyName || '—';
+  } else {
+    const port = location.port || (location.protocol === 'https:' ? '443' : '80');
+    document.getElementById('wzSetupHost').textContent = location.hostname;
+    document.getElementById('wzSetupPort').textContent = port;
+  }
+}
+function wizardBuild() {
+  const log = document.getElementById('wzBuildLog');
+  const status = document.getElementById('wzBuildStatus');
+  const btn = document.getElementById('wzBuildBtn');
+  log.textContent = ''; log.style.display = 'block';
+  btn.disabled = true; status.textContent = 'Building…'; status.style.color = '#888';
+  const device = document.getElementById('wzDeviceType').value;
+  const body = _wizardMode === 'auto'
+    ? { wifi_ssid: _wizardSsid, wifi_password: _wizardPass, server_host: _wizardHost, server_port: _wizardPort, api_key: _wizardKey, device }
+    : { device };
+  fetch('/api/admin/firmware/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    .then(async res => {
+      if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+        const e = await res.json().catch(() => ({}));
+        status.textContent = '✗ ' + (e.error || 'Build failed'); status.style.color = '#c00';
+        log.textContent = e.error || 'Build failed'; btn.disabled = false; return;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split('\n'); buf = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const msg = JSON.parse(line.slice(5).trim());
+          if (msg.type === 'log') { log.textContent += msg.data; log.scrollTop = log.scrollHeight; }
+          else if (msg.type === 'done') {
+            status.textContent = '✓ ' + msg.data; status.style.color = '#2e7d32'; btn.disabled = false;
+            document.getElementById('wzBuildControls').style.display = 'none';
+            document.getElementById('wzFwStatus').innerHTML = `<span class="fw-status-badge ready">&#10003; Firmware built — ready to flash</span>`;
+            document.getElementById('wzFlashControls').style.display = 'block';
+          } else if (msg.type === 'error') {
+            status.textContent = '✗ ' + msg.data; status.style.color = '#c00'; btn.disabled = false; log.textContent += '\n' + msg.data;
+          }
+        }
+      }
+    }).catch(err => { status.textContent = '✗ ' + err.message; status.style.color = '#c00'; btn.disabled = false; });
+}
+document.getElementById('espInstallBtn').addEventListener('state-changed', e => {
+  if (e.detail?.state === 'finished') {
+    document.getElementById('wzFlashDone').style.display = 'block';
+    document.getElementById('wzFlashContinue').style.display = '';
+    setTimeout(() => wizardSetStep(4), 1200);
+  }
+});
+function wizardBack(from) { wizardSetStep(from - 1); }
+function wizardDone() {
+  const name = _wizardKeyName;
+  document.getElementById('wzName').value = ''; document.getElementById('wzName').disabled = false;
+  document.getElementById('wzDesc').value = ''; document.getElementById('wzDesc').disabled = false;
+  wzSelectedColor = SCREEN_COLORS[screens.length % SCREEN_COLORS.length]; renderWzColors();
+  document.getElementById('wzDeviceType').disabled = false;
+  document.getElementById('wzKeyReveal').style.display = 'none';
+  document.getElementById('wzContinueBtn').style.display = 'none';
+  document.getElementById('wzStep1Btn').style.display = '';
+  document.getElementById('wzStep1Btn').textContent = 'Next →';
+  document.getElementById('modeAutoCard').classList.remove('selected');
+  document.getElementById('modeManualCard').classList.remove('selected');
+  document.getElementById('wzAutoFields').style.display = 'none';
+  document.getElementById('wzSsidSelect').innerHTML = '<option value="">— click Scan to load saved networks —</option>';
+  document.getElementById('wzSsidCustom').value = '';
+  document.getElementById('wzPassword').value = '';
+  document.getElementById('wzHost').value = location.hostname;
+  _setupType = 'new';
+  document.getElementById('toggleNewBtn').classList.add('selected');
+  document.getElementById('toggleReflashBtn').classList.remove('selected');
+  document.getElementById('wzNewFields').style.display = '';
+  document.getElementById('wzExistingFields').style.display = 'none';
+  _wizardKey = ''; _wizardKeyName = ''; _wizardMode = '';
+  _wizardSsid = ''; _wizardPass = ''; _wizardHost = ''; _wizardPort = '8080';
+  wizardSetStep(1);
+  closeSetup();
+  loadScreens();
+  if (name) showToast(`"${name}" setup complete!`);
+}
+
+// ── Background theme ──────────────────────────────────────
+function openTheme() {
+  renderThemePresets();
+  const t = TPDTheme.get();
+  if (t.preset === 'custom' && t.color) document.getElementById('themeCustom').value = t.color;
+  document.getElementById('themeModal').style.display = 'flex';
+}
+function closeTheme() { document.getElementById('themeModal').style.display = 'none'; }
+function renderThemePresets() {
+  const cur = TPDTheme.get();
+  const wrap = document.getElementById('themePresets');
+  wrap.innerHTML = Object.entries(TPDTheme.PRESETS).map(([id, p]) => {
+    const active = cur.preset === id;
+    return `<button onclick="selectPresetTheme('${id}')" style="
+      display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:11px;cursor:pointer;
+      background:${TPDTheme.gradientFor({preset:id})};
+      border:1.5px solid ${active ? 'rgba(34,211,238,0.8)' : 'rgba(255,255,255,0.12)'};
+      box-shadow:${active ? '0 0 0 2px rgba(34,211,238,0.3)' : 'none'};
+      color:#fff;font-family:inherit;font-size:13px;font-weight:600;text-align:left">
+      <span style="width:16px;height:16px;border-radius:50%;background:${p.swatch};box-shadow:0 0 0 1px rgba(255,255,255,0.3)"></span>
+      ${p.name}
+    </button>`;
+  }).join('');
+}
+function selectPresetTheme(id) { TPDTheme.set({ preset: id }); renderThemePresets(); }
+function selectCustomTheme(color) { TPDTheme.set({ preset: 'custom', color }); renderThemePresets(); }
+function resetTheme() {
+  TPDTheme.set({ preset: 'blue' });
+  document.getElementById('themeCustom').value = '#06b6d4';
+  renderThemePresets();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeSetup(); closeEditModal(); closeFwLog(); }
+});
+
+loadScreens();
+renderWzColors();
+setInterval(loadScreens, 30000);
+</script>
+</body>
+</html>
