@@ -2715,7 +2715,9 @@ app.put('/api/screens/:screenId/albums/:albumId', (req, res) => {
     res.json(album);
 });
 
-app.delete('/api/screens/:screenId/albums/:albumId', requireAdmin, (req, res) => {
+// Any signed-in user can delete an album (consistent with creating/editing them).
+// The photos themselves stay in the library; only the album grouping is removed.
+app.delete('/api/screens/:screenId/albums/:albumId', (req, res) => {
     const idx = (appData.albums || []).findIndex(a => a.id === req.params.albumId && a.screenId === req.params.screenId);
     if (idx === -1) return res.status(404).json({ error: 'Album not found' });
     const albumId = req.params.albumId;
