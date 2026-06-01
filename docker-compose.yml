@@ -1,6 +1,6 @@
 services:
-  image-upload:
-    image: ghcr.io/mischa323/terminal-photo-display:latest
+  photodock:
+    image: ghcr.io/mischa323/photodock:latest
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
       - "${HTTPS_PORT:-8081}:${HTTPS_PORT:-8081}"
