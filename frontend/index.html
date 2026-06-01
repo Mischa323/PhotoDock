@@ -298,6 +298,20 @@
       overflow: hidden;
     }
 
+    .album-del-btn {
+      position: absolute;
+      top: 8px; right: 8px;
+      width: 28px; height: 28px;
+      border: none; border-radius: 8px;
+      background: rgba(0,0,0,0.4);
+      color: rgba(255,255,255,0.9);
+      font-size: 14px; line-height: 1; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0.55; transition: opacity .15s, background .15s; z-index: 3;
+    }
+    .album-card:hover .album-del-btn { opacity: 1; }
+    .album-del-btn:hover { background: rgba(239,68,68,0.9); color: #fff; }
+
     .album-cover-cell {
       background: rgba(255,255,255,0.05);
       background-size: cover;
@@ -948,6 +962,7 @@ function renderAlbumsView() {
         <div class="album-cover-cell"></div>
         ${favBadge}
         ${emptyMsg}
+        <button class="album-del-btn" title="Delete album" onclick="event.stopPropagation(); deleteAlbum('${a.id}')">🗑</button>
       </div>
       <div class="album-card-footer">
         <span class="album-card-name">${esc(a.name)}</span>
@@ -963,6 +978,19 @@ function renderAlbumsView() {
 
   html += `</div>`;
   content.innerHTML = html;
+}
+
+// ── Delete album ──────────────────────────────────────────
+// Removes the album grouping; the photos stay in the library. Available to any
+// signed-in user (admins and standard users).
+async function deleteAlbum(id) {
+  const a = albums.find(x => x.id === id);
+  if (!confirm(`Delete album "${a ? a.name : ''}"? The photos stay in your library.`)) return;
+  const res = await fetch('/api/screens/' + curScreen.id + '/albums/' + id, { method: 'DELETE' });
+  if (!res.ok) { const e = await res.json().catch(() => ({})); alert(e.error || 'Could not delete album'); return; }
+  await loadAlbums(curScreen.id);
+  renderAlbumsView();
+  renderBreadcrumb();
 }
 
 function renderPhotosView() {
