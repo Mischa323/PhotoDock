@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.2.2",
+    "date": "2026-06-01",
+    "changes": [
+      "Fix device status screens (e.g. the 'no photos' / pairing screens) rendering text as empty boxes when the server runs in Docker — the container image now bundles fonts (DejaVu) so server-side image rendering has something to draw with"
+    ]
+  },
+  {
     "version": "2.2.1",
     "date": "2026-06-01",
     "changes": [
