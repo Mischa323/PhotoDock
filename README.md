@@ -1,270 +1,194 @@
 # PhotoDock
 
-A lightweight self-hosted photo slideshow server designed for terminals, dashboards, and e-ink displays like **TRMNL**.
+A self-hosted photo display system for **e-ink photo frames**. It pairs a Node/Express
+backend + web dashboard with **ESP32-S3 e-ink firmware**, so you can push photos to
+battery-powered displays over Wi-Fi, update them over the air, and manage everything
+from one place. It also exposes a simple image API, so it doubles as an image source
+for external displays like **TRMNL**.
 
-It provides a simple web interface to upload images and an API endpoint to serve a rotating slideshow image.
+> One codebase builds firmware for multiple boards (Waveshare PhotoPainter and Seeed
+> reTerminal E1001), and the dashboard handles onboarding, pairing, OTA updates and
+> per-screen settings.
 
 ---
 
 ## ✨ Features
 
-* 📸 Upload and manage photos via web UI
-* 🔁 Automatic slideshow rotation
-* 🔑 API keys with configurable refresh intervals
-* 🖼️ Configurable image output size
-* 🌐 Simple REST API for external displays
-* ⚡ Lightweight and easy to deploy
+**Dashboard & photos**
+* Upload and manage photos through a web UI, organised into **screens** (named collections)
+* Per-screen look: fit mode, brightness/saturation, sleep schedule, refresh interval
+* Usage metrics, activity log, and per-screen **device logs**
+* Users, roles, 2FA, and API-key management
+
+**E-ink devices**
+* Guided **setup wizard**: build + flash firmware right from the browser
+* **QR-code pairing** links a device to a screen in seconds
+* **Over-the-air updates** (opt-in per screen) with a **firmware version history you can roll back to**
+* Multi-board: one firmware codebase, model-aware builds and OTA
+* Add your own board by pointing at a GitHub firmware repo (admin-only)
+
+**API & integrations**
+* Simple REST API to serve a rotating slideshow image (works great with **TRMNL**)
+* API keys with per-key refresh intervals and configurable output size
+
+**Security**
+* Firmware downloads are **API-key gated**
+* Device Wi-Fi passwords are **encrypted at rest** (AES-256-GCM); `config.h` is wiped after each build
+* Optional HTTPS with auto-generated self-signed certificates
 
 ---
 
-## 🚀 Getting Started
+## 🧩 Supported displays
 
-### 1. Clone the Repository
+| Board | Panel | Notes |
+| ----- | ----- | ----- |
+| **Waveshare 7.3″ PhotoPainter** | E6 Spectra-6 (6-colour), 800×480 | AXP2101 PMIC, battery |
+| **Seeed reTerminal E1001** | UC8179 7.5″ monochrome, 800×480 | Floyd–Steinberg dithered photos |
+
+You can also register a **custom device** in the dashboard (a GitHub firmware repo the
+server clones and builds).
+
+---
+
+## 🚀 Quick start
+
+### Option A — Docker (recommended)
+
+The image is published to GitHub Container Registry on every release.
 
 ```bash
-git clone https://github.com/Mischa323/Terminal-Photo-Display.git
-cd Terminal-Photo-Display
+# docker-compose.yml already points at ghcr.io/mischa323/photodock:latest
+docker compose up -d
 ```
 
----
+* HTTP: `http://localhost:8080`
+* HTTPS: `https://localhost:8081` (self-signed cert auto-generated at `data/ssl/`)
 
-### 2. Install Dependencies
+Data (database, uploads, SSL, encryption key) persists in the `./data` volume.
+
+### Option B — From source
 
 ```bash
+git clone https://github.com/Mischa323/PhotoDock.git
+cd PhotoDock
 npm install
-```
-
----
-
-### 3. Start the Server
-
-```bash
 npm start
 ```
 
-By default:
-
-* HTTP: `http://localhost:8080`
-* HTTPS: `https://localhost:8081` (self-signed certificate)
-
----
-
-### 4. First-Time Setup
+### First-time setup
 
 1. Open the web interface
-2. Create your admin account
-3. Log in to access the dashboard
+2. Create your admin account (email is required)
+3. Log in to reach the dashboard
 
 ---
 
-## 📸 Uploading Images
+## 🖥️ Adding an e-ink device
 
-* Navigate to the web UI
-* Upload your photos
-* Images will automatically be included in the slideshow
+From the dashboard, open **Set up a device** and follow the wizard:
+
+1. **Create a screen** — the photos the device will show. An API key is created and
+   applied automatically (no manual entry needed).
+2. **Choose a setup mode:**
+   * **Automatic** — enter your Wi-Fi + server details; the firmware is built with them
+     baked in and flashed from the browser. The password is encrypted at rest on the
+     server and never left in plaintext.
+   * **Manual** — flash credential-free firmware, then configure the device through its
+     own `PhotoDock-XXXX` Wi-Fi setup portal on first boot.
+3. **Flash** — over USB, straight from the browser (Chrome/Edge, Web Serial).
+4. **Pair** — the device shows a **QR code**; scan it (while logged in) and pick a screen.
+
+### Updating firmware (OTA)
+
+Open a screen and choose **Update now**, or enable **auto-update**. The device pulls only
+its own model's firmware on its next wake. Every published build is archived, so you can
+**revert** to a previous version from **Settings → Firmware source → Version history**.
 
 ---
 
-## 🔑 API Keys
+## 🔌 Firmware (build / flash from source)
 
-API keys are used to access slideshow endpoints.
+Firmware lives in [`esp32/`](esp32/) and builds with **PlatformIO**.
 
-### Create an API Key
-
-* Go to the admin panel
-* Generate a new API key
-* Set a **slideshow interval (minutes)**
-
-👉 Each API key maintains its own slideshow timing.
-
----
-
-## 🖼️ API Endpoints
-
-### Get Current Slideshow Image
-
-```
-GET /api/slideshow/image
-```
-
-#### Authentication
-
-You can pass the API key in two ways:
-
-**Query parameter (recommended for TRMNL):**
-
-```
-/api/slideshow/image?key=YOUR_API_KEY
+```bash
+cd esp32
+pio run -e esp32s3-photopainter      # Waveshare PhotoPainter (E6)
+pio run -e reterminal-e1001          # Seeed reTerminal E1001
+pio run -e reterminal-e1001 -t upload   # build + flash over USB
 ```
 
-**Header:**
-
-```
-x-api-key: YOUR_API_KEY
-```
+> `esp32/src/config.h` holds optional baked Wi-Fi/server credentials. Leave them empty
+> to force the on-device setup portal. Builds with baked credentials are **not** published
+> to the network-served `firmware_build/` folder.
 
 ---
 
-### Response
+## 🖼️ Public API
 
-* Returns a **JPEG image**
-* Sized according to your configured API image dimensions
-* Automatically rotates based on API key interval
+All endpoints require an API key, passed as `?key=YOUR_API_KEY` or an `x-api-key` header.
 
----
+| Endpoint | Returns |
+| -------- | ------- |
+| `GET /api/slideshow/image` | The current image as a pre-rendered **JPEG**, sized to the key's configured dimensions (default 800×480 for e-ink) |
+| `GET /api/slideshow/current` | The current image's metadata/URL |
+| `GET /api/slideshow/all` | All images for the key's screen |
 
-## ⚙️ Display Settings
+Each API key keeps its own slideshow timer; when its interval expires, the next image is
+selected and `/api/slideshow/image` returns it.
 
-In the web UI, configure:
-
-* API image width & height
-* Recommended for TRMNL: **800 × 480**
-
----
-
-## 🧠 How the Slideshow Works
-
-* Each API key has its own timer
-* When the interval expires, the next image is selected
-* The `/api/slideshow/image` endpoint always returns the *current* image
-
----
-
-# 🖥️ TRMNL Integration Guide
-
-This project works perfectly with the **TRMNL Image Display plugin**.
-
-## 📌 Step-by-Step Setup
-
-### 1. Make Your Server Public
-
-TRMNL must be able to access your server.
-
-Options:
-
-* Port forward your server
-* Use a reverse proxy (Nginx, Caddy)
-* Use a tunnel (Cloudflare Tunnel recommended)
-
----
-
-### 2. Use the Slideshow Endpoint
-
-Your image URL should look like:
-
-```
-https://your-domain.com/api/slideshow/image?key=YOUR_API_KEY
+```bash
+curl -H "x-api-key: YOUR_API_KEY" https://your-server/api/slideshow/image --output frame.jpg
 ```
 
 ---
 
-### 3. Configure TRMNL
+## 🖥️ TRMNL integration
 
-On your TRMNL dashboard:
+PhotoDock works as an image source for the **TRMNL Image Display plugin**.
 
-* Go to **Plugins → Image Display**
-* Paste your image URL
-* Save
+1. **Expose your server publicly** — TRMNL can't reach `localhost`/`192.168.x.x`. Use a
+   tunnel (Cloudflare Tunnel), reverse proxy, or port-forward; valid HTTPS recommended.
+2. Use the image URL: `https://your-domain.com/api/slideshow/image?key=YOUR_API_KEY`
+3. In TRMNL: **Plugins → Image Display**, paste the URL, save.
+4. Match the TRMNL refresh interval to your API key's interval (e.g. 10 min key ↔ 10–15 min refresh).
 
----
-
-### 4. Set Refresh Interval
-
-Match TRMNL refresh with your API key interval:
-
-Example:
-
-| Setting          | Value         |
-| ---------------- | ------------- |
-| API Key Interval | 10 minutes    |
-| TRMNL Refresh    | 10–15 minutes |
+> The image API currently sends `Cache-Control: no-cache` without `ETag`/`Last-Modified`,
+> so a caching proxy in front can help TRMNL detect changes reliably. The **Screenshot
+> plugin** is an alternative if you prefer header auth (`x-api-key`).
 
 ---
 
-## ⚠️ Important Notes
+## ⚙️ Configuration
 
-### 🔄 Image Refresh Behavior
+Environment variables (see [`.env.example`](.env.example)):
 
-TRMNL detects updates using caching headers (`ETag`, `Last-Modified`).
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `PORT` | `8080` | HTTP port |
+| `HTTPS_PORT` | `8081` | HTTPS port (active when a cert exists) |
+| `DATA_FILE` | `data.json` | Database file location |
+| `UPLOADS_DIR` | `uploads/` | Uploaded images |
+| `SSL_CERT` / `SSL_KEY` | — | Paths to TLS cert/key (else self-signed) |
+| `PHOTODOCK_SECRET_KEY` | auto-generated | 32-byte key (hex/base64) for encrypting secrets at rest. If unset, a random key is written to `secret.key` next to `DATA_FILE` |
+| `APP_VERSION` | `package.json` version | Version shown in the dashboard |
 
-This API currently:
-
-* Returns `Cache-Control: no-cache`
-* Does **not** include ETag/Last-Modified
-
-👉 Result:
-TRMNL *may not always detect image changes instantly*
-
-### ✅ Recommended Fix (Optional)
-
-If you experience issues:
-
-* Add a reverse proxy that injects cache headers
-* OR modify the server to include `ETag` support
+> Keep the `data/` volume (Docker) or `secret.key` (source) — it holds the encryption key
+> that decrypts stored Wi-Fi passwords. Set `PHOTODOCK_SECRET_KEY` to control it explicitly.
 
 ---
 
-### 🔒 HTTPS Recommended
-
-* Replace self-signed certificates with real ones (Let's Encrypt)
-* Prevents fetch issues from TRMNL
-
----
-
-### 🌍 Local Servers Won’t Work
-
-TRMNL cannot access:
+## 🗂️ Project layout
 
 ```
-http://192.168.x.x
-http://localhost
+backend/      Node/Express server (API, dashboard backend, firmware build/serve)
+frontend/     Web dashboard (screens, devices, admin, setup wizard)
+esp32/        PlatformIO firmware (multi-board: board.h + per-board envs)
+firmware_build/  Built, network-served firmware per model (git-ignored)
+.github/workflows/docker.yml   Builds & pushes the ghcr.io image on push/tag
 ```
-
-You **must expose your server publicly**
-
----
-
-## 🧩 Alternative: Screenshot Plugin
-
-If you need headers instead of query params:
-
-* Use TRMNL **Screenshot Plugin**
-* Add header:
-
-  ```
-  x-api-key: YOUR_API_KEY
-  ```
-
----
-
-## 🛠️ Troubleshooting
-
-### Image Not Updating
-
-* Check API key interval
-* Check TRMNL refresh interval
-* Try adding a cache-busting query:
-
-  ```
-  ?key=YOUR_API_KEY&t=timestamp
-  ```
-
----
-
-### Cannot Load Image
-
-* Verify public URL works in browser
-* Ensure HTTPS is valid
-* Check firewall / port forwarding
 
 ---
 
 ## 📄 License
 
 MIT License
-
----
-
-## ❤️ Acknowledgements
-
-Self-hosted photo display server with support for e-ink displays, ESP32 devices, albums, and a glassmorphic web UI.
