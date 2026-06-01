@@ -143,6 +143,20 @@ its own model's firmware on its next wake. Every published build is archived, so
 
 ---
 
+## 🔐 Behind a reverse proxy (HTTPS)
+
+Devices connect to the server over **HTTPS when their server port is `443`** — ideal when the server sits behind a TLS‑terminating reverse proxy (Nginx, Caddy, Cloudflare Tunnel, etc.).
+
+When setting up a device (wizard or the on‑device portal), set:
+- **Server host:** your domain (e.g. `photodock.example.com`)
+- **Server port:** `443`
+
+The firmware then talks to `https://your-domain/…` (the `:443` is omitted so virtual‑host routing works). Certificate validation is skipped on the device, so Let's Encrypt, self‑signed and proxy certificates all work — traffic is still encrypted. OTA updates flow over the same HTTPS connection.
+
+Make sure your proxy forwards `/api/…` and `/firmware/…` to the backend and allows firmware downloads of ~1 MB. Any other port keeps using plain HTTP.
+
+---
+
 ## 🔌 Firmware (build / flash from source)
 
 Firmware lives in [`esp32/`](esp32/) and builds with **PlatformIO**.
