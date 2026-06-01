@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════
-   Shared theme system — Terminal Photo Display
+   Shared theme system — PhotoDock
 
    Drives the deep-space backdrop on the glass pages.
    A theme is { preset, color } stored in localStorage.

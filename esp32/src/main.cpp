@@ -10,27 +10,17 @@
 #include <esp_sleep.h>
 #include <esp_system.h>
 #include <esp_mac.h>
+#include "driver/rtc_io.h"
 #include "JPEGDEC.h"
 #include "config.h"
-
-#define XPOWERS_CHIP_AXP2101
-#include "XPowersLib.h"
+#include "board.h"        // per-board pin map + capability flags
 #include "qrcode.h"
 
-// â”€â”€ Pin mapping â€” Waveshare ESP32-S3-PhotoPainter (7.3" E6) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Values taken from Waveshare's official factory source (bsp_config.h).
-#define EPD_DC    8
-#define EPD_CS    9
-#define EPD_CLK   10
-#define EPD_MOSI  11
-#define EPD_RST   12
-#define EPD_BUSY  13
-
-// I2C bus to the AXP2101 PMIC (which powers the e-paper panel)
-#define PMIC_SDA  47
-#define PMIC_SCL  48
-
-static XPowersPMU PMU;
+#if HAS_AXP2101
+  #define XPOWERS_CHIP_AXP2101
+  #include "XPowersLib.h"
+  static XPowersPMU PMU;
+#endif
 
 // Survive deep sleep: cache the AP we last connected to so we can skip the slow
 // channel scan on the next wake (the scan is one of the longest WiFi-on steps).
@@ -50,11 +40,21 @@ static bool g_pmicReady = false;
 // when entering the scheduled sleep window and not on every check during it.
 RTC_DATA_ATTR static bool g_sleepShown = false;
 
-// â”€â”€ Display dimensions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-#define EPD_W        800
-#define EPD_H        480
-#define EPD_BUF_SIZE (EPD_W * EPD_H / 2)
+// KEY1 button state, kept across deep sleep. g_manualOffset advances the photo
+// on each short press; g_manualSleep is toggled by a long press.
+RTC_DATA_ATTR static int  g_manualOffset = 0;
+RTC_DATA_ATTR static bool g_manualSleep  = false;
 
+// â”€â”€ Framebuffer size (depends on bits-per-pixel of the panel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#if PANEL_E6
+  #define EPD_BUF_SIZE (EPD_W * EPD_H / 2)   // 4-bit colour code per pixel
+#elif defined(PANEL_GRAY4)
+  #define EPD_BUF_SIZE (EPD_W * EPD_H / 4)   // 2-bit grey level per pixel
+#else
+  #define EPD_BUF_SIZE (EPD_W * EPD_H / 8)   // 1-bit monochrome
+#endif
+
+#if PANEL_E6
 // â”€â”€ Spectra 6 (E6) color palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The E6 panel accepts these 4-bit color codes (index 4 is unused). Order and
 // codes match Waveshare's official E6 driver.
@@ -76,6 +76,29 @@ static const struct { uint8_t code; uint8_t r, g, b; } PALETTE[] = {
     {C_GREEN,   50, 125,  70},
 };
 static const int PALETTE_N = sizeof(PALETTE) / sizeof(PALETTE[0]);
+
+#elif defined(PANEL_UC8179)
+  #if defined(PANEL_GRAY4)
+    // 4-level grayscale: 0 = black … 3 = white.
+    #define C_BLACK  0
+    #define C_DGRAY  1
+    #define C_LGRAY  2
+    #define C_WHITE  3
+    #define C_BLUE   1
+    #define C_RED    1
+    #define C_YELLOW 2
+    #define C_GREEN  2
+  #else
+    // 1-bit monochrome: 0 = black, 1 = white. Colour names map to black/white so
+    // the shared on-device screens still render.
+    #define C_BLACK  0
+    #define C_WHITE  1
+    #define C_BLUE   0
+    #define C_RED    0
+    #define C_YELLOW 1
+    #define C_GREEN  1
+  #endif
+#endif // PANEL_E6 / PANEL_UC8179
 
 static uint8_t *epd_buf  = nullptr;
 static uint8_t *jpeg_buf = nullptr;
@@ -167,7 +190,7 @@ static const char SETUP_HTML[] PROGMEM = R"html(<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Photo Display Setup</title>
+<title>PhotoDock Setup</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:sans-serif;background:#ecfeff;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
@@ -183,7 +206,7 @@ button:hover{background:#0891b2}
 </head>
 <body>
 <div class="card">
-  <h2>Photo Display</h2>
+  <h2>PhotoDock</h2>
   <p class="sub">Connect this device to your network</p>
   <form method="POST" action="/save">
     <label>WiFi network name</label>
@@ -192,7 +215,7 @@ button:hover{background:#0891b2}
     <input type="password" name="pass" placeholder="Leave empty for open networks">
     <label>Server address</label>
     <input type="text" name="host" placeholder="192.168.1.100" required>
-    <p class="hint">IP of the computer running Photo Display</p>
+    <p class="hint">IP of the computer running PhotoDock</p>
     <label>Server port</label>
     <input type="number" name="port" value="8080">
     <p class="hint">After connecting, the device shows a QR code to pair it to a screen.</p>
@@ -224,7 +247,7 @@ h2{color:#22c55e;font-size:22px;margin-bottom:12px}p{color:#555;font-size:14px;l
 static void startCaptivePortal() {
     uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char apName[24];
-    snprintf(apName, sizeof(apName), "PhotoDisplay-%02X%02X", mac[4], mac[5]);
+    snprintf(apName, sizeof(apName), "PhotoDock-%02X%02X", mac[4], mac[5]);
 
     logf("Starting setup portal: %s\n", apName);
     WiFi.mode(WIFI_AP);
@@ -279,6 +302,7 @@ static void startCaptivePortal() {
     }
 }
 
+#if PANEL_E6
 // â”€â”€ Nearest-color quantization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Find nearest palette entry. Returns its array index; weighted for perceived
 // luma so greys don't drift toward colored cells.
@@ -296,6 +320,7 @@ static inline int quantizeIdx(int r, int g, int b) {
 static inline uint8_t quantize(uint8_t r, uint8_t g, uint8_t b) {
     return PALETTE[quantizeIdx(r, g, b)].code;
 }
+#endif // PANEL_E6
 
 // â”€â”€ JPEGDEC draw callback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Store the decoded RGB888 into the full-image buffer (unrotated). Quantizing
@@ -317,6 +342,7 @@ static int jpegDraw(JPEGDRAW *pDraw) {
     return 1;
 }
 
+#if PANEL_E6
 static inline void epd_set_code(int x, int y, uint8_t code) {
     int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180Â° rotate
     if (pos & 1) epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | code;
@@ -365,6 +391,58 @@ static void dither_and_pack() {
     free(errCur); free(errNext);
 }
 
+#elif defined(PANEL_UC8179)
+// Pack one pixel into the UC8179 framebuffer (no rotation yet — adjust once we
+// see the panel on hardware).
+static inline void epd_set_code(int x, int y, uint8_t v) {
+  #if defined(PANEL_GRAY4)
+    int pos = y * EPD_W + x;                       // 2 bits/pixel, 4 px/byte
+    int b = pos >> 2, sh = (3 - (pos & 3)) * 2;
+    epd_buf[b] = (epd_buf[b] & ~(0x3 << sh)) | ((v & 0x3) << sh);
+  #else
+    int pos = y * EPD_W + x;                       // 1 bit/pixel, MSB = leftmost
+    int b = pos >> 3; uint8_t m = 0x80 >> (pos & 7);
+    if (v) epd_buf[b] |= m; else epd_buf[b] &= ~m; // 1 = white, 0 = black
+  #endif
+}
+
+// Floyd-Steinberg from rgb_buf -> epd_buf using luminance. Mono (2 levels) or
+// 4-level grayscale depending on the build.
+static void dither_and_pack() {
+    const int W = EPD_W;
+  #if defined(PANEL_GRAY4)
+    const int LEVELS = 4; const int LV[4] = {0, 85, 170, 255};
+    auto nearest = [&](int v){ return v < 43 ? 0 : v < 128 ? 1 : v < 213 ? 2 : 3; };
+  #else
+    const int LEVELS = 2; const int LV[2] = {0, 255};
+    auto nearest = [&](int v){ return v >= 128 ? 1 : 0; };
+  #endif
+    (void)LEVELS;
+    int *errCur  = (int *)calloc(W, sizeof(int));
+    int *errNext = (int *)calloc(W, sizeof(int));
+    for (int y = 0; y < EPD_H; y++) {
+        if (errNext) memset(errNext, 0, W * sizeof(int));
+        for (int x = 0; x < W; x++) {
+            int i = (y * W + x) * 3;
+            int lum = (rgb_buf[i] * 54 + rgb_buf[i+1] * 183 + rgb_buf[i+2] * 19) >> 8;
+            int v = lum + (errCur ? errCur[x] / 16 : 0);
+            if (v < 0) v = 0; if (v > 255) v = 255;
+            int lvl = nearest(v);
+            epd_set_code(x, y, (uint8_t)lvl);
+            if (errCur && errNext) {
+                int e = v - LV[lvl];
+                if (x + 1 < W) errCur[x+1]  += e * 7;
+                if (x > 0)     errNext[x-1] += e * 3;
+                errNext[x] += e * 5;
+                if (x + 1 < W) errNext[x+1] += e;
+            }
+        }
+        if (errCur && errNext) { int *t = errCur; errCur = errNext; errNext = t; }
+    }
+    free(errCur); free(errNext);
+}
+#endif // PANEL_E6 / PANEL_UC8179
+
 // â”€â”€ EPD SPI helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void epd_cmd(uint8_t cmd) {
     digitalWrite(EPD_DC, LOW);  digitalWrite(EPD_CS, LOW);
@@ -393,6 +471,7 @@ static void epd_reset() {
     digitalWrite(EPD_RST, LOW);  delay(20);
     digitalWrite(EPD_RST, HIGH); delay(50);
 }
+#if PANEL_E6
 // E6 init sequence (from Waveshare's official ESP32-S3-PhotoPainter driver).
 static void epd_init() {
     logf("epd_init: BUSY=%d\n", digitalRead(EPD_BUSY));
@@ -443,6 +522,48 @@ static void epd_display(uint8_t *buf) {
 static void epd_sleep_mode() {
     epd_cmd(0x07); epd_dat(0xA5);   // deep sleep
 }
+
+#elif defined(PANEL_UC8179)
+// Send `n` bytes of a constant value over SPI (for filling a RAM plane fast).
+static void epd_send_const(uint8_t val, size_t n) {
+    uint8_t tmp[256]; memset(tmp, val, sizeof(tmp));
+    digitalWrite(EPD_DC, HIGH);
+    while (n) { size_t c = min(n, sizeof(tmp)); digitalWrite(EPD_CS, LOW); SPI.writeBytes(tmp, c); digitalWrite(EPD_CS, HIGH); n -= c; }
+}
+// UC8179 (GDEW075T7) 7.5" monochrome init — LUT from the panel's OTP.
+static void epd_init() {
+    logf("epd_init: BUSY=%d\n", digitalRead(EPD_BUSY));
+    epd_reset();
+    epd_busy_wait(8000);
+    logf("epd_init: after reset, BUSY=%d\n", digitalRead(EPD_BUSY));
+    epd_cmd(0x01); epd_dat(0x07); epd_dat(0x07); epd_dat(0x3F); epd_dat(0x3F);  // power setting
+    epd_cmd(0x04); epd_busy_wait(8000);                                          // power on
+    epd_cmd(0x00); epd_dat(0x1F);                                                // panel: B/W, LUT from OTP
+    epd_cmd(0x61); epd_dat(0x03); epd_dat(0x20); epd_dat(0x01); epd_dat(0xE0);   // resolution 800x480
+    epd_cmd(0x15); epd_dat(0x00);
+    epd_cmd(0x50); epd_dat(0x10); epd_dat(0x07);                                 // VCOM + data interval
+    epd_cmd(0x60); epd_dat(0x22);                                                // TCON setting
+}
+static void epd_display(uint8_t *buf) {
+    epd_cmd(0x10); epd_send_const(0x00, EPD_BUF_SIZE);   // OLD plane (from white)
+    epd_cmd(0x13);                                       // NEW plane = image
+    const size_t CHUNK = 4096;
+    for (size_t i = 0; i < EPD_BUF_SIZE; i += CHUNK) {
+        size_t n = min(CHUNK, EPD_BUF_SIZE - i);
+        digitalWrite(EPD_DC, HIGH); digitalWrite(EPD_CS, LOW);
+        SPI.writeBytes(buf + i, n);
+        digitalWrite(EPD_CS, HIGH);
+    }
+    logln("epd_display: refresh (0x12)");
+    epd_cmd(0x12); delay(100);                           // display refresh
+    epd_busy_wait(35000);
+    logln("epd_display: done");
+}
+static void epd_sleep_mode() {
+    epd_cmd(0x02); epd_busy_wait(8000);   // power off
+    epd_cmd(0x07); epd_dat(0xA5);         // deep sleep
+}
+#endif // PANEL_E6 / PANEL_UC8179
 
 // â”€â”€ 8Ã—8 bitmap font (IBM PC, printable ASCII 0x20â€“0x7E) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Each char: 8 bytes = 8 rows, MSB of each byte = leftmost pixel
@@ -545,6 +666,7 @@ static const uint8_t FONT8[95][8] PROGMEM = {
 };
 
 // â”€â”€ Display drawing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+#if PANEL_E6
 static void epd_fill(uint8_t color) {
     uint8_t b = (uint8_t)((color << 4) | color);
     memset(epd_buf, b, EPD_BUF_SIZE);
@@ -556,6 +678,20 @@ static void epd_pix(int x, int y, uint8_t color) {
     if (pos & 1) epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | color;
     else         epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0x0F) | (color << 4);
 }
+#elif defined(PANEL_UC8179)
+static void epd_fill(uint8_t color) {
+  #if defined(PANEL_GRAY4)
+    uint8_t b = color & 3; b = b | (b << 2) | (b << 4) | (b << 6);
+  #else
+    uint8_t b = color ? 0xFF : 0x00;   // 1 = white
+  #endif
+    memset(epd_buf, b, EPD_BUF_SIZE);
+}
+static void epd_pix(int x, int y, uint8_t color) {
+    if (x < 0 || x >= EPD_W || y < 0 || y >= EPD_H) return;
+    epd_set_code(x, y, color);
+}
+#endif
 static void epd_rect(int x, int y, int w, int h, uint8_t color) {
     for (int dy = 0; dy < h; dy++)
         for (int dx = 0; dx < w; dx++)
@@ -581,7 +717,7 @@ static void epd_text(int x, int y, const char *s, uint8_t fg, uint8_t bg, int sc
 // Returns AP SSID based on MAC
 static String apNameFromMac() {
     uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    char buf[24]; snprintf(buf, sizeof(buf), "PhotoDisplay-%02X%02X", mac[4], mac[5]);
+    char buf[24]; snprintf(buf, sizeof(buf), "PhotoDock-%02X%02X", mac[4], mac[5]);
     return String(buf);
 }
 
@@ -589,7 +725,7 @@ static String apNameFromMac() {
 static void epd_show_setup(const char *apName) {
     epd_fill(C_WHITE);                                        // white bg
     epd_rect(0, 0, EPD_W, 64, C_BLUE);                        // blue header
-    epd_text(16, 12, "Photo Display Setup", C_WHITE, C_BLUE, 3);
+    epd_text(16, 12, "PhotoDock Setup", C_WHITE, C_BLUE, 3);
     epd_rect(0, 64, EPD_W, 2, C_BLACK);                       // black divider
 
     epd_text(24, 82,  "Connect your phone to this WiFi:", C_BLACK, C_WHITE, 2);
@@ -639,7 +775,7 @@ static void epd_show_no_photos() {
     epd_rect(0, 64, EPD_W, 2, C_BLACK);
 
     epd_text(24, 100, "No photos on this screen yet.", C_BLACK, C_WHITE, 3);
-    epd_text(24, 170, "Open Photo Display, go to this", C_BLACK, C_WHITE, 2);
+    epd_text(24, 170, "Open PhotoDock, go to this", C_BLACK, C_WHITE, 2);
     epd_text(24, 192, "screen, and upload some photos.", C_BLACK, C_WHITE, 2);
     epd_text(24, 232, "The display will show them", C_BLACK, C_WHITE, 2);
     epd_text(24, 254, "automatically on the next refresh.", C_BLACK, C_WHITE, 2);
@@ -673,7 +809,7 @@ static void epd_show_pairing(const char *code, const char *pairUrl) {
     epd_draw_qr(pairUrl, 470, 110, 6);   // QR on the right
 
     epd_text(24, 96,  "Scan the QR code, or open", C_BLACK, C_WHITE, 2);
-    epd_text(24, 122, "the Photo Display site and", C_BLACK, C_WHITE, 2);
+    epd_text(24, 122, "the PhotoDock site and", C_BLACK, C_WHITE, 2);
     epd_text(24, 148, "go to /pair, then enter:", C_BLACK, C_WHITE, 2);
 
     epd_text(24, 196, "Pairing code", C_BLACK, C_WHITE, 2);
@@ -699,6 +835,7 @@ static String jsonStr(const String &body, const char *key) {
     return j < 0 ? "" : body.substring(i, j);
 }
 
+#if HAS_AXP2101
 // â”€â”€ Battery voltage reading (via AXP2101 PMIC) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static int read_battery_mv() {
     int mv = PMU.getBattVoltage();          // 0 if PMIC not init this wake / no batt
@@ -781,27 +918,113 @@ static bool pmic_init() {
     PMU.setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_500MA);
     PMU.setChargeTargetVoltage(XPOWERS_AXP2101_CHG_VOL_4V2);
     PMU.enableCellbatteryCharge();
-    delay(80);                       // let the panel rails come up
+    delay(120);                      // let the panel rails come up + ADC settle
     g_pmicReady = true;
-
-    // Detailed battery/charger diagnostics. On battery-only the device can't
-    // send logs (no power if the cell is flat), so we capture the full picture
-    // here while on USB to see whether the cell is present and actually charging.
-    const char *cs;
-    switch (PMU.getChargerStatus()) {
-        case XPOWERS_AXP2101_CHG_TRI_STATE:  cs = "tri(no/again)"; break;
-        case XPOWERS_AXP2101_CHG_PRE_STATE:  cs = "pre-charge";    break;
-        case XPOWERS_AXP2101_CHG_CC_STATE:   cs = "cc";            break;
-        case XPOWERS_AXP2101_CHG_CV_STATE:   cs = "cv";            break;
-        case XPOWERS_AXP2101_CHG_DONE_STATE: cs = "done";          break;
-        default:                             cs = "stopped";       break;
-    }
-    logf("PMIC: batt=%s %dmV %d%% | chg=%s(%s) | VBUS=%s %dmV | sys=%dmV\n",
-         PMU.isBatteryConnect() ? "yes" : "no", PMU.getBattVoltage(), PMU.getBatteryPercent(),
-         PMU.isCharging() ? "on" : "off", cs,
-         PMU.isVbusIn() ? "yes" : "no", PMU.getVbusVoltage(), PMU.getSystemVoltage());
     return true;
 }
+
+// Human-readable AXP2101 charger state.
+static const char *charger_status_str() {
+    switch (PMU.getChargerStatus()) {
+        case XPOWERS_AXP2101_CHG_TRI_STATE:  return "trickle";
+        case XPOWERS_AXP2101_CHG_PRE_STATE:  return "pre-charge";
+        case XPOWERS_AXP2101_CHG_CC_STATE:   return "constant-current";
+        case XPOWERS_AXP2101_CHG_CV_STATE:   return "constant-voltage";
+        case XPOWERS_AXP2101_CHG_DONE_STATE: return "charge-done";
+        default:                             return "stopped";
+    }
+}
+
+// Median of several battery-voltage samples (the AXP ADC can spit out an
+// occasional wild value; a median throws those out).
+static int battery_mv_median() {
+    if (!g_pmicReady) return -1;
+    int s[5];
+    for (int i = 0; i < 5; i++) { s[i] = PMU.getBattVoltage(); delay(25); }
+    for (int i = 0; i < 5; i++) for (int j = i + 1; j < 5; j++) if (s[j] < s[i]) { int t = s[i]; s[i] = s[j]; s[j] = t; }
+    return s[2];
+}
+
+// â”€â”€ Detailed battery / power diagnostics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// On battery-only the device can't report (no power if the cell is flat), so we
+// dump the full power picture here on every boot. It lands in the device logs
+// (Settings â†’ Logs) so battery issues are diagnosable without a serial cable.
+static void pmic_report() {
+    logln("---- battery / power report ----");
+    if (!g_pmicReady) {
+        logln("  PMIC      : NOT initialised this boot (no readings available)");
+        logln("  note      : on a deep-sleep wake the AXP2101 isn't re-read; rails");
+        logln("              stay on from the last cold boot. Cold-boot for full data.");
+        logln("--------------------------------");
+        return;
+    }
+    const bool battConn = PMU.isBatteryConnect();
+    const int  battMv   = battery_mv_median();
+    const int  battPct  = PMU.getBatteryPercent();
+    const bool charging = PMU.isCharging();
+    const bool vbus     = PMU.isVbusIn();
+    const int  vbusMv   = PMU.getVbusVoltage();
+    const int  sysMv    = PMU.getSystemVoltage();
+    const char *cs      = charger_status_str();
+
+    logln("  PMIC      : AXP2101 detected & initialised");
+    logf ("  battery   : %s\n", battConn ? "CONNECTED" : "NOT connected");
+    logf ("  voltage   : %d mV  (median of 5 reads)\n", battMv);
+    logf ("  level     : %d %%  (fuel gauge)\n", battPct);
+    logf ("  charger   : %s  (isCharging=%s)\n", cs, charging ? "yes" : "no");
+    logf ("  USB/VBUS  : %s  (%d mV)\n", vbus ? "present" : "absent", vbusMv);
+    logf ("  system    : %d mV  (rail powering the board)\n", sysMv);
+    logln("  charge cfg: target 4.20 V, 500 mA CC, 75 mA precharge, 2 A VBUS limit");
+
+    // Plain-language interpretation so the verdict is obvious.
+    if (!battConn || battMv < 2500) {
+        logln("  VERDICT   : No usable battery seen (reads ~0).");
+        logln("              -> The cell is flat/dead, or the connector is reversed");
+        logln("                 or not seated. The board cannot run on battery until");
+        logln("                 a charged cell (3.0-4.2 V) is connected the right way.");
+    } else if (vbus && (PMU.getChargerStatus() == XPOWERS_AXP2101_CHG_CC_STATE ||
+                        PMU.getChargerStatus() == XPOWERS_AXP2101_CHG_CV_STATE ||
+                        PMU.getChargerStatus() == XPOWERS_AXP2101_CHG_PRE_STATE)) {
+        logf ("  VERDICT   : Charging now (%s). Voltage should climb toward 4200 mV.\n", cs);
+        logln("              Leave on USB and watch this number rise over time.");
+    } else if (vbus && battMv >= 4100) {
+        logln("  VERDICT   : Battery full / charge complete. Safe to run on battery.");
+    } else if (vbus && !charging) {
+        logln("  VERDICT   : On USB but NOT charging. Charger is stopped/faulted -");
+        logln("              check the cell and connector; a deeply-flat cell may");
+        logln("              need a known-good replacement.");
+    } else if (!vbus) {
+        logf ("  VERDICT   : Running on battery, %d mV (%d%%).\n", battMv, battPct);
+    }
+    logln("--------------------------------");
+}
+
+#else  // ── No AXP2101 (e.g. reTerminal E1001): ADC battery, autonomous charger ──
+static int read_battery_mv() {
+  #if defined(BATT_ADC_GPIO)
+    #if defined(BATT_EN_GPIO)
+        pinMode(BATT_EN_GPIO, OUTPUT);
+        digitalWrite(BATT_EN_GPIO, HIGH);     // enable the voltage divider
+        delay(10);
+    #endif
+        long sum = 0;
+        for (int i = 0; i < 8; i++) { sum += analogReadMilliVolts(BATT_ADC_GPIO); delay(2); }
+        int mv = (int)(sum / 8) * 2;          // undo the /2 divider (verify ratio on HW)
+    #if defined(BATT_EN_GPIO)
+        digitalWrite(BATT_EN_GPIO, LOW);      // disable divider again to save power
+    #endif
+        if (mv >= 2500 && mv <= 4500) { g_lastBattMv = mv; return mv; }
+        return g_lastBattMv > 0 ? g_lastBattMv : -1;
+  #else
+    return -1;
+  #endif
+}
+static bool pmic_init() { g_pmicReady = true; return true; }   // no PMIC; panel directly powered
+static void pmic_report() {
+    int mv = read_battery_mv();
+    logf("---- battery report ----  voltage: %d mV  (ADC)\n", mv > 0 ? mv : 0);
+}
+#endif // HAS_AXP2101
 
 // â”€â”€ Post device status to server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void post_status(uint32_t sleep_s) {
@@ -821,12 +1044,23 @@ static void post_status(uint32_t sleep_s) {
     Preferences fp; fp.begin("ota", true);
     String fwver = fp.getString("fwver", "");
     fp.end();
+    // Charging/USB diagnostics are only available on the AXP2101 boards.
+    String chargePart = "";
+#if HAS_AXP2101
+    if (g_pmicReady)
+        chargePart = String(",\"charging\":") + (PMU.isCharging() ? "true" : "false")
+                   + ",\"usb\":" + (PMU.isVbusIn() ? "true" : "false")
+                   + ",\"battery_pct\":" + String(PMU.getBatteryPercent())
+                   + ",\"battery_connected\":" + (PMU.isBatteryConnect() ? "true" : "false")
+                   + ",\"vbus_mv\":" + String(PMU.getVbusVoltage())
+                   + ",\"sys_mv\":" + String(PMU.getSystemVoltage())
+                   + ",\"charge_status\":\"" + charger_status_str() + "\"";
+#endif
     String body = "{\"device_id\":\"" + String(device_id) + "\""
                 + ",\"wifi_rssi\":"  + rssi
+                + ",\"model\":\"" BOARD_MODEL "\""
                 + (bat_mv > 0 ? ",\"battery_mv\":" + String(bat_mv) : "")
-                + (g_pmicReady ? String(",\"charging\":") + (PMU.isCharging() ? "true" : "false")
-                                 + ",\"usb\":" + (PMU.isVbusIn() ? "true" : "false")
-                               : "")
+                + chargePart
                 + (fwver.length() ? ",\"firmware_version\":\"" + fwver + "\"" : "")
                 + "}";
     int code = http.POST(body);
@@ -867,7 +1101,69 @@ static void deep_sleep(uint32_t seconds) {
     // costs a little sleep current but guarantees the display works every wake.
     // (The image itself persists on e-ink with or without power.)
     esp_sleep_enable_timer_wakeup((uint64_t)seconds * 1000000ULL);
+    // Also wake when KEY1 is pressed, so a button press is instant. Hold the pin
+    // at its rest level during sleep (internal pulls are off otherwise) and wake
+    // on the pressed level. This board's KEY1 is active-LOW, so rest = pull-up
+    // and wake on LOW.
+    if (KEY1_GPIO >= 0) {
+        if (KEY1_ACTIVE_LEVEL == HIGH) { rtc_gpio_pulldown_en((gpio_num_t)KEY1_GPIO); rtc_gpio_pullup_dis((gpio_num_t)KEY1_GPIO); }
+        else                           { rtc_gpio_pullup_en((gpio_num_t)KEY1_GPIO);   rtc_gpio_pulldown_dis((gpio_num_t)KEY1_GPIO); }
+        esp_sleep_enable_ext0_wakeup((gpio_num_t)KEY1_GPIO, KEY1_ACTIVE_LEVEL);
+    }
     esp_deep_sleep_start();
+}
+
+// â”€â”€ KEY1 button finder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// One-time helper: watch the free RTC-capable GPIOs and report which one drops
+// LOW when KEY1 is pressed, so we learn the pin from the actual board. Only
+// reads pins (never drives them), so it can't disturb the panel/PMIC.
+static void find_key1() {
+    // All general-purpose GPIOs except the ones already in use (EPD 8-13, BOOT 0,
+    // USB 19/20, flash/PSRAM 26-37, LED 45, I2C 47/48, UART 43/44). We only READ
+    // these (with a pull-up), so it can't disturb anything.
+    static const int cands[] = {1, 2, 3, 4, 5, 6, 7, 14, 15, 16, 17, 18, 21,
+                                38, 39, 40, 41, 42, 46};
+    const int N = sizeof(cands) / sizeof(cands[0]);
+    int  rest[24];
+    bool noisy[24] = {false};
+    for (int i = 0; i < N; i++) pinMode(cands[i], INPUT_PULLUP);
+    delay(50);
+    for (int i = 0; i < N; i++) rest[i] = digitalRead(cands[i]);
+
+    // STAGE 1: watch ~8s with NO press. Any pin that changes on its own is a live
+    // signal (like GPIO 4), not a button — flag it so stage 2 ignores it.
+    logln("KEY1 finder STAGE 1: do NOT touch the button (checking noise, 8s)...");
+    uint32_t t0 = millis();
+    while (millis() - t0 < 8000) {
+        for (int i = 0; i < N; i++) if (digitalRead(cands[i]) != rest[i]) noisy[i] = true;
+        delay(5);
+    }
+    String nl = "";
+    for (int i = 0; i < N; i++) if (noisy[i]) { nl += ' '; nl += cands[i]; }
+    logf("KEY1 finder: noisy pins ignored:%s\n", nl.length() ? nl.c_str() : " none");
+    for (int i = 0; i < N; i++) rest[i] = digitalRead(cands[i]);   // refresh rest level
+
+    // STAGE 2: now press & hold KEY1. Report a STABLE pin that changes.
+    logln("KEY1 finder STAGE 2: now press & hold KEY1 (10s)...");
+    t0 = millis();
+    int found = -1, dir = HIGH;
+    while (millis() - t0 < 10000 && found < 0) {
+        for (int i = 0; i < N; i++) {
+            if (noisy[i]) continue;
+            int v = digitalRead(cands[i]);
+            if (v != rest[i]) {
+                delay(40);                      // debounce
+                if (digitalRead(cands[i]) == v) { found = cands[i]; dir = v; break; }
+            }
+        }
+        delay(8);
+    }
+    for (int i = 0; i < N; i++) pinMode(cands[i], INPUT);
+    if (found >= 0)
+        logf("KEY1 finder: >>> detected on GPIO %d <<< (goes %s when pressed; RTC-wake capable: %s)\n",
+             found, dir == LOW ? "LOW" : "HIGH", found <= 21 ? "yes" : "NO");
+    else
+        logln("KEY1 finder: no clean button seen — re-run: hands OFF in stage 1, hold in stage 2");
 }
 
 // â”€â”€ Clear NVS config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -942,7 +1238,8 @@ static void otaCheck() {
     String applied = p.getString("fwver", "");
 
     HTTPClient http;
-    http.begin(base + "/api/device/firmware?key=" + cfg.apiKey + "&current=" + applied);
+    http.begin(base + "/api/device/firmware?key=" + cfg.apiKey + "&current=" + applied
+               + "&model=" BOARD_MODEL);
     if (http.GET() != 200) { http.end(); p.end(); return; }
     String resp = http.getString(); http.end();
     String version = jsonStr(resp, "version");
@@ -998,7 +1295,7 @@ static bool pairDevice() {
     HTTPClient http;
     http.begin(base + "/api/devices/pair/request");
     http.addHeader("Content-Type", "application/json");
-    int code = http.POST(String("{\"hwId\":\"") + hwId + "\",\"model\":\"PhotoPainter-E6\"}");
+    int code = http.POST(String("{\"hwId\":\"") + hwId + "\",\"model\":\"" BOARD_MODEL "\"}");
     if (code != 200) { logf("pair/request HTTP %d\n", code); http.end(); return false; }
     String resp = http.getString(); http.end();
 
@@ -1041,7 +1338,7 @@ static bool pairDevice() {
 void setup() {
     Serial.begin(115200);
     delay(300);
-    logln("\n=== PhotoDisplay ===");
+    logln("\n=== PhotoDock ===");
 
     // Allocate display buffers and init hardware first so we can show screens anywhere
     epd_buf  = (uint8_t *)ps_malloc(EPD_BUF_SIZE);
@@ -1059,6 +1356,37 @@ void setup() {
     // back until a manual power cycle.
     if (!pmic_init()) {
         logln("PMIC: not ready, continuing without panel power (will retry next wake)");
+    }
+    pmic_report();   // detailed battery/power diagnostics into the device logs
+
+    // â”€â”€ KEY1 button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // If KEY1 isn't mapped yet, discover its GPIO on a cold boot. Once mapped,
+    // a short press advances to the next photo and a 5s hold toggles sleep.
+    if (KEY1_GPIO < 0) {
+        g_manualSleep = false;   // feature disabled — clear any stuck sleep state
+        if (esp_reset_reason() != ESP_RST_DEEPSLEEP) find_key1();
+    } else if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+        rtc_gpio_deinit((gpio_num_t)KEY1_GPIO);   // hand the pad back to normal GPIO
+        pinMode(KEY1_GPIO, KEY1_ACTIVE_LEVEL == LOW ? INPUT_PULLUP : INPUT);
+        delay(30);
+        // The EXT0 wake itself proves KEY1 was pressed: during sleep the pin is
+        // held at its rest level by an internal pull, so only a real press can
+        // drive it to the wake level. We therefore do NOT require the button to
+        // still be held — a quick tap is usually already released by the time we
+        // boot this far (battery sampling etc. takes a few hundred ms). We only
+        // sample how long it is *still* held to tell a short tap (next photo)
+        // from a long hold (toggle sleep).
+        uint32_t t0 = millis();
+        while (digitalRead(KEY1_GPIO) == KEY1_ACTIVE_LEVEL && millis() - t0 < KEY1_LONG_PRESS_MS + 500) delay(10);
+        uint32_t held = millis() - t0;
+        if (held >= KEY1_LONG_PRESS_MS) {
+            g_manualSleep = !g_manualSleep;
+            logf("KEY1: long press (%ums) -> manual sleep %s\n", held, g_manualSleep ? "ON" : "OFF");
+        } else {
+            g_manualOffset++;            // advance one photo
+            g_manualSleep = false;       // a tap also wakes from manual sleep
+            logf("KEY1: short press -> next photo (offset %d)\n", g_manualOffset);
+        }
     }
 
     pinMode(EPD_CS,   OUTPUT); digitalWrite(EPD_CS,   HIGH);
@@ -1194,16 +1522,21 @@ void setup() {
 
     uint32_t sleep_s = DEFAULT_SLEEP_S;
     bool nowSleeping = false;
+    bool debugLogging = false;   // when set by the server, keep WiFi on through the refresh
     {
         HTTPClient http;
         String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
-                   + "/api/slideshow/current?key=" + cfg.apiKey;
+                   + "/api/slideshow/current?key=" + cfg.apiKey
+                   + "&offset=" + g_manualOffset;   // KEY1 short-press advances this
         http.begin(url);
         if (http.GET() == 200) {
             String body = http.getString();
             // Scheduled sleep window: server tells us to show the sleeping screen
             // and sleep until the wake time (carried in next_in_ms).
             nowSleeping = body.indexOf("\"sleeping\":true") >= 0;
+            // Debug mode (toggled from the dashboard): keep the radio on through
+            // the refresh so the decode/display logs reach the server.
+            debugLogging = body.indexOf("\"debug\":true") >= 0;
             // Base the sleep on the screen's configured refresh interval, so a
             // missing/too-small next_in_ms falls back to the user's setting
             // (e.g. 1 min) instead of the hardcoded 5-minute default.
@@ -1227,11 +1560,14 @@ void setup() {
     // we subtract however long the image fetch + refresh takes before sleeping.
     uint32_t tRefMs = millis();
 
-    // Scheduled sleep: show the "Sleeping" screen once and sleep until wake.
-    if (nowSleeping) {
+    // Sleeping: either the server's scheduled window, or a manual KEY1 long-press
+    // toggle. Show the "Sleeping" screen once, then sleep — wakeable by KEY1.
+    if (nowSleeping || g_manualSleep) {
         if (!g_sleepShown) { showServerScreen("sleeping"); g_sleepShown = true; }
-        uint32_t chunk = sleep_s > 21600 ? 21600 : sleep_s;   // re-check at least every 6h
-        logf("Sleep schedule active â€” sleeping %u s\n", chunk);
+        // Manual sleep waits mostly for the button; cap at 1h so it still checks
+        // in. Scheduled sleep runs until the wake time (capped at 6h).
+        uint32_t chunk = g_manualSleep ? 3600 : (sleep_s > 21600 ? 21600 : sleep_s);
+        logf("Sleeping (%s) for %u s\n", g_manualSleep ? "manual KEY1" : "schedule", chunk);
         deep_sleep(chunk);                                    // never returns
     }
     g_sleepShown = false;   // not sleeping any more â€” allow a re-render next time
@@ -1241,7 +1577,8 @@ void setup() {
         HTTPClient http;
         String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
                    + "/api/slideshow/image?key=" + cfg.apiKey
-                   + "&width=" + EPD_W + "&height=" + EPD_H;
+                   + "&width=" + EPD_W + "&height=" + EPD_H
+                   + "&offset=" + g_manualOffset;   // KEY1 short-press advances this
         http.begin(url);
         int code = http.GET();
         if (code != 200) {
@@ -1278,13 +1615,15 @@ void setup() {
         http.end();
     }
 
-    // The e-ink refresh below takes ~15-25s and doesn't need the network. Flush
-    // logs while we still have a link, then power the radio down so it isn't
-    // drawing current (~tens of mA) through the whole refresh. This is one of
-    // the biggest per-wake battery savings.
-    flushLogs();
-    WiFi.disconnect(true);
-    WiFi.mode(WIFI_OFF);
+    // The e-ink refresh below takes ~15-25s and doesn't need the network. Power
+    // the radio down so it isn't drawing current through the whole refresh — one
+    // of the biggest per-wake battery savings. In debug mode we keep it on so the
+    // decode/display logs are flushed to the server (deep_sleep flushes them).
+    if (!debugLogging) {
+        flushLogs();
+        WiFi.disconnect(true);
+        WiFi.mode(WIFI_OFF);
+    }
 
     memset(rgb_buf, 0, EPD_W * EPD_H * 3);   // black where the image doesn't cover
     if (jpeg.openRAM(jpeg_buf, (int)jpeg_len, jpegDraw)) {

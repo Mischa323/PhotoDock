@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Screens — Photo Display</title>
+  <title>Screens — PhotoDock</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/glass.css">
@@ -294,6 +294,12 @@
       Auto-update firmware when a new version is available
     </label>
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">When off, updates only happen when you click “Update now”.</div>
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Diagnostics</div>
+    <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
+      <input type="checkbox" id="editDebugLogging" style="width:16px;height:16px;cursor:pointer">
+      Debug logging
+    </label>
+    <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Keeps the device's WiFi on through each refresh so the full display logs reach the server. Uses more battery — turn off when you're done debugging.</div>
     <div class="modal-footer">
       <button class="glass-btn modal-btn" style="color:#f87171" onclick="deleteFromModal()">Delete</button>
       <div style="display:flex;gap:8px">
@@ -358,7 +364,8 @@
           <div class="wz-field">
             <label>Device type</label>
             <select id="wzDeviceType">
-              <option value="waveshare-s3-photopainter">Waveshare ESP32-S3-PhotoPainter (7.3&quot; ACeP 7-color, 800×480)</option>
+              <option value="waveshare-s3-photopainter" data-manifest="/firmware/manifest.json" data-buildable="1">Waveshare ESP32-S3-PhotoPainter (7.3&quot; E6 6-color, 800×480)</option>
+              <option value="reterminal-e1001" data-manifest="/firmware/reterminal-e1001/manifest.json" data-buildable="1">Seeed reTerminal E1001 (7.5&quot; monochrome, 800×480)</option>
             </select>
           </div>
           <div class="key-reveal" id="wzKeyReveal" style="display:none">
@@ -481,7 +488,7 @@
           <div class="wizard-title">Configure the device via its setup portal</div>
           <div class="setup-steps">
             <div class="setup-step"><div class="setup-step-num">1</div><div><div class="setup-step-title">Power on the device</div><div class="setup-step-sub">On first boot it creates a temporary WiFi hotspot.</div></div></div>
-            <div class="setup-step"><div class="setup-step-num">2</div><div><div class="setup-step-title">Connect to the setup network</div><div style="font-size:13px;color:#334155">On your phone or laptop, join:</div><div class="setup-config-row"><span class="setup-config-lbl">Network</span><code class="setup-val">PhotoDisplay-XXXX</code></div><div class="setup-step-sub">XXXX = last 4 hex digits of the device's MAC address.</div></div></div>
+            <div class="setup-step"><div class="setup-step-num">2</div><div><div class="setup-step-title">Connect to the setup network</div><div style="font-size:13px;color:#334155">On your phone or laptop, join:</div><div class="setup-config-row"><span class="setup-config-lbl">Network</span><code class="setup-val">PhotoDock-XXXX</code></div><div class="setup-step-sub">XXXX = last 4 hex digits of the device's MAC address.</div></div></div>
             <div class="setup-step"><div class="setup-step-num">3</div><div><div class="setup-step-title">Open the setup page</div><div style="font-size:13px;color:#334155">A captive-portal page should open automatically. If not:</div><div class="setup-config-row"><code class="setup-val">http://192.168.4.1</code></div></div></div>
             <div class="setup-step"><div class="setup-step-num">4</div><div><div class="setup-step-title">Enter your settings</div><div style="font-size:13px;color:#334155">Fill in WiFi name &amp; password, then copy these values:</div>
               <div class="setup-config-row"><span class="setup-config-lbl">Host</span><code class="setup-val" id="wzSetupHost">—</code><button class="btn-copy" onclick="copySetup('wzSetupHost')" title="Copy">&#128203;</button></div>
@@ -585,8 +592,37 @@ function fwChip(d) {
   if (!d.fw) return '';
   return `<span class="fw-chip" title="Firmware build the device is running">⚙ fw ${esc(String(d.fw).slice(0,8))}</span>`;
 }
+function powerDetails(d) {
+  const p = d.power;
+  if (!p) return '';
+  const mv  = v => v != null ? v + ' mV' : '—';
+  const row = (label, val) => `<div style="display:flex;justify-content:space-between;gap:12px"><span style="color:rgba(255,255,255,0.45)">${label}</span><span style="color:rgba(255,255,255,0.85);font-family:monospace">${val}</span></div>`;
+  const battState = p.battConn === false ? '<span style="color:#f87171">not connected</span>'
+                  : p.battConn === true  ? 'connected' : '—';
+  const cs = p.chargeStatus ? esc(p.chargeStatus) : '—';
+  let verdict = '';
+  if (p.battConn === false || (p.battMv != null && p.battMv < 2500))
+    verdict = `<div style="margin-top:6px;color:#f87171;line-height:1.4">⚠ No usable battery detected (reads ~0). The cell is flat/dead or the connector is reversed/loose — the board can't run on battery until a charged 3.0–4.2 V cell is connected correctly.</div>`;
+  else if (d.usb && /current|voltage|pre-charge/.test(p.chargeStatus || ''))
+    verdict = `<div style="margin-top:6px;color:#34d399">● Charging (${cs}) — voltage should climb toward 4200 mV.</div>`;
+  else if (d.usb && p.battMv != null && p.battMv >= 4100)
+    verdict = `<div style="margin-top:6px;color:#34d399">● Battery full / charge complete.</div>`;
+  else if (d.usb)
+    verdict = `<div style="margin-top:6px;color:#fbbf24">On USB but charger is ${cs} — not actively charging.</div>`;
+  return `<details style="margin-top:8px">
+    <summary style="cursor:pointer;font-size:11px;color:rgba(255,255,255,0.5)">🔋 Power details</summary>
+    <div style="margin-top:8px;font-size:11.5px;display:flex;flex-direction:column;gap:4px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 12px">
+      ${row('Battery', battState)}
+      ${row('Voltage', mv(p.battMv))}
+      ${row('Level', p.battPct != null ? p.battPct + ' %' : '—')}
+      ${row('Charger', cs)}
+      ${row('USB / VBUS', d.usb ? mv(p.vbusMv) : 'absent')}
+      ${row('System rail', mv(p.sysMv))}
+      ${verdict}
+    </div></details>`;
+}
 function deviceRow(d) {
-  return `<div class="device-row"><div class="device-row-top"><span class="device-id">${esc(d.id)}</span>${statusPill(d)}</div><div class="device-row-stats">${battMeter(d)}${d.wifi != null ? wifiBars(d) : ''}${fwChip(d)}</div></div>`;
+  return `<div class="device-row"><div class="device-row-top"><span class="device-id">${esc(d.id)}</span>${statusPill(d)}</div><div class="device-row-stats">${battMeter(d)}${d.wifi != null ? wifiBars(d) : ''}${fwChip(d)}</div>${powerDetails(d)}</div>`;
 }
 function albumChip(a) {
   const count = a.photoCount || 0;
@@ -743,6 +779,7 @@ function openEditModal(id) {
   document.getElementById('editSleepStart').value = s.sleepStart || '23:00';
   document.getElementById('editSleepEnd').value = s.sleepEnd || '07:00';
   document.getElementById('sleepTimes').style.opacity = s.sleepEnabled ? '1' : '0.4';
+  document.getElementById('editDebugLogging').checked = !!s.debugLogging;
   setLook(s.imageBrightness ?? 1.15, s.imageSaturation ?? 1.2);
   document.getElementById('editAutoUpdate').checked = !!s.autoUpdate;
   renderEditColors();
@@ -767,7 +804,8 @@ async function saveEdit() {
   const sleepEnabled = document.getElementById('editSleepEnabled').checked;
   const sleepStart = document.getElementById('editSleepStart').value || '23:00';
   const sleepEnd = document.getElementById('editSleepEnd').value || '07:00';
-  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, imageFit, imageBrightness, imageSaturation, autoUpdate, sleepEnabled, sleepStart, sleepEnd }) });
+  const debugLogging = document.getElementById('editDebugLogging').checked;
+  const res = await fetch('/api/screens/' + editId, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, color: editColor, intervalMinutes, rotation, imageFit, imageBrightness, imageSaturation, autoUpdate, sleepEnabled, sleepStart, sleepEnd, debugLogging }) });
   if (!res.ok) { showToast('Could not update screen', 'error'); return; }
   closeEditModal();
   await loadScreens();
@@ -806,7 +844,21 @@ function openSetup() {
   wzSelectedColor = SCREEN_COLORS[screens.length % SCREEN_COLORS.length];
   renderWzColors();
   document.getElementById('wzHost').value = location.hostname;
+  loadDeviceTypes();
   setTimeout(() => document.getElementById('wzName').focus(), 50);
+}
+// Populate the device-type dropdown from the server (built-in boards + any
+// admin-added custom devices), carrying each one's flash manifest + readiness.
+async function loadDeviceTypes() {
+  const sel = document.getElementById('wzDeviceType');
+  try {
+    const types = await (await fetch('/api/device-types')).json();
+    const cur = sel.value;
+    sel.innerHTML = types.map(t =>
+      `<option value="${esc(t.value)}" data-manifest="${esc(t.manifest)}" data-custom="${t.custom?1:0}" data-buildable="${t.buildable?1:0}" data-ready="${t.ready?1:0}">${esc(t.name)}</option>`
+    ).join('');
+    if (cur && sel.querySelector(`option[value="${CSS.escape(cur)}"]`)) sel.value = cur;
+  } catch { /* keep the static fallback options */ }
 }
 function closeSetup() { document.getElementById('setupModal').style.display = 'none'; }
 
@@ -949,14 +1001,35 @@ function onSsidSelect() {
 }
 function copyKey() { navigator.clipboard.writeText(document.getElementById('wzCreatedKeyValue').textContent).then(() => showToast('API key copied')); }
 function copySetup(id) { navigator.clipboard.writeText(document.getElementById(id).textContent).then(() => showToast('Copied')); }
+function wzDeviceManifest() {
+  const opt = document.getElementById('wzDeviceType').selectedOptions[0];
+  return (opt && opt.dataset.manifest) || '/firmware/manifest.json';
+}
 async function initFlashStep() {
   const statusEl  = document.getElementById('wzFwStatus');
   const buildCtrl = document.getElementById('wzBuildControls');
   const flashCtrl = document.getElementById('wzFlashControls');
+  const opt       = document.getElementById('wzDeviceType').selectedOptions[0];
+  const device    = document.getElementById('wzDeviceType').value;
+  const isCustom  = opt?.dataset.custom === '1';
+  // Point esp-web-tools at the selected board's firmware manifest.
+  document.getElementById('espInstallBtn').setAttribute('manifest', wzDeviceManifest());
   // Always allow moving on — flashing can't always be auto-detected, and the
   // user may have flashed by other means.
   document.getElementById('wzFlashContinue').style.display = '';
   document.getElementById('wzFlashDone').style.display = 'none';
+  // Custom devices are built in Settings → Custom devices, not here. Just flash
+  // their prebuilt firmware (config baking isn't available for custom boards).
+  if (isCustom) {
+    if (opt?.dataset.ready === '1') {
+      statusEl.innerHTML = `<span class="fw-status-badge ready">&#10003; Custom firmware ready</span>`;
+      buildCtrl.style.display = 'none'; flashCtrl.style.display = 'block';
+    } else {
+      statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Build this device first in Settings &rarr; Custom devices</span>`;
+      buildCtrl.style.display = 'none'; flashCtrl.style.display = 'none';
+    }
+    return;
+  }
   if (_wizardMode === 'auto') {
     statusEl.innerHTML = `<span class="fw-status-badge missing">&#9888; Build required — your config will be embedded in the firmware</span>`;
     buildCtrl.style.display = 'block'; flashCtrl.style.display = 'none';
@@ -965,7 +1038,7 @@ async function initFlashStep() {
   statusEl.innerHTML = '<span style="font-size:13px;color:#94a3b8">Checking firmware…</span>';
   buildCtrl.style.display = 'none'; flashCtrl.style.display = 'none';
   try {
-    const res = await fetch('/api/admin/firmware/status');
+    const res = await fetch('/api/admin/firmware/status?device=' + encodeURIComponent(device));
     const data = res.ok ? await res.json() : {};
     if (data.ready) {
       const d = data.builtAt ? ` · built ${relTimeAgo(data.builtAt)}` : '';
@@ -1005,9 +1078,10 @@ function wizardBuild() {
   const btn = document.getElementById('wzBuildBtn');
   log.textContent = ''; log.style.display = 'block';
   btn.disabled = true; status.textContent = 'Building…'; status.style.color = '#888';
+  const device = document.getElementById('wzDeviceType').value;
   const body = _wizardMode === 'auto'
-    ? { wifi_ssid: _wizardSsid, wifi_password: _wizardPass, server_host: _wizardHost, server_port: _wizardPort, api_key: _wizardKey }
-    : {};
+    ? { wifi_ssid: _wizardSsid, wifi_password: _wizardPass, server_host: _wizardHost, server_port: _wizardPort, api_key: _wizardKey, device }
+    : { device };
   fetch('/api/admin/firmware/build', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     .then(async res => {
       if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
