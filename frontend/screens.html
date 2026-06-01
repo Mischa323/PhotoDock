@@ -837,7 +837,6 @@ function renderWzColors() {
 
 let _wizardStep = 1, _wizardKey = '', _wizardKeyName = '', _wizardMode = '';
 let _wizardSsid = '', _wizardPass = '', _wizardHost = '', _wizardPort = '8080', _setupType = 'new';
-let _savedSsids = new Set();   // networks whose password the server already has (encrypted)
 const DEVICES = { 'waveshare-s3-photopainter': { width: 800, height: 480 } };
 
 function openSetup() {
@@ -970,9 +969,9 @@ function wizardStep2Next() {
     const pass = document.getElementById('wzPassword').value;
     const host = document.getElementById('wzHost').value.trim();
     if (!ssid) return showToast('Select or enter a WiFi network', 'error');
-    if (!pass && !_savedSsids.has(ssid)) return showToast('Enter the WiFi password', 'error');
+    if (!pass) return showToast('Enter the WiFi password', 'error');
     if (!host) return showToast('Enter the server host', 'error');
-    _wizardSsid = ssid; _wizardPass = pass;   // blank password -> server reuses the saved (encrypted) one
+    _wizardSsid = ssid; _wizardPass = pass;
     _wizardHost = host; _wizardPort = document.getElementById('wzPort').value.trim() || '8080';
   }
   wizardSetStep(3);
@@ -986,9 +985,8 @@ async function scanWifi() {
     const res = await fetch('/api/admin/wifi-scan');
     const data = res.ok ? await res.json() : {};
     const ssids = Array.isArray(data.ssids) ? data.ssids : [];
-    _savedSsids = new Set(Array.isArray(data.saved) ? data.saved : []);
     if (ssids.length) {
-      sel.innerHTML = '<option value="">— select a network —</option>' + ssids.map(s => `<option value="${escHtml(s)}">${escHtml(s)}${_savedSsids.has(s) ? '  ✓ password saved' : ''}</option>`).join('');
+      sel.innerHTML = '<option value="">— select a network —</option>' + ssids.map(s => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join('');
     } else {
       sel.innerHTML = '<option value="">— no saved networks found —</option>';
       showToast('No saved networks found — type the name below.', 'error');
@@ -1005,10 +1003,7 @@ function currentWizSsid() {
 // leave the field blank to reuse it instead of retyping.
 function updateWifiPassHint() {
   const pw = document.getElementById('wzPassword');
-  if (!pw) return;
-  pw.placeholder = currentWizSsid() && _savedSsids.has(currentWizSsid())
-    ? '•••••••• saved — leave blank to reuse'
-    : '••••••••';
+  if (pw) pw.placeholder = '••••••••';
 }
 function onSsidSelect() {
   if (document.getElementById('wzSsidSelect').value) document.getElementById('wzSsidCustom').value = '';
