@@ -3,6 +3,7 @@
 #include <WebServer.h>
 #include <DNSServer.h>
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <HTTPUpdate.h>
 #include <Preferences.h>
 #include <SPI.h>
@@ -1028,6 +1029,37 @@ static void pmic_report() {
 }
 #endif // HAS_AXP2101
 
+// â”€â”€ Server connection (HTTP, or HTTPS when the server is on port 443) â”€â”€â”€â”€â”€â”€â”€
+// Behind a TLS-terminating reverse proxy the device must speak HTTPS on 443. We
+// treat port 443 as HTTPS and skip certificate validation (traffic is still
+// encrypted) so it works with Let's Encrypt, self-signed and proxy certificates.
+static WiFiClientSecure g_secure;
+static bool serverHttps() { return cfg.serverPort == 443; }
+// Build a full server URL for `path` (which begins with '/'). The standard port
+// (443/80) is omitted so it works cleanly with reverse proxies / virtual hosts.
+static String serverUrl(const String &path) {
+    String u = serverHttps() ? "https://" : "http://";
+    u += cfg.serverHost;
+    if (!((serverHttps() && cfg.serverPort == 443) || (!serverHttps() && cfg.serverPort == 80)))
+        u += ":" + String(cfg.serverPort);
+    u += path;
+    return u;
+}
+// Begin an HTTPClient request, using a TLS client for https:// URLs.
+static bool beginServer(HTTPClient &http, const String &url) {
+    if (url.startsWith("https://")) {
+        g_secure.setInsecure();   // encrypt, but don't validate the certificate
+        return http.begin(g_secure, url);
+    }
+    return http.begin(url);
+}
+// Path+query from a full URL (everything from the first '/' after the host).
+static String urlPath(const String &url) {
+    int p = url.indexOf("://");
+    int s = url.indexOf('/', p >= 0 ? p + 3 : 0);
+    return s >= 0 ? url.substring(s) : String("/");
+}
+
 // â”€â”€ Post device status to server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void post_status(uint32_t sleep_s) {
     int bat_mv = read_battery_mv();
@@ -1039,9 +1071,7 @@ static void post_status(uint32_t sleep_s) {
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
     HTTPClient http;
-    String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
-               + "/api/device/status?key=" + cfg.apiKey;
-    http.begin(url);
+    beginServer(http, serverUrl("/api/device/status?key=" + cfg.apiKey));
     http.addHeader("Content-Type", "application/json");
     Preferences fp; fp.begin("ota", true);
     String fwver = fp.getString("fwver", "");
@@ -1079,9 +1109,7 @@ static void flushLogs() {
     snprintf(device_id, sizeof(device_id), "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     HTTPClient http;
-    String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
-               + "/api/device/log?key=" + cfg.apiKey;
-    http.begin(url);
+    beginServer(http, serverUrl("/api/device/log?key=" + cfg.apiKey));
     http.addHeader("Content-Type", "application/json");
     String body = String("{\"device_id\":\"") + device_id + "\",\"log\":\""
                 + jsonEscape(g_logbuf) + "\"}";
@@ -1179,7 +1207,7 @@ static void clearConfig() {
 // â”€â”€ Fetch a JPEG URL and render it to the panel ──────────────────────────
 static bool fetchAndShow(const String &url) {
     HTTPClient http;
-    http.begin(url);
+    beginServer(http, url);
     if (http.GET() != 200) { http.end(); return false; }
     int total = http.getSize();
     WiFiClient *stream = http.getStreamPtr();
@@ -1221,9 +1249,8 @@ static bool showServerScreen(const char *state) {
     Preferences fp; fp.begin("ota", true);
     String fw = fp.getString("fwver", "");
     fp.end();
-    String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
-               + "/api/device/screen?key=" + cfg.apiKey + "&state=" + state
-               + "&id=" + id + "&rssi=" + WiFi.RSSI();
+    String url = serverUrl("/api/device/screen?key=" + cfg.apiKey + "&state=" + state
+               + "&id=" + id + "&rssi=" + WiFi.RSSI());
     if (pct >= 0)       url += "&batt=" + String(pct);
     if (fw.length())    url += "&fw=" + fw;
     return fetchAndShow(url);
@@ -1234,13 +1261,13 @@ static bool showServerScreen(const char *state) {
 // we last applied, download and flash it (the device reboots on success). A
 // freshly hand-flashed device "adopts" the server version without re-flashing.
 static void otaCheck() {
-    const String base = String("http://") + cfg.serverHost + ":" + cfg.serverPort;
+    const String base = serverUrl("");
     Preferences p;
     p.begin("ota", false);
     String applied = p.getString("fwver", "");
 
     HTTPClient http;
-    http.begin(base + "/api/device/firmware?key=" + cfg.apiKey + "&current=" + applied
+    beginServer(http, base + "/api/device/firmware?key=" + cfg.apiKey + "&current=" + applied
                + "&model=" BOARD_MODEL);
     if (http.GET() != 200) { http.end(); p.end(); return; }
     String resp = http.getString(); http.end();
@@ -1270,9 +1297,18 @@ static void otaCheck() {
     p.end();
     flushLogs();                                  // get the pre-update log out first
 
-    WiFiClient client;
     httpUpdate.rebootOnUpdate(true);
-    t_httpUpdate_return r = httpUpdate.update(client, url);
+    // Rebuild the download URL with our own scheme/host/port so OTA works over a
+    // reverse proxy (HTTPS on 443) regardless of the URL the server reported.
+    String otaUrl = serverUrl(urlPath(url));
+    t_httpUpdate_return r;
+    if (otaUrl.startsWith("https://")) {
+        g_secure.setInsecure();
+        r = httpUpdate.update(g_secure, otaUrl);
+    } else {
+        WiFiClient client;
+        r = httpUpdate.update(client, otaUrl);
+    }
     if (r == HTTP_UPDATE_FAILED) {                // reverts so we retry next wake
         logf("OTA failed (%d): %s\n", httpUpdate.getLastError(),
              httpUpdate.getLastErrorString().c_str());
@@ -1292,10 +1328,10 @@ static bool pairDevice() {
     char hwId[18];
     snprintf(hwId, sizeof(hwId), "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    const String base = String("http://") + cfg.serverHost + ":" + cfg.serverPort;
+    const String base = serverUrl("");
 
     HTTPClient http;
-    http.begin(base + "/api/devices/pair/request");
+    beginServer(http, base + "/api/devices/pair/request");
     http.addHeader("Content-Type", "application/json");
     int code = http.POST(String("{\"hwId\":\"") + hwId + "\",\"model\":\"" BOARD_MODEL "\"}");
     if (code != 200) { logf("pair/request HTTP %d\n", code); http.end(); return false; }
@@ -1312,7 +1348,7 @@ static bool pairDevice() {
     for (int i = 0; i < MAX_POLLS; i++) {
         delay(4000);
         HTTPClient h2;
-        h2.begin(base + "/api/devices/pair/" + token);
+        beginServer(h2, base + "/api/devices/pair/" + token);
         if (h2.GET() == 200) {
             String r2 = h2.getString(); h2.end();
             String st = jsonStr(r2, "status");
@@ -1527,10 +1563,9 @@ void setup() {
     bool debugLogging = false;   // when set by the server, keep WiFi on through the refresh
     {
         HTTPClient http;
-        String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
-                   + "/api/slideshow/current?key=" + cfg.apiKey
-                   + "&offset=" + g_manualOffset;   // KEY1 short-press advances this
-        http.begin(url);
+        String url = serverUrl("/api/slideshow/current?key=" + cfg.apiKey
+                   + "&offset=" + g_manualOffset);   // KEY1 short-press advances this
+        beginServer(http, url);
         if (http.GET() == 200) {
             String body = http.getString();
             // Scheduled sleep window: server tells us to show the sleeping screen
@@ -1577,11 +1612,10 @@ void setup() {
     size_t jpeg_len = 0;
     {
         HTTPClient http;
-        String url = String("http://") + cfg.serverHost + ":" + cfg.serverPort
-                   + "/api/slideshow/image?key=" + cfg.apiKey
+        String url = serverUrl("/api/slideshow/image?key=" + cfg.apiKey
                    + "&width=" + EPD_W + "&height=" + EPD_H
-                   + "&offset=" + g_manualOffset;   // KEY1 short-press advances this
-        http.begin(url);
+                   + "&offset=" + g_manualOffset);   // KEY1 short-press advances this
+        beginServer(http, url);
         int code = http.GET();
         if (code != 200) {
             logf("HTTP %d\n", code);
