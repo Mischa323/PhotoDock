@@ -66,7 +66,44 @@ docker compose up -d
 
 Data (database, uploads, SSL, encryption key) persists in the `./data` volume.
 
-### Option B — From source
+### Option B — Portainer (stack)
+
+PhotoDock runs well as a Portainer **stack** using the published image.
+
+1. **Registry (only if the image is private):** *Registries → Add registry → Custom*,
+   set the URL to `ghcr.io` and authenticate with your GitHub username + a Personal
+   Access Token that has `read:packages`. Skip this if the `photodock` package is public.
+2. **Stacks → Add stack**, name it `photodock`, and paste this into the **web editor**:
+
+   ```yaml
+   services:
+     photodock:
+       image: ghcr.io/mischa323/photodock:latest
+       ports:
+         - "8080:8080"      # change the left number if the host port is taken
+         - "8081:8081"
+       volumes:
+         - photodock-data:/data             # database, uploads, certs, encryption key
+         - photodock-pio:/root/.platformio  # firmware-build cache (optional)
+       # environment:
+       #   PHOTODOCK_SECRET_KEY: "<64 hex chars>"  # optional: pin the at-rest key
+       restart: unless-stopped
+
+   volumes:
+     photodock-data:
+     photodock-pio:
+   ```
+
+3. **Deploy the stack**, then open `http://<host>:8080` and create your admin account.
+
+The image already sets sensible defaults (`PORT`, `HTTPS_PORT`, `DATA_FILE`,
+`UPLOADS_DIR`, SSL paths), so no environment variables are required.
+
+**Updating:** open the stack → **Pull and redeploy** to move to the newest
+`photodock:latest`. The `photodock-data` volume keeps your data, certificates and the
+at-rest **encryption key** across updates — don't delete it.
+
+### Option C — From source
 
 ```bash
 git clone https://github.com/Mischa323/PhotoDock.git
