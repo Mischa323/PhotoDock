@@ -3,6 +3,7 @@ uploads/*
 data/*
 !data/.gitkeep
 data.json
+secret.key
 ssl/
 .env
 esp32/.pio/

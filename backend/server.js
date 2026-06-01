@@ -250,6 +250,43 @@ function loadData() {
 
 function saveData(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
 
+// ── Secret-at-rest encryption (AES-256-GCM) ────────────────────────────────
+// Used for secrets we must keep but should never store in plaintext (e.g. a
+// device's WiFi password, kept so firmware can be rebuilt without re-entering
+// it). The key is taken from PHOTODOCK_SECRET_KEY (hex/base64) or auto-generated
+// once into secret.key (git-ignored) next to data.json.
+const KEY_FILE = path.join(path.dirname(DATA_FILE), 'secret.key');
+const SECRET_KEY = (() => {
+    const env = process.env.PHOTODOCK_SECRET_KEY;
+    if (env) {
+        const buf = /^[0-9a-fA-F]{64}$/.test(env) ? Buffer.from(env, 'hex') : Buffer.from(env, 'base64');
+        if (buf.length === 32) return buf;
+        console.error('PHOTODOCK_SECRET_KEY must be 32 bytes (64 hex chars or base64); ignoring.');
+    }
+    try { const b = fs.readFileSync(KEY_FILE); if (b.length === 32) return b; } catch {}
+    const key = crypto.randomBytes(32);
+    try { fs.writeFileSync(KEY_FILE, key, { mode: 0o600 }); }
+    catch (e) { console.error('Could not persist secret.key — encrypted secrets will not survive a restart:', e.message); }
+    return key;
+})();
+function encryptSecret(plain) {
+    if (plain == null || plain === '') return '';
+    const iv  = crypto.randomBytes(12);
+    const c   = crypto.createCipheriv('aes-256-gcm', SECRET_KEY, iv);
+    const ct  = Buffer.concat([c.update(String(plain), 'utf8'), c.final()]);
+    return 'gcm1:' + Buffer.concat([iv, c.getAuthTag(), ct]).toString('base64');
+}
+function decryptSecret(enc) {
+    if (!enc || typeof enc !== 'string' || !enc.startsWith('gcm1:')) return '';
+    try {
+        const raw = Buffer.from(enc.slice(5), 'base64');
+        if (raw.length < 28) return '';                 // need iv(12) + tag(16) at minimum
+        const d = crypto.createDecipheriv('aes-256-gcm', SECRET_KEY, raw.subarray(0, 12), { authTagLength: 16 });
+        d.setAuthTag(raw.subarray(12, 28));
+        return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8');
+    } catch { return ''; }
+}
+
 let appData = loadData();
 if (!appData.tokens)        { appData.tokens        = []; saveData(appData); }
 if (!appData.logs)          { appData.logs          = []; saveData(appData); }
@@ -556,6 +593,30 @@ const DEVICE_BUILDS = {
 };
 function deviceBuild(type) { return DEVICE_BUILDS[type] || DEVICE_BUILDS['waveshare-s3-photopainter']; }
 
+// Write esp32/src/config.h for a build. With no/empty values this reproduces the
+// repo's credential-free config exactly, so calling it after a build "wipes" any
+// baked WiFi password back out of the working tree (kept plaintext only while the
+// compiler needs it). The password itself is stored encrypted (see wifiCreds).
+function writeConfigH({ wifi_ssid = '', wifi_password = '', server_host = '', server_port = 8080 } = {}) {
+    const esc = s => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const content = [
+        '#pragma once',
+        '#define DEFAULT_SLEEP_S         (5 * 60)',
+        '#define BATTERY_ADC_PIN         4',
+        '#define BATTERY_DIVIDER_RATIO   2.0f',
+        '#define JPEG_BUF_SIZE           (512 * 1024)',
+        '// Leave SSID/API key empty to force the on-device WiFi setup portal on first boot.',
+        '// Fill them in only if you want to bake credentials into the firmware ("auto mode").',
+        `#define DEFAULT_WIFI_SSID       "${esc(wifi_ssid)}"`,
+        `#define DEFAULT_WIFI_PASS       "${esc(wifi_password)}"`,
+        `#define DEFAULT_SERVER_HOST     "${esc(server_host)}"`,
+        `#define DEFAULT_SERVER_PORT     ${parseInt(server_port) || 8080}`,
+        '#define DEFAULT_API_KEY         ""',
+    ].join('\n') + '\n';
+    fs.mkdirSync(path.join(ESP32_DIR, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(ESP32_DIR, 'src', 'config.h'), content);
+}
+
 app.get('/api/admin/firmware/status', requireAdmin, (req, res) => {
     const b = deviceBuild(req.query.device);
     const manifest = path.join(b.dir, 'manifest.json');
@@ -569,25 +630,20 @@ app.get('/api/admin/firmware/status', requireAdmin, (req, res) => {
 app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) => {
     if (buildInProgress) return res.status(409).json({ error: 'A build is already in progress' });
 
-    const { wifi_ssid='', wifi_password='', server_host='', server_port=8080, device='' } = req.body || {};
+    let { wifi_ssid='', wifi_password='', server_host='', server_port=8080, device='' } = req.body || {};
     const bld = deviceBuild(device);
 
-    const esc = s => String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"');
-    const configContent = [
-        '#pragma once',
-        '#define DEFAULT_SLEEP_S         (5 * 60)',
-        '#define BATTERY_ADC_PIN         4',
-        '#define BATTERY_DIVIDER_RATIO   2.0f',
-        '#define JPEG_BUF_SIZE           (512 * 1024)',
-        `#define DEFAULT_WIFI_SSID       "${esc(wifi_ssid)}"`,
-        `#define DEFAULT_WIFI_PASS       "${esc(wifi_password)}"`,
-        `#define DEFAULT_SERVER_HOST     "${esc(server_host)}"`,
-        `#define DEFAULT_SERVER_PORT     ${parseInt(server_port) || 8080}`,
-        `#define DEFAULT_API_KEY         ""`,
-    ].join('\n') + '\n';
+    // WiFi password is encrypted at rest, never kept in plaintext:
+    //  - left blank but saved for this SSID -> reuse the saved one (no re-typing);
+    //  - provided -> remember it encrypted so this device can be rebuilt later.
+    // config.h must be plaintext for the compiler, so it is wiped after the build.
+    if (wifi_ssid && !wifi_password) wifi_password = decryptSecret((appData.wifiCreds || {})[wifi_ssid]);
+    if (wifi_ssid && wifi_password) {
+        (appData.wifiCreds || (appData.wifiCreds = {}))[wifi_ssid] = encryptSecret(wifi_password);
+        saveData(appData);
+    }
 
-    try { fs.mkdirSync(path.join(ESP32_DIR, 'src'), { recursive: true }); } catch {}
-    fs.writeFileSync(path.join(ESP32_DIR, 'src', 'config.h'), configContent);
+    writeConfigH({ wifi_ssid, wifi_password, server_host, server_port });
 
     const pioBin = findPio();
     const pioOk = pioBin !== 'pio'
@@ -625,6 +681,7 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
     pio.on('error', err => {
         clearInterval(keepalive);
         buildInProgress = false;
+        try { writeConfigH(); } catch {}   // wipe the plaintext WiFi password back out
         send('error', `Cannot start PlatformIO: ${err.message}\n\nInstall with: pip install platformio`);
         res.end();
     });
@@ -632,6 +689,7 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
     pio.on('close', (code, signal) => {
         clearInterval(keepalive);
         buildInProgress = false;
+        try { writeConfigH(); } catch {}   // wipe the plaintext WiFi password back out
         if (code !== 0) {
             send('error', `Build failed (${signal ? 'killed by signal ' + signal : 'exit code ' + code})`);
             res.end();
@@ -2350,7 +2408,9 @@ app.get('/api/admin/wifi-scan', requireAdmin, (_req, res) => {
                     ssids.push(name.trim());
             }
         }
-        res.json({ ssids });
+        // Tell the UI which networks already have a saved (encrypted) password so
+        // it can offer to reuse it instead of asking the operator to retype it.
+        res.json({ ssids, saved: Object.keys(appData.wifiCreds || {}) });
     });
 });
 
