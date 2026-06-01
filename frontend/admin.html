@@ -1052,6 +1052,23 @@
         }
         .gauge-sub { font-size: 12px; color: rgba(255,255,255,0.55); text-align: center; }
         .usage-meta { padding: 0 24px 20px; font-size: 12px; color: rgba(255,255,255,0.45); display: flex; flex-wrap: wrap; gap: 16px; }
+
+        .cd-in {
+            width: 100%; box-sizing: border-box;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+            color: #fff; border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit;
+        }
+        .cd-in:focus { outline: none; border-color: rgba(6,182,212,0.5); }
+        .cd-row {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+        }
+        .cd-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 20px; }
+        .cd-badge.ready { background: rgba(34,197,94,0.16); color: #4ade80; }
+        .cd-badge.building { background: rgba(6,182,212,0.16); color: #22d3ee; }
+        .cd-badge.error { background: rgba(239,68,68,0.16); color: #f87171; }
+        .cd-badge.new { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); }
     </style>
 </head>
 <body>
@@ -1663,7 +1680,7 @@
             <div>
                 <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Pairing steps</p>
                 <ol style="font-size:14px;color:#444;line-height:1.7;margin:0;padding-left:20px">
-                    <li>Power on the device — it shows a <strong>Setup</strong> screen and starts a <code>PhotoPainter-Setup</code> Wi-Fi hotspot.</li>
+                    <li>Power on the device — it shows a <strong>Setup</strong> screen and starts a <code>PhotoDock-XXXX</code> Wi-Fi hotspot.</li>
                     <li>Connect your phone to that hotspot; a setup page opens automatically.</li>
                     <li>Enter your home Wi-Fi name &amp; password and the <strong>Server URL</strong> shown above, then save.</li>
                     <li>The device reboots, joins your Wi-Fi, and displays a <strong>QR code</strong>.</li>
@@ -1748,6 +1765,26 @@
         </div></div>
     </section>
 
+    <!-- Custom devices -->
+    <section id="sec-custom-devices">
+        <div class="section-header">
+            <h2>Custom devices <span class="help" data-tip="Add support for your own e-ink screen by pointing PhotoDock at a GitHub firmware repo. The server clones and builds it, then it becomes a flashable device type with OTA. Admin only — only add repositories you trust.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner" style="padding:20px 24px">
+            <p style="font-size:13px;color:#888;margin:0 0 14px">Point PhotoDock at a GitHub firmware repo (a PlatformIO project). It's cloned and built on the server, then appears as a device type you can flash &amp; OTA. <strong style="color:#e0a">Only add repos you trust</strong> — the server compiles their code.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:720px">
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Name</label><input id="cdName" class="cd-in" placeholder="My E-Ink Screen"></div>
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Model id (must match what the firmware reports)</label><input id="cdModel" class="cd-in" placeholder="my-eink-v1"></div>
+                <div style="grid-column:1/-1"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">GitHub repo URL (https)</label><input id="cdRepo" class="cd-in" placeholder="https://github.com/you/my-photodock-firmware"></div>
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Branch / tag</label><input id="cdRef" class="cd-in" placeholder="main"></div>
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">PlatformIO env (optional)</label><input id="cdEnv" class="cd-in" placeholder="e.g. my-board"></div>
+            </div>
+            <button class="btn-add" style="margin-top:12px" onclick="addCustomDevice()">+ Add device</button>
+            <div id="cdList" style="margin-top:18px"></div>
+            <pre id="cdBuildLog" style="display:none;margin-top:12px;max-height:300px;overflow:auto;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.5;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-word"></pre>
+        </div></div>
+    </section>
+
     <!-- Version / Changelog -->
     <section id="sec-version">
         <div class="section-header">
@@ -1786,6 +1823,7 @@
                 <option value="standard">Standard</option>
                 <option value="admin">Admin</option>
             </select>
+            <small style="display:block;margin-top:6px;color:#888">A user's display access comes from their role. Set which displays each role can see in <b>Roles &amp; Permissions</b> below.</small>
         </div>
         <div class="modal-actions">
             <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -1798,6 +1836,7 @@
 
 <script>
     let editingUserId = null;
+    let allUsers = [];
     let toastTimer;
 
     function relTimeAgo(iso) {
@@ -1882,6 +1921,7 @@
     async function loadUsers() {
         const res = await fetch('/api/admin/users');
         const users = await res.json();
+        allUsers = users;
         const tbody = document.getElementById('userTableBody');
 
         if (users.length === 0) {
@@ -1906,7 +1946,7 @@
                 <td style="font-size:13px;white-space:nowrap">${relTimeAgo(u.lastLogin)}</td>
                 <td>
                     <div class="actions">
-                        <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}', '${escHtml(u.username)}', '${u.role}')">&#9998;</button>
+                        <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}')">&#9998;</button>
                         ${u.twoFactorEnabled ? `<button class="icon-btn danger" title="Reset 2FA" onclick="adminReset2FA('${u.id}', '${escHtml(u.username)}')">&#128274;</button>` : ''}
                         ${u.blocked
                             ? `<button class="icon-btn" title="Unblock account" onclick="setUserBlocked('${u.id}', '${escHtml(u.username)}', false)" style="color:#2e7d32">&#128275;</button>`
@@ -1961,11 +2001,13 @@
         loadUsers();
     }
 
-    function openEditModal(id, username, role) {
+    function openEditModal(id) {
+        const u = allUsers.find(x => x.id === id);
+        if (!u) return;
         editingUserId = id;
-        document.getElementById('editUsername').value = username;
+        document.getElementById('editUsername').value = u.username;
         document.getElementById('editPassword').value = '';
-        document.getElementById('editRole').value = role;
+        document.getElementById('editRole').value = u.role;
         document.getElementById('editModal').classList.add('open');
     }
 
@@ -2232,6 +2274,8 @@
         const res   = await fetch('/api/admin/roles');
         const roles = await res.json();
         const container = document.getElementById('rolesContainer');
+        // Screens may not have loaded yet — needed to render the access list.
+        if (!allScreens.length) await loadScreens().catch(() => {});
 
         if (Object.keys(roles).length === 0) {
             container.innerHTML = '<p style="color:#bbb;text-align:center;padding:20px">No roles defined.</p>';
@@ -2258,6 +2302,7 @@
                             </div>
                         `).join('')}
                     </div>
+                    ${renderRoleScreens(role, perms)}
                 </div>
             `).join('');
         }
@@ -2265,6 +2310,38 @@
         // Refresh role dropdowns in user forms
         updateRoleDropdowns(roles);
         return roles;
+    }
+
+    // The display-access list for one role (group). Roles with "Manage settings"
+    // are admins, so they always see every display and need no list.
+    function renderRoleScreens(role, perms) {
+        const heading = `<div class="perm-row" style="border:none;padding-bottom:4px"><label style="font-weight:600">Display access<small>Which screens members of this role can see</small></label></div>`;
+        if (perms.canManage) {
+            return heading + `<div style="font-size:13px;color:#888;padding:2px 2px 8px">This role can manage settings, so it has access to <b>all displays</b>.</div>`;
+        }
+        if (!allScreens.length) {
+            return heading + `<div style="font-size:13px;color:#888;padding:2px 2px 8px">No displays yet.</div>`;
+        }
+        const sel = new Set(perms.screens || []);
+        const rows = allScreens.map(s => `
+            <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px;cursor:pointer">
+                <input type="checkbox" data-role-screen="${role}" value="${s.id}" ${sel.has(s.id) ? 'checked' : ''}
+                    onchange="saveRoleScreens('${role}')">
+                <span>${escHtml(s.name)}</span>
+            </label>`).join('');
+        return heading + `<div style="padding:2px 2px 6px">${rows}</div>`;
+    }
+
+    async function saveRoleScreens(role) {
+        const screens = [...document.querySelectorAll(`input[data-role-screen="${role}"]`)]
+            .filter(cb => cb.checked).map(cb => cb.value);
+        const res = await fetch(`/api/admin/roles/${role}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ screens })
+        });
+        if (!res.ok) { showToast('Could not save display access', 'error'); loadRoles(); }
+        else showToast(`"${roleLabel(role)}" display access saved.`);
     }
 
     function updateRoleDropdowns(roles) {
@@ -2936,6 +3013,7 @@
         'sec-api-ref':   'half',
         'sec-device-setup': 'full',
         'sec-api-keys':  'full',
+        'sec-custom-devices': 'full',
         'sec-version':   'half',
     };
 
@@ -3030,6 +3108,7 @@
         'sec-api-ref':     'server',
         'sec-device-setup':'logs',
         'sec-api-keys':    'server',
+        'sec-custom-devices': 'server',
         'sec-version':     'server',
     };
     let _metricsTimer = null;
@@ -3090,6 +3169,81 @@
         } catch { el.innerHTML = '<p style="padding:24px;color:#f87171">Could not load metrics.</p>'; }
     }
     window.loadSystemMetrics = loadSystemMetrics;
+
+    // ── Custom devices (clone + build a firmware repo) ───────────────────────
+    async function loadCustomDevices() {
+        const el = document.getElementById('cdList');
+        if (!el) return;
+        try {
+            const list = await (await fetch('/api/admin/custom-devices')).json();
+            if (!list.length) { el.innerHTML = '<div style="font-size:13px;color:rgba(255,255,255,0.4)">No custom devices yet.</div>'; return; }
+            el.innerHTML = list.map(d => {
+                const st = d.status || 'new';
+                const badge = `<span class="cd-badge ${st}">${st}</span>`;
+                const ver = d.version ? `<code style="font-size:11px;color:rgba(255,255,255,0.5)">${escHtml(d.version.slice(0,8))}</code>` : '';
+                const err = d.error ? `<div style="font-size:11px;color:#f87171;flex-basis:100%">${escHtml(d.error)}</div>` : '';
+                return `<div class="cd-row">
+                    <div style="flex:1;min-width:220px">
+                        <div style="font-weight:600;color:#fff;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${escHtml(d.name)} ${badge} ${ver}</div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:3px">${escHtml(d.modelId)} · <a href="${escHtml(d.repoUrl)}" target="_blank" style="color:#22d3ee">${escHtml(d.repoUrl)}</a> @ ${escHtml(d.ref)}${d.env?' · env '+escHtml(d.env):''}</div>
+                    </div>
+                    <button class="btn-add" style="font-size:12px;padding:6px 12px" onclick="buildCustomDevice('${d.id}')">${st==='ready'?'Rebuild':'Build'}</button>
+                    <button class="btn-cancel" style="font-size:12px;padding:6px 12px" onclick="deleteCustomDevice('${d.id}', this)" data-name="${escHtml(d.name)}">Delete</button>
+                    ${err}
+                </div>`;
+            }).join('');
+        } catch { el.innerHTML = '<div style="color:#f87171">Could not load custom devices.</div>'; }
+    }
+    window.loadCustomDevices = loadCustomDevices;
+    async function addCustomDevice() {
+        const body = {
+            name:    document.getElementById('cdName').value.trim(),
+            modelId: document.getElementById('cdModel').value.trim(),
+            repoUrl: document.getElementById('cdRepo').value.trim(),
+            ref:     document.getElementById('cdRef').value.trim() || 'main',
+            env:     document.getElementById('cdEnv').value.trim(),
+        };
+        if (!body.name || !body.modelId || !body.repoUrl) { showToast('Name, model id and repo URL are required', 'error'); return; }
+        const r = await fetch('/api/admin/custom-devices', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); showToast(e.error || 'Could not add', 'error'); return; }
+        ['cdName','cdModel','cdRepo','cdRef','cdEnv'].forEach(id => document.getElementById(id).value = '');
+        showToast('Custom device added — click Build to compile it.');
+        loadCustomDevices();
+    }
+    window.addCustomDevice = addCustomDevice;
+    async function deleteCustomDevice(id, btn) {
+        const name = btn?.dataset?.name || 'this device';
+        if (!confirm('Delete custom device "' + name + '"? This removes its built firmware too.')) return;
+        await fetch('/api/admin/custom-devices/' + id, { method: 'DELETE' });
+        loadCustomDevices();
+    }
+    window.deleteCustomDevice = deleteCustomDevice;
+    async function buildCustomDevice(id) {
+        const log = document.getElementById('cdBuildLog');
+        log.style.display = 'block'; log.textContent = 'Starting build…\n';
+        loadCustomDevices();
+        try {
+            const res = await fetch('/api/admin/custom-devices/' + id + '/build', { method: 'POST' });
+            if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+                const e = await res.json().catch(()=>({})); log.textContent += '\n' + (e.error || 'Build failed'); return;
+            }
+            const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+            while (true) {
+                const { done, value } = await reader.read(); if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n'); buf = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const msg = JSON.parse(line.slice(5).trim());
+                    if (msg.type === 'log') { log.textContent += msg.data; log.scrollTop = log.scrollHeight; }
+                    else if (msg.type === 'done') { log.textContent += '\n✓ ' + msg.data; showToast('Build complete'); loadCustomDevices(); }
+                    else if (msg.type === 'error') { log.textContent += '\n✗ ' + msg.data; showToast('Build failed', 'error'); loadCustomDevices(); }
+                }
+            }
+        } catch (e) { log.textContent += '\n✗ ' + e.message; }
+    }
+    window.buildCustomDevice = buildCustomDevice;
+    loadCustomDevices();
 
     // Restore last tab (default Usage).
     switchTab(localStorage.getItem('adminActiveTab') || 'usage');

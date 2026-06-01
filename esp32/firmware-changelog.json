@@ -1,9 +1,56 @@
 {
   "_comment": "Source-controlled firmware release notes shown read-only in the dashboard. Edit this file in the repo when you push a new firmware build — do NOT edit it through the web UI. The newest release of each model is the build the server currently serves over OTA. Keyed by the model string the device reports during pairing.",
   "models": {
+    "reTerminal-E1001": {
+      "name": "Seeed reTerminal E1001 (7.5\" monochrome)",
+      "releases": [
+        {
+          "version": "2026.05.31-1",
+          "date": "2026-05-31",
+          "title": "Initial reTerminal E1001 support",
+          "changes": [
+            "New board target for the Seeed reTerminal E1001 — 7.5\" UC8179 e-paper, ESP32-S3.",
+            "Phase 1 brings the panel up in black & white (Floyd–Steinberg dithered photos) to validate the hardware; 4-level grayscale is next.",
+            "Battery read via the on-board ADC divider; the SY6974B charger runs autonomously.",
+            "Shares the rest of the platform: WiFi pairing, OTA, sleep schedule, fit modes and the center button for next-photo / sleep."
+          ],
+          "commit": "a20c4b8",
+          "buildHash": "9ef77b4bc3502802"
+        }
+      ]
+    },
     "PhotoPainter-E6": {
       "name": "Waveshare 7.3\" PhotoPainter (E6 Spectra 6)",
       "releases": [
+        {
+          "version": "2026.05.31-a20c4b8",
+          "date": "2026-05-31",
+          "commit": "a20c4b8",
+          "buildHash": "cb3cbf36778d23f5",
+          "title": "Add battery, sleep schedule, fit modes, usage dashboard & offline detection",
+          "changes": [
+            "Firmware: keep panel rails powered across sleep for reliable wake refresh;",
+            "enable AXP2101 LiPo charging + fuel gauge with charge/USB reporting; per-screen",
+            "sleep schedule with minute/hour-aligned wakes; radio-off during refresh and",
+            "cached-WiFi wakes for battery; OTA 'updating'/'update complete' screens.",
+            "Backend: per-screen and per-photo fit mode (contain/cover); sleep-window logic;",
+            "interval-based offline detection with a sleeping state; system metrics endpoint;",
+            "read-only per-model firmware changelog.",
+            "Frontend: settings split into Usage/Logs/Users/Server tabs with CPU/RAM/storage",
+            "gauges; charging indicator; sleep + fit controls; removed redundant global",
+            "brightness/saturation (now per-screen)."
+          ],
+          "auto": true
+        },
+        {
+          "version": "2026.05.31-5",
+          "date": "2026-05-31",
+          "title": "KEY button advances to the next photo",
+          "changes": [
+            "Fix the KEY button not skipping to the next photo — a quick tap was being thrown away as electrical noise because the button was only checked after the battery readout, by which point the tap had already been released. The button wake now counts as a short press on its own, so a tap reliably advances the photo.",
+            "Hold the KEY button for 5 seconds to toggle the manual sleep on/off as before."
+          ]
+        },
         {
           "version": "2026.05.31-4",
           "date": "2026-05-31",

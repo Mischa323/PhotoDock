@@ -18,6 +18,7 @@ const ROOT_DIR    = path.join(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
 const ESP32_DIR    = path.join(ROOT_DIR, 'esp32');
 const FIRMWARE_DIR = path.join(ROOT_DIR, 'firmware_build');
+const CUSTOM_FW_DIR = path.join(ROOT_DIR, 'custom_firmware');   // cloned community board repos
 
 const app = express();
 const PORT        = process.env.PORT        || 8080;
@@ -356,6 +357,32 @@ function getPermissions(role) {
     return Object.assign({}, defaults, (appData.roles || {})[role] || {});
 }
 
+// ── Screen access control ──────────────────────────────────────────────────
+// Access is granted per ROLE (each role acts as a group): a role lists the
+// screen IDs its members may see. Admins (canManage) implicitly get every
+// screen, so their role's list is ignored.
+function isAdmin(user) {
+    return !!(user && getPermissions(user.role).canManage);
+}
+function roleScreens(role) {
+    return ((appData.roles || {})[role]?.screens) || [];
+}
+function accessibleScreenIds(user) {
+    return isAdmin(user) ? (appData.screens || []).map(s => s.id) : roleScreens(user?.role);
+}
+function userCanAccessScreen(user, screenId) {
+    if (isAdmin(user)) return true;
+    return !!screenId && roleScreens(user?.role).includes(screenId);
+}
+// Can this user see this specific photo? Assigned photos need a grant on the
+// user's role; unassigned (library) photos are visible only to their uploader.
+function userCanSeeImage(user, filename) {
+    if (isAdmin(user)) return true;
+    const m = (appData.imageMetadata || {})[filename] || {};
+    if (m.screenId) return roleScreens(user?.role).includes(m.screenId);
+    return m.uploadedBy === user?.username;
+}
+
 function requireAuth(req, res, next) {
     if (appData.users.length === 0) {
         if (req.path === '/setup' || req.path.startsWith('/api/setup')) return next();
@@ -522,11 +549,20 @@ function findBoot0() {
     return null;
 }
 
-app.get('/api/admin/firmware/status', requireAdmin, (_req, res) => {
-    const manifest = path.join(FIRMWARE_DIR, 'manifest.json');
-    const firmware  = path.join(FIRMWARE_DIR, 'firmware.bin');
-    const ready     = fs.existsSync(manifest) && fs.existsSync(firmware);
-    let builtAt     = null;
+// Map a wizard "device type" to its PlatformIO env, firmware output folder and
+// the URL prefix esp-web-tools downloads its parts from.
+const DEVICE_BUILDS = {
+    'waveshare-s3-photopainter': { env: 'esp32s3-photopainter', dir: FIRMWARE_DIR,                                 urlPrefix: '/firmware' },
+    'reterminal-e1001':          { env: 'reterminal-e1001',     dir: path.join(FIRMWARE_DIR, 'reterminal-e1001'), urlPrefix: '/firmware/reterminal-e1001' },
+};
+function deviceBuild(type) { return DEVICE_BUILDS[type] || DEVICE_BUILDS['waveshare-s3-photopainter']; }
+
+app.get('/api/admin/firmware/status', requireAdmin, (req, res) => {
+    const b = deviceBuild(req.query.device);
+    const manifest = path.join(b.dir, 'manifest.json');
+    const firmware = path.join(b.dir, 'firmware.bin');
+    const ready    = fs.existsSync(manifest) && fs.existsSync(firmware);
+    let builtAt    = null;
     if (ready) { try { builtAt = fs.statSync(firmware).mtime.toISOString(); } catch {} }
     res.json({ ready, builtAt, buildInProgress });
 });
@@ -534,7 +570,8 @@ app.get('/api/admin/firmware/status', requireAdmin, (_req, res) => {
 app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) => {
     if (buildInProgress) return res.status(409).json({ error: 'A build is already in progress' });
 
-    const { wifi_ssid='', wifi_password='', server_host='', server_port=8080 } = req.body || {};
+    const { wifi_ssid='', wifi_password='', server_host='', server_port=8080, device='' } = req.body || {};
+    const bld = deviceBuild(device);
 
     const esc = s => String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"');
     const configContent = [
@@ -577,7 +614,7 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
 
     const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 15000);
 
-    const pio = spawn(pioBin, ['run', '-e', 'esp32s3-photopainter'], {
+    const pio = spawn(pioBin, ['run', '-e', bld.env], {
         cwd: ESP32_DIR,
         env: { ...process.env, CI:'1', PLATFORMIO_DISABLE_AUTO_CHECK_UPDATES:'1' },
         shell: process.platform === 'win32',
@@ -602,30 +639,212 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
             return;
         }
         try {
-            const buildDir = path.join(ESP32_DIR, '.pio', 'build', 'esp32s3-photopainter');
-            fs.mkdirSync(FIRMWARE_DIR, { recursive: true });
+            const buildDir = path.join(ESP32_DIR, '.pio', 'build', bld.env);
+            fs.mkdirSync(bld.dir, { recursive: true });
             for (const f of ['bootloader.bin', 'partitions.bin', 'firmware.bin'])
-                fs.copyFileSync(path.join(buildDir, f), path.join(FIRMWARE_DIR, f));
+                fs.copyFileSync(path.join(buildDir, f), path.join(bld.dir, f));
             const boot0 = findBoot0();
-            if (boot0) fs.copyFileSync(boot0, path.join(FIRMWARE_DIR, 'boot_app0.bin'));
+            if (boot0) fs.copyFileSync(boot0, path.join(bld.dir, 'boot_app0.bin'));
             else send('log', '⚠ boot_app0.bin not found — flash may require a full erase\n');
             const manifest = {
                 name: 'PhotoDock Firmware',
                 version: '1.0.0',
                 builds: [{ chipFamily: 'ESP32-S3', parts: [
-                    { path: '/firmware/bootloader.bin', offset: 0 },
-                    { path: '/firmware/partitions.bin', offset: 32768 },
-                    { path: '/firmware/boot_app0.bin',  offset: 57344 },
-                    { path: '/firmware/firmware.bin',   offset: 65536 },
+                    { path: `${bld.urlPrefix}/bootloader.bin`, offset: 0 },
+                    { path: `${bld.urlPrefix}/partitions.bin`, offset: 32768 },
+                    { path: `${bld.urlPrefix}/boot_app0.bin`,  offset: 57344 },
+                    { path: `${bld.urlPrefix}/firmware.bin`,   offset: 65536 },
                 ]}],
             };
-            fs.writeFileSync(path.join(FIRMWARE_DIR, 'manifest.json'), JSON.stringify(manifest, null, 2));
+            fs.writeFileSync(path.join(bld.dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
             send('done', 'Build succeeded — firmware is ready to flash');
         } catch (e) {
             send('error', `Post-build copy failed: ${e.message}`);
         }
         res.end();
     });
+});
+
+// ── Custom devices (admin-only): clone a firmware repo from GitHub and build it ──
+// SECURITY: this clones and compiles arbitrary code on the server, so it is
+// admin-only and intended for a trusted, self-hosted operator. A malicious repo
+// could run arbitrary build scripts — only add repos you trust.
+function customDevices() { return appData.customDevices || (appData.customDevices = []); }
+function slugify(s) {
+    return String(s).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40) || 'device';
+}
+function uniqueSlug(base) {
+    const taken = new Set(customDevices().map(d => d.slug));
+    if (!taken.has(base)) return base;
+    let i = 2; while (taken.has(`${base}-${i}`)) i++;
+    return `${base}-${i}`;
+}
+
+app.get('/api/admin/custom-devices', requireAdmin, (_req, res) => {
+    res.json(customDevices().map(d => ({ ...d, current: currentFirmwareInfo(d.modelId)?.version || null })));
+});
+
+app.post('/api/admin/custom-devices', requireAdmin, express.json(), (req, res) => {
+    const { name, repoUrl, ref, env, modelId } = req.body || {};
+    if (!name?.trim() || !repoUrl?.trim() || !modelId?.trim())
+        return res.status(400).json({ error: 'name, repoUrl and modelId are required' });
+    if (!/^https:\/\/[^\s]+\/[^\s]+/.test(repoUrl.trim()))
+        return res.status(400).json({ error: 'repoUrl must be an https git URL' });
+    if (customDevices().some(d => d.modelId === modelId.trim()))
+        return res.status(400).json({ error: 'A custom device with that model id already exists' });
+    const dev = {
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        modelId: modelId.trim(),
+        slug: uniqueSlug(slugify(modelId)),
+        repoUrl: repoUrl.trim(),
+        ref: (ref || 'main').trim(),
+        env: (env || '').trim(),     // optional PlatformIO env to build
+        status: 'new', version: null, builtAt: null, error: null,
+    };
+    customDevices().push(dev);
+    saveData(appData);
+    res.json(dev);
+});
+
+app.delete('/api/admin/custom-devices/:id', requireAdmin, (req, res) => {
+    const list = customDevices();
+    const i = list.findIndex(d => d.id === req.params.id);
+    if (i < 0) return res.status(404).json({ error: 'Not found' });
+    const [dev] = list.splice(i, 1);
+    saveData(appData);
+    try { fs.rmSync(path.join(CUSTOM_FW_DIR, dev.slug), { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(path.join(FIRMWARE_DIR, dev.slug),  { recursive: true, force: true }); } catch {}
+    res.json({ ok: true });
+});
+
+// Run a command, streaming output to the SSE `send`. Resolves with the exit code.
+function runStreamed(cmd, args, opts, send) {
+    return new Promise(resolve => {
+        send('log', `\n▶ ${cmd} ${args.join(' ')}\n`);
+        let p;
+        try { p = spawn(cmd, args, { ...opts, shell: process.platform === 'win32' }); }
+        catch (e) { send('log', `cannot start ${cmd}: ${e.message}\n`); return resolve(-1); }
+        p.stdout.on('data', d => send('log', d.toString()));
+        p.stderr.on('data', d => send('log', d.toString()));
+        p.on('error', e => { send('log', `error: ${e.message}\n`); resolve(-1); });
+        p.on('close', code => resolve(code));
+    });
+}
+
+app.post('/api/admin/custom-devices/:id/build', requireAdmin, async (req, res) => {
+    if (buildInProgress) return res.status(409).json({ error: 'A build is already in progress' });
+    const dev = customDevices().find(d => d.id === req.params.id);
+    if (!dev) return res.status(404).json({ error: 'Not found' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.socket?.setTimeout(0);
+    res.flushHeaders();
+    const send = (type, data) => { try { res.write(`data: ${JSON.stringify({ type, data })}\n\n`); } catch {} };
+    const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 15000);
+
+    const finish = (ok, msg) => {
+        clearInterval(keepalive);
+        buildInProgress = false;
+        dev.status = ok ? 'ready' : 'error';
+        dev.error  = ok ? null : msg;
+        saveData(appData);
+        send(ok ? 'done' : 'error', msg);
+        res.end();
+    };
+
+    buildInProgress = true;
+    dev.status = 'building'; dev.error = null; saveData(appData);
+
+    try {
+        fs.mkdirSync(CUSTOM_FW_DIR, { recursive: true });
+        const cloneDir = path.join(CUSTOM_FW_DIR, dev.slug);
+
+        // Clone (shallow) or update to the requested ref.
+        let code;
+        if (fs.existsSync(path.join(cloneDir, '.git'))) {
+            send('log', `▶ Updating ${dev.repoUrl} (${dev.ref})\n`);
+            code = await runStreamed('git', ['-C', cloneDir, 'fetch', '--depth', '1', 'origin', dev.ref], {}, send);
+            if (code === 0) code = await runStreamed('git', ['-C', cloneDir, 'checkout', '-f', 'FETCH_HEAD'], {}, send);
+        } else {
+            try { fs.rmSync(cloneDir, { recursive: true, force: true }); } catch {}
+            send('log', `▶ Cloning ${dev.repoUrl} (${dev.ref})\n`);
+            code = await runStreamed('git', ['clone', '--depth', '1', '--branch', dev.ref, dev.repoUrl, cloneDir], {}, send);
+        }
+        if (code !== 0) return finish(false, 'git clone/update failed — check the URL, branch and that the repo is public');
+
+        // Find the PlatformIO project dir (root or a subdir containing platformio.ini).
+        let projDir = cloneDir;
+        if (!fs.existsSync(path.join(projDir, 'platformio.ini'))) {
+            const sub = fs.readdirSync(cloneDir, { withFileTypes: true })
+                .filter(e => e.isDirectory())
+                .map(e => path.join(cloneDir, e.name))
+                .find(d => fs.existsSync(path.join(d, 'platformio.ini')));
+            if (sub) projDir = sub;
+            else return finish(false, 'No platformio.ini found in the repo');
+        }
+
+        const pioBin = findPio();
+        const args = ['run']; if (dev.env) args.push('-e', dev.env);
+        code = await runStreamed(pioBin, args, {
+            cwd: projDir,
+            env: { ...process.env, CI: '1', PLATFORMIO_DISABLE_AUTO_CHECK_UPDATES: '1' },
+        }, send);
+        if (code !== 0) return finish(false, 'PlatformIO build failed');
+
+        // Locate the build output (the env's folder, or the only one with a firmware.bin).
+        const buildRoot = path.join(projDir, '.pio', 'build');
+        let outDir = dev.env ? path.join(buildRoot, dev.env) : null;
+        if (!outDir || !fs.existsSync(path.join(outDir, 'firmware.bin'))) {
+            outDir = (fs.existsSync(buildRoot) ? fs.readdirSync(buildRoot) : [])
+                .map(n => path.join(buildRoot, n))
+                .find(d => fs.existsSync(path.join(d, 'firmware.bin')));
+        }
+        if (!outDir) return finish(false, 'Build produced no firmware.bin');
+
+        const destDir = path.join(FIRMWARE_DIR, dev.slug);
+        fs.mkdirSync(destDir, { recursive: true });
+        for (const f of ['bootloader.bin', 'partitions.bin', 'firmware.bin']) {
+            const src = path.join(outDir, f);
+            if (fs.existsSync(src)) fs.copyFileSync(src, path.join(destDir, f));
+        }
+        const boot0 = findBoot0();
+        if (boot0) fs.copyFileSync(boot0, path.join(destDir, 'boot_app0.bin'));
+        const prefix = `/firmware/${dev.slug}`;
+        fs.writeFileSync(path.join(destDir, 'manifest.json'), JSON.stringify({
+            name: `${dev.name} Firmware`, version: '1.0.0',
+            builds: [{ chipFamily: 'ESP32-S3', parts: [
+                { path: `${prefix}/bootloader.bin`, offset: 0 },
+                { path: `${prefix}/partitions.bin`, offset: 32768 },
+                { path: `${prefix}/boot_app0.bin`,  offset: 57344 },
+                { path: `${prefix}/firmware.bin`,   offset: 65536 },
+            ]}],
+        }, null, 2));
+
+        dev.version = currentFirmwareInfo(dev.modelId)?.version || null;
+        dev.builtAt = new Date().toISOString();
+        finish(true, 'Build succeeded — firmware is ready to flash & OTA');
+    } catch (e) {
+        finish(false, `Build error: ${e.message}`);
+    }
+});
+
+// Device types for the setup wizard dropdown: the built-in boards plus any
+// admin-added custom devices (with whether their firmware has been built yet).
+app.get('/api/device-types', (req, res) => {
+    const ready = manifestUrl => fs.existsSync(path.join(FIRMWARE_DIR, manifestUrl.replace(/^\/firmware\//, '')));
+    const types = [
+        { value: 'waveshare-s3-photopainter', name: 'Waveshare ESP32-S3-PhotoPainter (7.3" E6 6-color, 800×480)', manifest: '/firmware/manifest.json',                  custom: false, buildable: true },
+        { value: 'reterminal-e1001',          name: 'Seeed reTerminal E1001 (7.5" monochrome, 800×480)',          manifest: '/firmware/reterminal-e1001/manifest.json',  custom: false, buildable: true },
+    ];
+    for (const d of (appData.customDevices || [])) {
+        const manifest = `/firmware/${d.slug}/manifest.json`;
+        types.push({ value: 'custom:' + d.id, name: `${d.name} (custom)`, manifest, custom: true, buildable: false, ready: ready(manifest), status: d.status });
+    }
+    types.forEach(t => { if (t.ready === undefined) t.ready = ready(t.manifest); });
+    res.json(types);
 });
 
 
@@ -1000,18 +1219,27 @@ app.post('/api/admin/roles', requireAdmin, (req, res) => {
     const key = name.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
     if (!appData.roles) appData.roles = {};
     if (appData.roles[key]) return res.status(400).json({ error: 'Role already exists' });
-    appData.roles[key] = { canUpload: false, canDelete: false, canManage: false };
+    appData.roles[key] = { canUpload: false, canDelete: false, canManage: false, screens: [] };
     saveData(appData);
     res.json({ role: key, permissions: appData.roles[key] });
 });
 
+// Merge update: permission toggles and the screen (display) access list are
+// saved independently, so only overwrite the fields actually provided.
 app.put('/api/admin/roles/:role', requireAdmin, (req, res) => {
     const { role } = req.params;
-    if (!appData.roles?.[role]) return res.status(404).json({ error: 'Role not found' });
-    const { canUpload, canDelete, canManage } = req.body;
-    appData.roles[role] = { canUpload: !!canUpload, canDelete: !!canDelete, canManage: !!canManage };
+    const existing = appData.roles?.[role];
+    if (!existing) return res.status(404).json({ error: 'Role not found' });
+    const { canUpload, canDelete, canManage, screens } = req.body;
+    if (canUpload !== undefined) existing.canUpload = !!canUpload;
+    if (canDelete !== undefined) existing.canDelete = !!canDelete;
+    if (canManage !== undefined) existing.canManage = !!canManage;
+    if (Array.isArray(screens)) {
+        const valid = new Set((appData.screens || []).map(s => s.id));
+        existing.screens = [...new Set(screens.filter(id => valid.has(id)))];
+    }
     saveData(appData);
-    res.json(appData.roles[role]);
+    res.json(existing);
 });
 
 app.delete('/api/admin/roles/:role', requireAdmin, (req, res) => {
@@ -1298,12 +1526,16 @@ app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (re
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
     const files      = getScreenFiles(keyRecord);
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
+    // KEY1 short-press advances the photo via a per-device offset.
+    const offset   = parseInt(req.query.offset, 10) || 0;
     const slot     = Math.floor(Date.now() / intervalMs);
-    const index    = slot % files.length;
+    const index    = (((slot + offset) % files.length) + files.length) % files.length;
     const filename = files[index];
     const nextSlot = (slot + 1) * intervalMs;
     const baseUrl  = `${req.protocol}://${req.get('host')}`;
-    res.json({ index, total: files.length, filename, url: `${baseUrl}/uploads/${filename}`, interval_minutes: keyRecord?.intervalMinutes || 5, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now() });
+    const screen   = keyRecord?.screenId ? (appData.screens || []).find(s => s.id === keyRecord.screenId) : null;
+    const debug    = !!(keyRecord?.debugLogging || screen?.debugLogging);
+    res.json({ index, total: files.length, filename, url: `${baseUrl}/uploads/${filename}`, interval_minutes: keyRecord?.intervalMinutes || 5, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now(), debug });
 });
 
 app.get('/api/slideshow/all', requireApiKey, requireEndpoint('all'), (req, res) => {
@@ -1317,7 +1549,7 @@ app.get('/api/slideshow/all', requireApiKey, requireEndpoint('all'), (req, res) 
 // Flat, high-contrast colours so they stay crisp after the panel's 6-colour
 // dithering. Matches the design handoff's status-screen set.
 const SCREEN_STATES = {
-    empty:    { accent: '#3b82f6', title: 'No photos yet',        sub: 'Add photos to this screen in Photo Display', icon: 'frame' },
+    empty:    { accent: '#3b82f6', title: 'No photos yet',        sub: 'Add photos to this screen in PhotoDock', icon: 'frame' },
     paired:   { accent: '#34d399', title: "You're all set",       sub: 'Device paired successfully',                 icon: 'check' },
     low_batt: { accent: '#f59e0b', title: 'Battery low',          sub: 'Please connect the charger',                 icon: 'batt'  },
     sleeping: { accent: '#3b82f6', title: 'Sleeping',             sub: 'Waiting for the next refresh',               icon: 'moon'  },
@@ -1384,7 +1616,7 @@ function buildStatusScreenSvg(stateKey, q) {
         `<rect x="0" y="422" width="${W}" height="58" fill="rgba(255,255,255,0.06)"/>`
       + `<rect x="0" y="422" width="${W}" height="2" fill="rgba(255,255,255,0.12)"/>`
       + `<rect x="24" y="436" width="30" height="30" rx="8" fill="${accent}"/>`
-      + `<text x="64" y="456" font-family="sans-serif" font-size="16" font-weight="600" fill="#fff">PhotoPainter</text>`
+      + `<text x="64" y="456" font-family="sans-serif" font-size="16" font-weight="600" fill="#fff">PhotoDock</text>`
       + `<text x="180" y="456" font-family="ui-monospace,monospace" font-size="13" fill="rgba(255,255,255,0.55)">${esc(devId)}</text>`
       + (fw ? `<text x="650" y="456" font-family="ui-monospace,monospace" font-size="12" fill="rgba(255,255,255,0.55)" text-anchor="end">${esc(fw)}</text>` : '')
       + wifi + battSvg;
@@ -1479,8 +1711,9 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
     const files      = getScreenFiles(keyRecord);
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
+    const offset   = parseInt(req.query.offset, 10) || 0;   // KEY1 short-press advance
     const slot     = Math.floor(Date.now() / intervalMs);
-    const filename = files[slot % files.length];
+    const filename = files[(((slot + offset) % files.length) + files.length) % files.length];
     const filepath = path.join(UPLOADS_DIR, filename);
     const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
     // Per-key date overlay override (set in admin panel)
@@ -1539,7 +1772,14 @@ app.use('/firmware', express.static(FIRMWARE_DIR));
 
 // ── Static files ───────────────────────────────────────────────────────────
 app.use(express.static(FRONTEND_DIR));
-app.use('/uploads', express.static(UPLOADS_DIR));
+// Gate the raw image bytes by per-user screen access, so a photo can't be
+// fetched by guessing its /uploads/<file> URL. (Devices never hit this route —
+// they fetch through the API-key-protected /api/slideshow/image.)
+app.use('/uploads', (req, res, next) => {
+    const filename = path.basename(decodeURIComponent(req.path));
+    if (!userCanSeeImage(req.currentUser, filename)) return res.status(403).end();
+    next();
+}, express.static(UPLOADS_DIR));
 
 // ── Images API ─────────────────────────────────────────────────────────────
 app.get('/api/images', (req, res) => {
@@ -1564,6 +1804,8 @@ app.get('/api/images', (req, res) => {
         const filterVal = albumId === '' ? null : albumId;
         files = files.filter(f => f.albumId === filterVal);
     }
+    // Only return photos this user is allowed to see.
+    files = files.filter(f => userCanSeeImage(req.currentUser, f.filename));
     files.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
     res.json(files);
 });
@@ -1603,6 +1845,12 @@ app.post('/api/upload', requireUpload, (req, res) => {
     const uploader   = req.currentUser?.username || null;
     const uploadedAt = new Date().toISOString();
     const screenId   = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    // Don't let a user assign an upload to a screen they can't access.
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId)) {
+        // Clean up the just-saved files so we don't orphan them.
+        for (const f of processed) { try { fs.unlinkSync(path.join(UPLOADS_DIR, f.filename)); } catch {} }
+        return res.status(403).json({ error: 'You do not have access to that screen' });
+    }
     const albumId    = req.body.albumId  && (appData.albums  || []).find(a => a.id === req.body.albumId)  ? req.body.albumId  : null;
     if (!appData.imageMetadata) appData.imageMetadata = {};
     for (const f of processed) {
@@ -1618,6 +1866,8 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
     const filename = path.basename(req.params.filename);
     const filepath = path.join(UPLOADS_DIR, filename);
     if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
+    if (!userCanSeeImage(req.currentUser, filename))
+        return res.status(403).json({ error: 'Permission denied' });
     fs.unlinkSync(filepath);
     delete appData.imageMetadata?.[filename];
     // Remove from all users' favourites
@@ -1632,7 +1882,8 @@ app.delete('/api/images/:filename', requireDelete, (req, res) => {
 // ── Favourites ─────────────────────────────────────────────────────────────
 app.get('/api/favorites', (req, res) => {
     const user = appData.users.find(u => u.id === req.currentUser.id);
-    res.json(user?.favorites || []);
+    // Drop favourites the user can no longer see (e.g. access revoked).
+    res.json((user?.favorites || []).filter(f => userCanSeeImage(req.currentUser, f)));
 });
 
 app.post('/api/favorites/:filename', (req, res) => {
@@ -1655,19 +1906,27 @@ app.delete('/api/favorites/:filename', (req, res) => {
 // ── Device status (posted by ESP32 after each display refresh) ────────────
 app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
     const key = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
-    const { battery_mv, wifi_rssi, firmware_version, device_id, charging, usb } = req.body || {};
+    const { battery_mv, wifi_rssi, firmware_version, device_id, charging, usb,
+            battery_pct, battery_connected, vbus_mv, sys_mv, charge_status, model } = req.body || {};
     if (!appData.deviceStatus) appData.deviceStatus = {};
     const id = device_id || key.id;
     appData.deviceStatus[id] = {
         deviceId:        id,
         apiKeyId:        key.id,
         apiKeyName:      key.name,
+        model:           model || null,
         screenId:        key.screenId || null,
         intervalMinutes: key.intervalMinutes || 5,
         batteryMv:       battery_mv   != null ? Number(battery_mv)  : null,
         wifiRssi:        wifi_rssi    != null ? Number(wifi_rssi)   : null,
         charging:        charging != null ? !!charging : null,
         usb:             usb      != null ? !!usb      : null,
+        // Detailed power diagnostics (reported when the PMIC was read this wake).
+        batteryPct:       battery_pct != null ? Number(battery_pct) : null,
+        batteryConnected: battery_connected != null ? !!battery_connected : null,
+        vbusMv:           vbus_mv != null ? Number(vbus_mv) : null,
+        sysMv:            sys_mv  != null ? Number(sys_mv)  : null,
+        chargeStatus:     charge_status || null,
         fwVersion:       firmware_version || null,
         lastSeen:        new Date().toISOString(),
     };
@@ -1677,20 +1936,42 @@ app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
 
 // Firmware OTA: tell the device the version (content hash) of the binary the
 // server currently has, so it can decide whether to update. Cached by mtime.
-let _fwCache = { mtimeMs: 0, version: null, size: 0 };
-function currentFirmwareInfo() {
-    const bin = path.join(FIRMWARE_DIR, 'firmware.bin');
+// Each board target keeps its binary in its own subfolder so devices only ever
+// OTA their own firmware. The PhotoPainter also still lives at the root for
+// backward compatibility. Maps the model the device reports to its files/URL.
+const MODEL_FW_DIR = {
+    'PhotoPainter-E6':  FIRMWARE_DIR,
+    'reTerminal-E1001': path.join(FIRMWARE_DIR, 'reterminal-e1001'),
+};
+const MODEL_FW_URL = {
+    'PhotoPainter-E6':  '/firmware/firmware.bin',
+    'reTerminal-E1001': '/firmware/reterminal-e1001/firmware.bin',
+};
+// Resolve a reported model id -> { dir, urlPrefix }, including admin-added custom
+// devices (cloned/built from GitHub, served from firmware_build/<slug>/).
+function modelFw(model) {
+    if (MODEL_FW_DIR[model]) return { dir: MODEL_FW_DIR[model], urlPrefix: (MODEL_FW_URL[model] || '/firmware/firmware.bin').replace(/\/firmware\.bin$/, '') };
+    const cd = (appData.customDevices || []).find(d => d.modelId === model);
+    if (cd) return { dir: path.join(FIRMWARE_DIR, cd.slug), urlPrefix: `/firmware/${cd.slug}` };
+    return { dir: FIRMWARE_DIR, urlPrefix: '/firmware' };
+}
+const _fwCacheByDir = {};
+function currentFirmwareInfo(model) {
+    const dir = modelFw(model).dir;
+    const bin = path.join(dir, 'firmware.bin');
     if (!fs.existsSync(bin)) return null;
     const st = fs.statSync(bin);
-    if (st.mtimeMs !== _fwCache.mtimeMs) {
+    const c = _fwCacheByDir[dir] || {};
+    if (st.mtimeMs !== c.mtimeMs) {
         const hash = crypto.createHash('md5').update(fs.readFileSync(bin)).digest('hex').slice(0, 16);
-        _fwCache = { mtimeMs: st.mtimeMs, version: hash, size: st.size };
+        _fwCacheByDir[dir] = { mtimeMs: st.mtimeMs, version: hash, size: st.size };
     }
-    return _fwCache;
+    return _fwCacheByDir[dir];
 }
 
 app.get('/api/device/firmware', requireApiKey, (req, res) => {
-    const info = currentFirmwareInfo();
+    const model = req.query.model || 'PhotoPainter-E6';
+    const info  = currentFirmwareInfo(model);
     if (!info) return res.status(404).json({ error: 'No firmware available' });
     const key     = req.apiKey;
     const current = req.query.current || '';
@@ -1714,7 +1995,7 @@ app.get('/api/device/firmware', requireApiKey, (req, res) => {
     }
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     res.json({ version: info.version, size: info.size, update: should ? 'yes' : 'no',
-               url: `${baseUrl}/firmware/firmware.bin` });
+               url: `${baseUrl}${modelFw(model).urlPrefix}/firmware.bin` });
 });
 
 // Device uploads its captured log buffer each wake. Kept as a small ring per device.
@@ -1773,18 +2054,27 @@ app.get('/api/firmware/changelog', (req, res) => {
     const onlyModel = req.query.model && models[req.query.model]
         ? { [req.query.model]: models[req.query.model] }
         : models;
-    const out = Object.entries(onlyModel).map(([id, m]) => ({
-        id,
-        name: m.name || id,
-        releases: (m.releases || []).map((r, i) => ({
-            version: r.version || null,
-            title:   r.title || 'Update',
-            changes: Array.isArray(r.changes) ? r.changes : [],
-            date:    r.date || null,
-            // The first (newest) release is what the server currently serves.
-            isCurrentBuild: i === 0,
-        })),
-    }));
+    const out = Object.entries(onlyModel).map(([id, m]) => {
+        // Each model's served binary lives in its own folder; mark the release
+        // whose recorded buildHash matches it (set automatically at build time),
+        // falling back to the newest release.
+        const sv = currentFirmwareInfo(id)?.version || null;
+        const releases = m.releases || [];
+        let curIdx = releases.findIndex(r => r.buildHash && sv && r.buildHash === sv);
+        if (curIdx < 0) curIdx = 0;
+        return {
+            id,
+            name: m.name || id,
+            serverVersion: sv,
+            releases: releases.map((r, i) => ({
+                version: r.version || null,
+                title:   r.title || 'Update',
+                changes: Array.isArray(r.changes) ? r.changes : [],
+                date:    r.date || null,
+                isCurrentBuild: i === curIdx,
+            })),
+        };
+    });
     res.json({ serverVersion, models: out });
 });
 
@@ -1906,13 +2196,15 @@ function rssiToBars(rssi) {
     return { bars, label };
 }
 
-app.get('/api/screens', (_req, res) => {
+app.get('/api/screens', (req, res) => {
     const meta     = appData.imageMetadata || {};
     const states   = appData.deviceStates  || {};   // legacy /api/devices/ping store
     const statuses = appData.deviceStatus  || {};    // what the firmware posts
     const now      = Date.now();
 
-    const screens = (appData.screens || []).map(s => {
+    const screens = (appData.screens || [])
+      .filter(s => userCanAccessScreen(req.currentUser, s.id))
+      .map(s => {
         // A screen can have several API keys (e.g. re-paired devices). Match the
         // device check-in against ANY key on this screen, not just the first.
         const linkedKeys   = (appData.apiKeys || []).filter(k => k.screenId === s.id);
@@ -1953,6 +2245,14 @@ app.get('/api/screens', (_req, res) => {
                     batt:        batt ?? null,
                     charging:    src.charging ?? null,
                     usb:         src.usb ?? null,
+                    power: {
+                        battMv:    src.batteryMv ?? null,
+                        battPct:   src.batteryPct ?? null,
+                        battConn:  src.batteryConnected ?? null,
+                        vbusMv:    src.vbusMv ?? null,
+                        sysMv:     src.sysMv ?? null,
+                        chargeStatus: src.chargeStatus ?? null,
+                    },
                     level:       src.level || (batt == null ? 'good' : batt <= 15 ? 'bad' : batt <= 30 ? 'warn' : 'good'),
                     wifi:        w.bars,
                     wlabel:      w.label,
@@ -1978,6 +2278,7 @@ app.get('/api/screens', (_req, res) => {
             sleepEnabled: linkedKey?.sleepEnabled ?? s.sleepEnabled ?? false,
             sleepStart:  linkedKey?.sleepStart || s.sleepStart || '23:00',
             sleepEnd:    linkedKey?.sleepEnd   || s.sleepEnd   || '07:00',
+            debugLogging: linkedKey?.debugLogging ?? s.debugLogging ?? false,
             autoUpdate:  linkedKeys.some(k => k.autoUpdate),
             updatePending: linkedKeys.some(k => k.updatePending),
             firmwareVersion: deviceFw,
@@ -2003,6 +2304,12 @@ app.post('/api/screens', (req, res) => {
         createdBy: req.currentUser?.username || null,
     };
     appData.screens.push(screen);
+    // A non-admin who creates a screen should keep access to it — grant it to
+    // their role (group), otherwise the filtered /api/screens hides it from them.
+    if (req.currentUser && !isAdmin(req.currentUser)) {
+        const r = (appData.roles || {})[req.currentUser.role];
+        if (r) { r.screens = r.screens || []; if (!r.screens.includes(screen.id)) r.screens.push(screen.id); }
+    }
     saveData(appData);
     res.json(screen);
 });
@@ -2010,7 +2317,7 @@ app.post('/api/screens', (req, res) => {
 app.put('/api/screens/:id', (req, res) => {
     const screen = (appData.screens || []).find(s => s.id === req.params.id);
     if (!screen) return res.status(404).json({ error: 'Screen not found' });
-    const { name, description, color, intervalMinutes, autoUpdate, rotation, imageBrightness, imageSaturation, imageFit, sleepEnabled, sleepStart, sleepEnd } = req.body;
+    const { name, description, color, intervalMinutes, autoUpdate, rotation, imageBrightness, imageSaturation, imageFit, sleepEnabled, sleepStart, sleepEnd, debugLogging } = req.body;
     if (name !== undefined) screen.name = name.trim();
     if (description !== undefined) screen.description = description.trim();
     if (color !== undefined) screen.color = color;
@@ -2057,6 +2364,13 @@ app.put('/api/screens/:id', (req, res) => {
         for (const k of linkedKeys) k.sleepEnd = v;
         screen.sleepEnd = v;
     }
+    // Debug logging: keep the device's WiFi on through the e-ink refresh so the
+    // decode/display logs reach the server (costs battery — leave off normally).
+    if (debugLogging !== undefined) {
+        const v = !!debugLogging;
+        for (const k of linkedKeys) k.debugLogging = v;
+        screen.debugLogging = v;
+    }
     // Refresh rate and auto-update live on the device's API key. Apply to every
     // key linked to this screen.
     if (intervalMinutes !== undefined) {
@@ -2096,6 +2410,10 @@ app.delete('/api/screens/:id', requireAdmin, (req, res) => {
     for (const filename of Object.keys(meta)) {
         if (meta[filename].screenId === screenId) meta[filename].screenId = null;
     }
+    // Revoke this screen from every role's (group's) access list.
+    for (const r of Object.values(appData.roles || {})) {
+        if (r.screens?.includes(screenId)) r.screens = r.screens.filter(id => id !== screenId);
+    }
     // Delete the device(s) tied to this screen — the API key, its live status,
     // and its albums. Uploaded images stay in the library, just unassigned.
     const removedKeyIds = (appData.apiKeys || []).filter(k => k.screenId === screenId).map(k => k.id);
@@ -2120,6 +2438,8 @@ app.get('/api/screens/:screenId/albums', (req, res) => {
     const { screenId } = req.params;
     if (!(appData.screens || []).find(s => s.id === screenId))
         return res.status(404).json({ error: 'Screen not found' });
+    if (!userCanAccessScreen(req.currentUser, screenId))
+        return res.status(403).json({ error: 'Permission denied' });
     const meta = appData.imageMetadata || {};
     const albums = (appData.albums || [])
         .filter(a => a.screenId === screenId)
@@ -2177,6 +2497,11 @@ app.put('/api/images/:filename/screen', (req, res) => {
     if (screenId && !(appData.screens || []).find(s => s.id === screenId)) {
         return res.status(400).json({ error: 'Screen not found' });
     }
+    // Must be able to see the photo, and (when assigning) to access the target screen.
+    if (!userCanSeeImage(req.currentUser, filename))
+        return res.status(403).json({ error: 'Permission denied' });
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId))
+        return res.status(403).json({ error: 'You do not have access to that screen' });
     if (!appData.imageMetadata) appData.imageMetadata = {};
     if (!appData.imageMetadata[filename]) appData.imageMetadata[filename] = {};
     appData.imageMetadata[filename].screenId = screenId || null;
@@ -2189,6 +2514,8 @@ app.put('/api/images/:filename/screen', (req, res) => {
 app.put('/api/images/:filename/fit', (req, res) => {
     const filename = path.basename(req.params.filename);
     const { imageFit } = req.body;
+    if (!userCanSeeImage(req.currentUser, filename))
+        return res.status(403).json({ error: 'Permission denied' });
     if (!appData.imageMetadata) appData.imageMetadata = {};
     if (!appData.imageMetadata[filename]) appData.imageMetadata[filename] = {};
     if (imageFit === 'cover' || imageFit === 'contain')
