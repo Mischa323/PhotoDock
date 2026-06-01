@@ -317,9 +317,6 @@ static inline int quantizeIdx(int r, int g, int b) {
     }
     return best;
 }
-static inline uint8_t quantize(uint8_t r, uint8_t g, uint8_t b) {
-    return PALETTE[quantizeIdx(r, g, b)].code;
-}
 #endif // PANEL_E6
 
 // â”€â”€ JPEGDEC draw callback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -547,11 +544,16 @@ static void epd_init() {
 static void epd_display(uint8_t *buf) {
     epd_cmd(0x10); epd_send_const(0x00, EPD_BUF_SIZE);   // OLD plane (from white)
     epd_cmd(0x13);                                       // NEW plane = image
-    const size_t CHUNK = 4096;
+    // Our framebuffer is packed 1=white / 0=black, but this panel's NEW-data
+    // plane is the opposite polarity (0=white). Send the complement so black &
+    // white aren't swapped — applies uniformly to photos, text and the QR screen.
+    static uint8_t tx[4096];
+    const size_t CHUNK = sizeof(tx);
     for (size_t i = 0; i < EPD_BUF_SIZE; i += CHUNK) {
         size_t n = min(CHUNK, EPD_BUF_SIZE - i);
+        for (size_t k = 0; k < n; k++) tx[k] = (uint8_t)~buf[i + k];
         digitalWrite(EPD_DC, HIGH); digitalWrite(EPD_CS, LOW);
-        SPI.writeBytes(buf + i, n);
+        SPI.writeBytes(tx, n);
         digitalWrite(EPD_CS, HIGH);
     }
     logln("epd_display: refresh (0x12)");

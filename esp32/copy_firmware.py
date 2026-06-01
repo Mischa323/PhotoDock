@@ -109,11 +109,71 @@ def update_changelog(project_dir, model_dir, firmware_bin):
         print("Changelog: skipped (%s)" % e)
 
 
+def has_baked_credentials(project_dir):
+    """True if config.h bakes a non-empty Wi-Fi password — such a binary must NOT
+    be published to the network-served firmware_build/ folder."""
+    cfg = os.path.join(project_dir, "src", "config.h")
+    try:
+        import re
+        with open(cfg, "r", encoding="utf-8", errors="replace") as f:
+            txt = f.read()
+        m = re.search(r'#define\s+DEFAULT_WIFI_PASS\s+"([^"]*)"', txt)
+        return bool(m and m.group(1).strip())
+    except Exception:
+        return False
+
+
+FW_PARTS = ("firmware.bin", "bootloader.bin", "partitions.bin", "boot_app0.bin")
+
+
+def archive_existing(dest):
+    """Before overwriting, keep the current binaries under dest/archive/<hash>/ so
+    they can be reverted to. Mirrors the server's filesystem-based version history."""
+    bin_path = os.path.join(dest, "firmware.bin")
+    if not os.path.exists(bin_path):
+        return
+    h = _firmware_hash(bin_path)
+    if not h:
+        return
+    arch_root = os.path.join(dest, "archive")
+    arch_dir  = os.path.join(arch_root, h)
+    if not os.path.exists(os.path.join(arch_dir, "firmware.bin")):
+        os.makedirs(arch_dir, exist_ok=True)
+        for name in FW_PARTS:
+            src = os.path.join(dest, name)
+            if os.path.exists(src):
+                shutil.copy2(src, os.path.join(arch_dir, name))
+        print("Archived previous build %s" % h)
+    # Keep the 10 most recent archived versions.
+    try:
+        items = sorted(os.listdir(arch_root),
+                       key=lambda n: os.path.getmtime(os.path.join(arch_root, n)),
+                       reverse=True)
+        for old in items[10:]:
+            shutil.rmtree(os.path.join(arch_root, old), ignore_errors=True)
+    except Exception:
+        pass
+
+
 def copy_firmware(source, target, env):
     build_dir   = env.subst("$BUILD_DIR")
     project_dir = env.subst("$PROJECT_DIR")
     root  = os.path.normpath(os.path.join(project_dir, "..", "firmware_build"))
     model = ENV_MODEL.get(env.subst("$PIOENV"), env.subst("$PIOENV"))
+
+    # SECURITY: firmware_build/ is served over the network (OTA + browser flash).
+    # If this build baked real Wi-Fi credentials into the binary, do NOT publish
+    # it there — it would expose the Wi-Fi password. The local .pio build is still
+    # produced for USB upload (`pio run -t upload`). For network-servable firmware
+    # use the dashboard Build or Settings -> Firmware source -> Pull & rebuild,
+    # which build with an empty config.
+    if has_baked_credentials(project_dir):
+        print("=" * 64)
+        print("copy_firmware: SKIPPED publishing to firmware_build/ — config.h has")
+        print("  baked Wi-Fi credentials. The local build is still usable for USB")
+        print("  upload. Use the dashboard Build / Pull & rebuild for served firmware.")
+        print("=" * 64)
+        return
 
     dests = [os.path.join(root, model)]
     if model == "photopainter":
@@ -121,7 +181,8 @@ def copy_firmware(source, target, env):
 
     for dest in dests:
         os.makedirs(dest, exist_ok=True)
-        for name in ("firmware.bin", "bootloader.bin", "partitions.bin"):
+        archive_existing(dest)
+        for name in FW_PARTS:
             src = os.path.join(build_dir, name)
             if os.path.exists(src):
                 shutil.copy2(src, os.path.join(dest, name))

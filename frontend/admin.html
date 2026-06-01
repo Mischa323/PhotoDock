@@ -1689,13 +1689,26 @@
                 </ol>
             </div>
 
-            <div style="margin-top:22px">
-                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Device logs</p>
-                <p style="font-size:13px;color:#888;margin-bottom:10px">Each device uploads its recent boot logs every time it wakes. Useful when you can't read the serial console.</p>
-                <button class="btn-add" type="button" onclick="loadDeviceLogs()">Refresh logs</button>
-                <pre id="deviceLogs" style="margin-top:12px;max-height:340px;overflow:auto;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.5;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-word">Click "Refresh logs" to load.</pre>
-            </div>
+        </div>
+        </div></div>
+    </section>
 
+    <!-- Device logs -->
+    <section id="sec-device-logs">
+        <div class="section-header">
+            <h2>Device logs <span class="help" data-tip="Each device uploads its recent boot logs every time it wakes. Filter by the screen a device is paired to.">?</span></h2>
+            <div style="display:flex;align-items:center;gap:8px">
+                <label style="font-size:12px;color:var(--accent-header);font-weight:500">Screen</label>
+                <select id="deviceLogScreenFilter" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;font-family:inherit;background:#fff" onchange="renderDeviceLogs()">
+                    <option value="">All screens</option>
+                </select>
+                <button class="back-btn" style="background:var(--accent-light);color:var(--accent-header);font-size:12px" onclick="loadDeviceLogs()">&#8635; Refresh</button>
+            </div>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+        <div style="padding:20px 24px">
+            <p style="font-size:13px;color:#888;margin-bottom:10px">Each device uploads its recent boot logs every time it wakes. Pick a screen above to see only that screen's devices. Useful when you can't read the serial console.</p>
+            <pre id="deviceLogs" style="margin-top:4px;max-height:420px;overflow:auto;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.5;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-word">Click "Refresh" to load.</pre>
         </div>
         </div></div>
     </section>
@@ -1762,6 +1775,29 @@
             </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
         </div>
+        </div></div>
+    </section>
+
+    <!-- Firmware source (auto-update from GitHub) -->
+    <section id="sec-firmware-source">
+        <div class="section-header">
+            <h2>Firmware source <span class="help" data-tip="Keep the built-in board firmware current straight from GitHub. The server clones the repo, rebuilds all boards, and publishes the binaries — devices then OTA-update on their next check-in. Lets a deployed server stay current without a local build.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner" style="padding:20px 24px">
+            <p style="font-size:13px;color:#888;margin:0 0 14px">Pull the built-in firmware from GitHub and rebuild it on the server. Devices update over the air on their next check-in (or via <strong>Update now</strong>). The rebuild uses a generic config — paired devices keep their own saved Wi-Fi.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;max-width:720px">
+                <div style="flex:2;min-width:260px"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Repo URL (https)</label><input id="fsRepo" class="cd-in" placeholder="https://github.com/you/PhotoDock"></div>
+                <div style="flex:1;min-width:120px"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Branch / tag</label><input id="fsRef" class="cd-in" placeholder="main"></div>
+            </div>
+            <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <button class="btn-cancel" onclick="saveFirmwareSource()">Save</button>
+                <button class="btn-add" onclick="pullRebuild()">&#10227; Pull latest &amp; rebuild</button>
+                <span id="fsMeta" style="font-size:12px;color:rgba(255,255,255,0.45)"></span>
+            </div>
+            <pre id="fsLog" style="display:none;margin-top:12px;max-height:300px;overflow:auto;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.5;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-word"></pre>
+            <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:18px 0 9px">Version history &amp; revert</div>
+            <p style="font-size:12px;color:#888;margin:0 0 10px">Roll a model's served firmware back to a previously‑built version. Devices update to it on their next check‑in (use <strong>Update now</strong> to push immediately).</p>
+            <div id="fsVersions"></div>
         </div></div>
     </section>
 
@@ -2505,31 +2541,58 @@
     }
 
     // ── Device logs ─────────────────────────────────────────────────────────
+    let _deviceLogs = [];
     async function loadDeviceLogs() {
         const el = document.getElementById('deviceLogs');
         el.textContent = 'Loading…';
         try {
             const r = await fetch('/api/admin/device-logs');
             if (!r.ok) { el.textContent = 'Could not load logs.'; return; }
-            const list = await r.json();
-            if (!list.length) { el.textContent = 'No device logs yet. They appear after a paired device wakes.'; return; }
-            const lastAt = d => (d.entries || []).reduce((m, e) => Math.max(m, +new Date(e.at) || 0), 0);
-            // Most recently active device first…
-            const devices = [...list].sort((a, b) => lastAt(b) - lastAt(a));
-            const out = [];
-            for (const dev of devices) {
-                out.push(`━━ ${dev.deviceId} ━━`);
-                // …and newest log entry on top within each device.
-                const entries = [...(dev.entries || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
-                for (const e of entries) {
-                    out.push(`[${new Date(e.at).toLocaleString()}]`);
-                    out.push(e.text.trimEnd());
-                    out.push('');
-                }
+            _deviceLogs = await r.json();
+            // Build the screen filter from the screens that actually have logs.
+            const sel = document.getElementById('deviceLogScreenFilter');
+            const prev = sel.value;
+            const screens = new Map();          // screenId -> name
+            let hasUnpaired = false;
+            for (const d of _deviceLogs) {
+                if (d.screenId) screens.set(d.screenId, d.screenName || d.screenId);
+                else hasUnpaired = true;
             }
-            el.textContent = out.join('\n');
+            const opts = ['<option value="">All screens</option>'];
+            for (const [id, name] of screens) opts.push(`<option value="${escHtml(id)}">${escHtml(name)}</option>`);
+            if (hasUnpaired) opts.push('<option value="__none__">Unpaired devices</option>');
+            sel.innerHTML = opts.join('');
+            if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+            renderDeviceLogs();
         } catch { el.textContent = 'Could not load logs.'; }
     }
+    function renderDeviceLogs() {
+        const el = document.getElementById('deviceLogs');
+        const filter = document.getElementById('deviceLogScreenFilter').value;
+        let list = _deviceLogs;
+        if (filter === '__none__')  list = list.filter(d => !d.screenId);
+        else if (filter)            list = list.filter(d => d.screenId === filter);
+        if (!list.length) { el.textContent = 'No device logs for this filter yet. They appear after a paired device wakes.'; return; }
+        const lastAt = d => (d.entries || []).reduce((m, e) => Math.max(m, +new Date(e.at) || 0), 0);
+        // Most recently active device first…
+        const devices = [...list].sort((a, b) => lastAt(b) - lastAt(a));
+        const out = [];
+        for (const dev of devices) {
+            const where = dev.screenName || 'Unpaired';
+            const who   = dev.keyName ? ` · ${dev.keyName}` : '';
+            out.push(`━━ ${where}${who}  (${dev.deviceId}) ━━`);
+            // …and newest log entry on top within each device.
+            const entries = [...(dev.entries || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+            for (const e of entries) {
+                out.push(`[${new Date(e.at).toLocaleString()}]`);
+                out.push(e.text.trimEnd());
+                out.push('');
+            }
+        }
+        el.textContent = out.join('\n');
+    }
+    window.loadDeviceLogs = loadDeviceLogs;
+    window.renderDeviceLogs = renderDeviceLogs;
 
     // ── My Email ───────────────────────────────────────────────────────────
     async function loadMyEmail() {
@@ -3012,7 +3075,9 @@
         'sec-roles':     'half',
         'sec-api-ref':   'half',
         'sec-device-setup': 'full',
+        'sec-device-logs': 'full',
         'sec-api-keys':  'full',
+        'sec-firmware-source': 'full',
         'sec-custom-devices': 'full',
         'sec-version':   'half',
     };
@@ -3107,7 +3172,9 @@
         'sec-display':     'server',
         'sec-api-ref':     'server',
         'sec-device-setup':'logs',
+        'sec-device-logs': 'logs',
         'sec-api-keys':    'server',
+        'sec-firmware-source': 'server',
         'sec-custom-devices': 'server',
         'sec-version':     'server',
     };
@@ -3121,6 +3188,7 @@
         // Only poll metrics while the Usage tab is open.
         if (_metricsTimer) { clearInterval(_metricsTimer); _metricsTimer = null; }
         if (group === 'usage') { loadSystemMetrics(); _metricsTimer = setInterval(loadSystemMetrics, 5000); }
+        if (group === 'logs')  { loadDeviceLogs(); }
     }
     window.switchTab = switchTab;
 
@@ -3244,6 +3312,87 @@
     }
     window.buildCustomDevice = buildCustomDevice;
     loadCustomDevices();
+
+    // ── Firmware source (pull built-in firmware from GitHub + rebuild) ───────
+    async function loadFirmwareSource() {
+        if (!document.getElementById('fsRepo')) return;
+        try {
+            const s = await (await fetch('/api/admin/firmware/source')).json();
+            document.getElementById('fsRepo').value = s.repoUrl || '';
+            if (!s.repoUrl && s.suggestedRepoUrl) document.getElementById('fsRepo').placeholder = s.suggestedRepoUrl;
+            document.getElementById('fsRef').value = s.ref || 'main';
+            const v = s.versions || {};
+            const parts = [];
+            if (s.lastBuiltAt) parts.push('last rebuilt ' + relTimeAgo(s.lastBuiltAt));
+            if (v['PhotoPainter-E6'])  parts.push('PhotoPainter ' + v['PhotoPainter-E6'].slice(0,8));
+            if (v['reTerminal-E1001']) parts.push('reTerminal ' + v['reTerminal-E1001'].slice(0,8));
+            document.getElementById('fsMeta').textContent = parts.join(' · ');
+        } catch {}
+    }
+    window.loadFirmwareSource = loadFirmwareSource;
+    async function saveFirmwareSource() {
+        const body = { repoUrl: document.getElementById('fsRepo').value.trim(), ref: document.getElementById('fsRef').value.trim() || 'main' };
+        const r = await fetch('/api/admin/firmware/source', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); showToast(e.error || 'Could not save', 'error'); return; }
+        showToast('Firmware source saved.'); loadFirmwareSource();
+    }
+    window.saveFirmwareSource = saveFirmwareSource;
+    async function pullRebuild() {
+        const log = document.getElementById('fsLog');
+        log.style.display = 'block'; log.textContent = 'Pulling & rebuilding…\n';
+        try {
+            const res = await fetch('/api/admin/firmware/pull-rebuild', { method: 'POST' });
+            if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+                const e = await res.json().catch(()=>({})); log.textContent += '\n' + (e.error || 'Failed'); return;
+            }
+            const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+            while (true) {
+                const { done, value } = await reader.read(); if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n'); buf = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const msg = JSON.parse(line.slice(5).trim());
+                    if (msg.type === 'log') { log.textContent += msg.data; log.scrollTop = log.scrollHeight; }
+                    else if (msg.type === 'done') { log.textContent += '\n✓ ' + msg.data; showToast('Firmware rebuilt'); loadFirmwareSource(); loadFirmwareVersions(); }
+                    else if (msg.type === 'error') { log.textContent += '\n✗ ' + msg.data; showToast('Rebuild failed', 'error'); }
+                }
+            }
+        } catch (e) { log.textContent += '\n✗ ' + e.message; }
+    }
+    window.pullRebuild = pullRebuild;
+    async function loadFirmwareVersions() {
+        const el = document.getElementById('fsVersions');
+        if (!el) return;
+        const models = [{ id: 'PhotoPainter-E6', name: 'Waveshare PhotoPainter (E6)' }, { id: 'reTerminal-E1001', name: 'Seeed reTerminal E1001' }];
+        try { for (const d of await (await fetch('/api/admin/custom-devices')).json()) models.push({ id: d.modelId, name: d.name + ' (custom)' }); } catch {}
+        const row = (m, v, isCur) => `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+            <code style="font-size:12px;color:rgba(255,255,255,0.7)">${escHtml(v.hash.slice(0,8))}</code>
+            ${isCur ? '<span class="cd-badge ready">running</span>' : ''}
+            <span style="font-size:12px;color:rgba(255,255,255,0.55);flex:1;min-width:120px">${v.title ? escHtml(v.title) : ''}${v.archivedAt ? ' · archived ' + relTimeAgo(v.archivedAt) : ''}</span>
+            ${isCur ? '' : `<button class="btn-cancel" style="font-size:12px;padding:5px 12px" onclick="revertFirmware('${escHtml(m.id)}','${escHtml(v.hash)}')">Revert to this</button>`}
+        </div>`;
+        const blocks = await Promise.all(models.map(async m => {
+            let data; try { data = await (await fetch('/api/admin/firmware/versions?model=' + encodeURIComponent(m.id))).json(); } catch { return ''; }
+            if (!data || data.error) return '';
+            const cur = data.current ? row(m, data.current, true) : '';
+            const old = (data.versions || []).map(v => row(m, v, false)).join('');
+            if (!cur && !old) return '';
+            return `<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);margin-bottom:2px">${escHtml(m.name)}</div>${cur}${old || '<div style="font-size:11px;color:rgba(255,255,255,0.35);padding:4px 0">No earlier versions archived yet — they appear after the next rebuild.</div>'}</div>`;
+        }));
+        el.innerHTML = blocks.filter(Boolean).join('') || '<div style="font-size:12px;color:rgba(255,255,255,0.4)">No firmware built yet.</div>';
+    }
+    window.loadFirmwareVersions = loadFirmwareVersions;
+    async function revertFirmware(model, hash) {
+        if (!confirm(`Revert ${model} to firmware ${hash.slice(0,8)}? Devices roll back to it on the next Update.`)) return;
+        const r = await fetch('/api/admin/firmware/revert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, hash }) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); showToast(e.error || 'Revert failed', 'error'); return; }
+        showToast('Reverted — push it to devices with “Update now”.');
+        loadFirmwareVersions();
+    }
+    window.revertFirmware = revertFirmware;
+    loadFirmwareSource();
+    loadFirmwareVersions();
 
     // Restore last tab (default Usage).
     switchTab(localStorage.getItem('adminActiveTab') || 'usage');
