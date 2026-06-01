@@ -1,4 +1,4 @@
-# Terminal Photo Display
+# PhotoDock
 
 A lightweight self-hosted photo slideshow server designed for terminals, dashboards, and e-ink displays like **TRMNL**.
 
@@ -267,4 +267,4 @@ MIT License
 
 ## ❤️ Acknowledgements
 
-Built for simple, self-hosted photo displays and e-ink dashboards like TRMNL.
+Self-hosted photo display server with support for e-ink displays, ESP32 devices, albums, and a glassmorphic web UI.

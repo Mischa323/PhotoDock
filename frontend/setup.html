@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Setup — PhotoDock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <style>
+    body {
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .glow {
+      position: absolute;
+      width: 400px; height: 400px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(6,182,212,0.12), transparent 70%);
+      pointer-events: none;
+      z-index: 1;
+    }
+
+    .card {
+      position: relative;
+      z-index: 2;
+      border-radius: 24px;
+      padding: 44px 40px;
+      width: 380px;
+      max-width: 90vw;
+    }
+
+    .logo-wrap {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .logo-box {
+      width: 56px; height: 56px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: -0.02em;
+      color: rgba(255,255,255,0.95);
+      margin-bottom: 4px;
+    }
+
+    .subtitle {
+      font-size: 13px;
+      color: rgba(255,255,255,0.4);
+      text-align: center;
+      margin-bottom: 32px;
+    }
+
+    .field { margin-bottom: 14px; }
+    .field:last-of-type { margin-bottom: 24px; }
+
+    .submit-btn {
+      width: 100%;
+      padding: 13px;
+      font-size: 15px;
+      border-radius: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="space-bg"></div>
+  <div class="glow"></div>
+
+  <div class="card glass-dark fade-in">
+    <div class="logo-wrap">
+      <div class="logo-box glass">
+        <img src="/favicon.svg" width="36" height="36" alt="logo">
+      </div>
+    </div>
+
+    <h1>PhotoDock</h1>
+    <p class="subtitle">Create your admin account to get started.</p>
+
+    <div id="errorMsg" class="error-banner" style="display:none"></div>
+
+    <div class="field">
+      <div class="field-label">Username</div>
+      <input class="glass-input" type="text" id="username" autofocus autocomplete="username">
+    </div>
+    <div class="field">
+      <div class="field-label">Email address</div>
+      <input class="glass-input" type="email" id="email" autocomplete="email" placeholder="you@example.com">
+    </div>
+    <div class="field">
+      <div class="field-label">Password</div>
+      <input class="glass-input" type="password" id="password" autocomplete="new-password">
+    </div>
+    <button class="cyan-btn submit-btn" onclick="setup()">Create Account</button>
+  </div>
+
+  <script>
+    async function setup() {
+      const username = document.getElementById('username').value.trim();
+      const email    = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const errorEl  = document.getElementById('errorMsg');
+      errorEl.style.display = 'none';
+      if (!username || !password) {
+        errorEl.textContent = 'Please fill in all fields.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      if (!email || !email.includes('@')) {
+        errorEl.textContent = 'Please enter a valid email address.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      const res  = await fetch('/api/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errorEl.textContent = data.error;
+        errorEl.style.display = 'block';
+        return;
+      }
+      window.location.href = data.redirect || '/admin';
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Enter') setup(); });
+  </script>
+</body>
+</html>

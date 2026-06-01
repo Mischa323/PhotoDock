@@ -4,9 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <title>Settings — Photo Display for TNMLS</title>
+    <title>Settings — PhotoDock</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/glass.css">
+    <script src="/theme.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <style>
         :root {
@@ -292,6 +294,7 @@
             flex-direction: column;
             gap: 8px;
         }
+
 
         .settings-row label {
             font-size: 13px;
@@ -836,19 +839,270 @@
         [data-theme="dark"] #activityLog table thead th { background: #162032; border-bottom-color: #2d3f52; color: #94a3b8; }
         [data-theme="dark"] #activityLog table tbody tr:hover { background: #243447; }
         [data-theme="dark"] #activityLog table tbody tr { border-bottom-color: #2d3f52; }
+
+        /* ── Glass override theme ──────────────────────────────────── */
+        body { background: #000 !important; color: #fff; }
+        body::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          z-index: -1;
+          /* Driven by the shared theme system (theme.js sets --space-bg) */
+          background: var(--space-bg,
+            radial-gradient(ellipse 80% 60% at 20% 30%, #0c1a2e, transparent),
+            radial-gradient(ellipse 60% 80% at 80% 70%, #06111a, transparent),
+            radial-gradient(ellipse 100% 100% at 50% 50%, #0a0f1e, #000));
+        }
+
+        header {
+          background: rgba(0,0,0,0.35) !important;
+          backdrop-filter: blur(40px) saturate(180%) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 16px 48px rgba(0,0,0,0.5) !important;
+        }
+
+        header h1 { color: rgba(255,255,255,0.9) !important; font-size: 16px !important; font-weight: 600 !important; }
+
+        .back-btn {
+          background: rgba(255,255,255,0.1) !important;
+          border: 1px solid rgba(255,255,255,0.16) !important;
+          color: #fff !important;
+          border-radius: 10px !important;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.17) !important; }
+
+        .theme-btn { background: rgba(255,255,255,0.08) !important; border: 1px solid rgba(255,255,255,0.14) !important; }
+        .theme-btn:hover { background: rgba(255,255,255,0.15) !important; }
+
+        section {
+          background: rgba(255,255,255,0.07) !important;
+          backdrop-filter: blur(40px) saturate(180%) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.3) !important;
+          color: #fff;
+        }
+
+        .section-header {
+          background: rgba(255,255,255,0.04) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          border-radius: 16px 16px 0 0 !important;
+        }
+        section.collapsed .section-header { border-radius: 16px !important; }
+
+        .section-header h2 {
+          color: rgba(255,255,255,0.55) !important;
+          font-size: 11px !important;
+          letter-spacing: 0.08em !important;
+        }
+
+        .section-header::after { color: rgba(255,255,255,0.4) !important; }
+
+        thead th {
+          background: rgba(255,255,255,0.04) !important;
+          border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+          color: rgba(255,255,255,0.45) !important;
+          font-size: 11px !important;
+        }
+
+        tbody tr { border-bottom: 1px solid rgba(255,255,255,0.07) !important; }
+        tbody tr:last-child { border-bottom: none !important; }
+        tbody tr:hover { background: rgba(255,255,255,0.05) !important; }
+        tbody td { color: rgba(255,255,255,0.85) !important; }
+
+        .role-block { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+        .role-block h3 { color: rgba(255,255,255,0.9) !important; }
+        .perm-row label { color: rgba(255,255,255,0.75) !important; }
+        .perm-row label small { color: rgba(255,255,255,0.4) !important; }
+        .settings-row label { color: rgba(255,255,255,0.75) !important; }
+        .settings-row label small { color: rgba(255,255,255,0.4) !important; }
+
+        input[type="text"],
+        input[type="email"],
+        input[type="number"],
+        input[type="password"],
+        input[type="search"],
+        .tz-input, .edit-input {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-family: 'Inter', sans-serif !important;
+        }
+        input::placeholder { color: rgba(255,255,255,0.3) !important; }
+        input:focus {
+          border-color: rgba(6,182,212,0.6) !important;
+          box-shadow: 0 0 0 3px rgba(6,182,212,0.15) !important;
+          background: rgba(255,255,255,0.1) !important;
+          outline: none !important;
+        }
+
+        select {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-family: 'Inter', sans-serif !important;
+        }
+        select:focus { border-color: rgba(6,182,212,0.6) !important; outline: none !important; }
+        select option { background: #1a1a2e; color: #fff; }
+
+        .btn-save-settings, .btn-add {
+          background: linear-gradient(135deg, rgba(6,182,212,0.9), rgba(8,145,178,0.9)) !important;
+          border: 1px solid rgba(6,182,212,0.5) !important;
+          border-radius: 10px !important;
+          box-shadow: 0 0 20px rgba(6,182,212,0.25) !important;
+          color: #fff !important;
+          font-weight: 600 !important;
+        }
+        .btn-save-settings:hover, .btn-add:hover {
+          background: linear-gradient(135deg, rgba(34,211,238,0.9), rgba(6,182,212,0.9)) !important;
+          box-shadow: 0 0 28px rgba(6,182,212,0.4) !important;
+        }
+
+        .btn-cancel {
+          background: rgba(255,255,255,0.1) !important;
+          border: 1px solid rgba(255,255,255,0.16) !important;
+          color: #fff !important;
+          border-radius: 10px !important;
+        }
+        .btn-cancel:hover { background: rgba(255,255,255,0.17) !important; }
+        .btn-save {
+          background: linear-gradient(135deg, rgba(6,182,212,0.9), rgba(8,145,178,0.9)) !important;
+          border: 1px solid rgba(6,182,212,0.5) !important;
+          border-radius: 10px !important;
+          color: #fff !important;
+          font-weight: 600 !important;
+        }
+
+        .add-form {
+          background: rgba(255,255,255,0.03) !important;
+          border-top: 1px solid rgba(255,255,255,0.08) !important;
+          border-radius: 0 0 16px 16px !important;
+        }
+        .add-form label { color: rgba(255,255,255,0.4) !important; }
+
+        .icon-btn { color: rgba(255,255,255,0.5) !important; }
+        .icon-btn:hover { background: rgba(255,255,255,0.1) !important; color: #fff !important; }
+        .icon-btn.danger:hover { background: rgba(239,68,68,0.15) !important; color: #f87171 !important; }
+
+        .empty-row td { color: rgba(255,255,255,0.25) !important; }
+
+        .modal { background: rgba(15,15,25,0.9) !important; border: 1px solid rgba(255,255,255,0.14) !important; backdrop-filter: blur(40px) !important; border-radius: 18px !important; }
+        .modal h3 { color: rgba(255,255,255,0.9) !important; }
+        .modal label { color: rgba(255,255,255,0.4) !important; }
+
+        .badge-admin { background: rgba(6,182,212,0.15) !important; color: #22d3ee !important; }
+        .badge-standard { background: rgba(255,255,255,0.08) !important; color: rgba(255,255,255,0.6) !important; }
+
+        .key-cell { color: rgba(255,255,255,0.6) !important; }
+        .key-masked { color: rgba(255,255,255,0.3) !important; }
+
+        .api-block {
+          background: rgba(255,255,255,0.05) !important;
+          border: 1px solid rgba(255,255,255,0.12) !important;
+          color: rgba(255,255,255,0.8) !important;
+        }
+        .api-label { color: rgba(255,255,255,0.35) !important; }
+
+        .cl-entry { border-bottom: 1px solid rgba(255,255,255,0.08) !important; }
+        .cl-date { color: rgba(255,255,255,0.3) !important; }
+        .cl-changes li { color: rgba(255,255,255,0.65) !important; }
+        .cl-changes li::before { color: rgba(255,255,255,0.3) !important; }
+        .cl-version { color: #22d3ee !important; }
+
+        .log-filter {
+          background: rgba(255,255,255,0.07) !important;
+          border: 1px solid rgba(255,255,255,0.14) !important;
+          color: rgba(255,255,255,0.6) !important;
+          border-radius: 20px !important;
+        }
+        .log-filter:hover { background: rgba(6,182,212,0.1) !important; border-color: rgba(6,182,212,0.4) !important; color: #22d3ee !important; }
+        .log-filter.active { background: rgba(6,182,212,0.15) !important; border-color: rgba(6,182,212,0.4) !important; color: #22d3ee !important; }
+
+        .toast { background: rgba(20,20,40,0.95) !important; border: 1px solid rgba(255,255,255,0.14) !important; }
+        .toast.error { background: rgba(239,68,68,0.9) !important; }
+
+        /* Remove old dark mode - we're always dark now */
+        [data-theme="dark"] section { background: rgba(255,255,255,0.07) !important; }
+        [data-theme="dark"] body { background: #000 !important; }
+
+        /* Settings tab navigation */
+        .settings-tabs {
+            display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+            padding: 14px 24px 0; max-width: 1400px; margin: 0 auto;
+        }
+        .settings-tab {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(255,255,255,0.12);
+            color: rgba(255,255,255,0.6);
+            font-family: inherit; font-size: 13.5px; font-weight: 600;
+            padding: 9px 18px; border-radius: 10px; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .settings-tab:hover { background: rgba(6,182,212,0.1); color: #22d3ee; }
+        .settings-tab.active { background: rgba(6,182,212,0.16); border-color: rgba(6,182,212,0.45); color: #22d3ee; }
+
+        /* Usage gauges */
+        .gauge-grid { display: flex; flex-wrap: wrap; gap: 18px; padding: 22px 24px; }
+        .gauge-card {
+            flex: 1; min-width: 160px;
+            display: flex; flex-direction: column; align-items: center; gap: 10px;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 14px; padding: 18px 12px;
+        }
+        .gauge-sub { font-size: 12px; color: rgba(255,255,255,0.55); text-align: center; }
+        .usage-meta { padding: 0 24px 20px; font-size: 12px; color: rgba(255,255,255,0.45); display: flex; flex-wrap: wrap; gap: 16px; }
+
+        .cd-in {
+            width: 100%; box-sizing: border-box;
+            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.14);
+            color: #fff; border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit;
+        }
+        .cd-in:focus { outline: none; border-color: rgba(6,182,212,0.5); }
+        .cd-row {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
+        }
+        .cd-badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 20px; }
+        .cd-badge.ready { background: rgba(34,197,94,0.16); color: #4ade80; }
+        .cd-badge.building { background: rgba(6,182,212,0.16); color: #22d3ee; }
+        .cd-badge.error { background: rgba(239,68,68,0.16); color: #f87171; }
+        .cd-badge.new { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.6); }
     </style>
 </head>
 <body>
 
 <header>
-    <h1>Settings</h1>
-    <div style="display:flex;align-items:center;gap:0">
-        <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle dark/light mode">🌙</button>
-        <a href="/" class="back-btn">&#8592; Back</a>
+    <div style="display:flex;align-items:center;gap:10px">
+        <img src="/favicon.svg" width="22" height="22" alt="">
+        <h1>Settings</h1>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+        <a href="/" class="back-btn">&#8592; Back to Library</a>
     </div>
 </header>
 
+<nav class="settings-tabs" id="settingsTabs">
+    <button class="settings-tab active" data-tab="usage"  onclick="switchTab('usage')">Usage</button>
+    <button class="settings-tab"        data-tab="logs"   onclick="switchTab('logs')">Logs</button>
+    <button class="settings-tab"        data-tab="users"  onclick="switchTab('users')">Users &amp; Groups</button>
+    <button class="settings-tab"        data-tab="server" onclick="switchTab('server')">Server settings</button>
+</nav>
+
 <main>
+
+    <!-- Usage -->
+    <section id="sec-usage" class="full-width">
+        <div class="section-header">
+            <h2>Server usage</h2>
+            <button class="back-btn" style="background:var(--accent-light);color:var(--accent-header);font-size:12px" onclick="loadSystemMetrics()">&#8635; Refresh</button>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+            <div id="usageGauges" class="gauge-grid"><p style="padding:24px;color:#bbb">Loading…</p></div>
+            <div id="usageMeta" class="usage-meta"></div>
+        </div></div>
+    </section>
 
     <!-- Activity Log -->
     <section id="sec-activity">
@@ -1106,6 +1360,19 @@
         <div class="settings-grid">
 
             <div class="settings-row">
+                <label for="themeSelect">
+                    Theme <span class="help" data-tip="Light or dark appearance for the admin and pairing pages.">?</span>
+                    <small>Appearance of the web interface</small>
+                </label>
+                <div>
+                    <select id="themeSelect" class="tz-input" onchange="setTheme(this.value)">
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="settings-row">
                 <label for="tzInput">
                     Timezone <span class="help" data-tip="The timezone used for the date and time overlay on the slideshow. Use IANA format, e.g. Europe/Amsterdam, America/New_York, Asia/Tokyo.">?</span>
                     <small>IANA name, e.g. Europe/Amsterdam</small>
@@ -1199,6 +1466,24 @@
                 <input type="color" id="accentColor" value="#06b6d4"
                     style="width:44px;height:36px;border:1px solid #ddd;border-radius:6px;cursor:pointer;padding:2px"
                     oninput="applyTheme(this.value)">
+            </div>
+
+            <div class="settings-row">
+                <label for="bgThemeSelect">Background theme <span class="help" data-tip="The deep-space background gradient used on the Gallery, Screens, and Pair pages. Pick a preset or a custom colour.">?</span><small>Background of the gallery &amp; screens pages</small></label>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <select id="bgThemeSelect" class="tz-input" style="font-family:inherit" onchange="onBgThemeSelect()"></select>
+                    <input type="color" id="bgThemeCustom" value="#06b6d4" title="Custom colour"
+                        style="width:44px;height:36px;border:1px solid #ddd;border-radius:6px;cursor:pointer;padding:2px;display:none"
+                        oninput="selectBgTheme('custom', this.value)">
+                </div>
+            </div>
+
+            <div class="settings-row">
+                <label>Photo look (brightness &amp; saturation)<small>Now set per screen</small></label>
+                <div style="font-size:12.5px;color:rgba(255,255,255,0.5);line-height:1.5">
+                    Brightness &amp; saturation are now configured <strong>per screen</strong> — open a screen's
+                    <strong>Settings → Photo look</strong> on the <a href="/screens" style="color:#22d3ee">screens page</a>.
+                </div>
             </div>
 
             <div class="settings-row">
@@ -1369,6 +1654,65 @@
         </div></div>
     </section>
 
+    <!-- Device Setup -->
+    <section id="sec-device-setup">
+        <div class="section-header">
+            <h2>Device Setup <span class="help" data-tip="How to connect a new e-ink display. The device cannot reach the server until you tell it the server URL during first-time Wi-Fi setup.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px">
+
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Server URL</p>
+                <p style="font-size:14px;color:#444;margin-bottom:10px">When a new device boots for the first time, it creates its own Wi-Fi hotspot and shows a setup screen. Connect your phone to that hotspot and enter your home Wi-Fi details <strong>plus the server URL below</strong> so the device knows where to reach this server.</p>
+                <div class="api-block">
+                    <span class="api-label">Server</span>
+                    <code id="deviceServerUrl"></code>
+                    <button class="icon-btn" title="Copy" onclick="copyText(document.getElementById('deviceServerUrl').textContent)">&#128203;</button>
+                </div>
+                <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+                    <a href="/pair" class="btn-add" style="display:inline-block;text-decoration:none">Pair a device</a>
+                    <a href="/screens" class="btn-cancel" style="display:inline-block;text-decoration:none">Set up a device</a>
+                </div>
+                <p style="font-size:13px;color:#888;margin-top:8px">Already see a QR code or pairing code on the device? Use <strong>Pair a device</strong>. To build and flash firmware onto a brand-new device, use <strong>Set up a device</strong> on the Screens page.</p>
+            </div>
+
+            <div>
+                <p style="font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Pairing steps</p>
+                <ol style="font-size:14px;color:#444;line-height:1.7;margin:0;padding-left:20px">
+                    <li>Power on the device — it shows a <strong>Setup</strong> screen and starts a <code>PhotoDock-XXXX</code> Wi-Fi hotspot.</li>
+                    <li>Connect your phone to that hotspot; a setup page opens automatically.</li>
+                    <li>Enter your home Wi-Fi name &amp; password and the <strong>Server URL</strong> shown above, then save.</li>
+                    <li>The device reboots, joins your Wi-Fi, and displays a <strong>QR code</strong>.</li>
+                    <li>Scan the QR code with your phone (you must be logged in here), pick a screen, and tap <strong>Link Device</strong>.</li>
+                    <li>The device receives its API key automatically and starts showing that screen's photos.</li>
+                </ol>
+            </div>
+
+        </div>
+        </div></div>
+    </section>
+
+    <!-- Device logs -->
+    <section id="sec-device-logs">
+        <div class="section-header">
+            <h2>Device logs <span class="help" data-tip="Each device uploads its recent boot logs every time it wakes. Filter by the screen a device is paired to.">?</span></h2>
+            <div style="display:flex;align-items:center;gap:8px">
+                <label style="font-size:12px;color:var(--accent-header);font-weight:500">Screen</label>
+                <select id="deviceLogScreenFilter" style="font-size:12px;padding:3px 6px;border:1px solid #ddd;border-radius:4px;font-family:inherit;background:#fff" onchange="renderDeviceLogs()">
+                    <option value="">All screens</option>
+                </select>
+                <button class="back-btn" style="background:var(--accent-light);color:var(--accent-header);font-size:12px" onclick="loadDeviceLogs()">&#8635; Refresh</button>
+            </div>
+        </div>
+        <div class="section-body"><div class="section-body-inner">
+        <div style="padding:20px 24px">
+            <p style="font-size:13px;color:#888;margin-bottom:10px">Each device uploads its recent boot logs every time it wakes. Pick a screen above to see only that screen's devices. Useful when you can't read the serial console.</p>
+            <pre id="deviceLogs" style="margin-top:4px;max-height:420px;overflow:auto;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.5;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-word">Click "Refresh" to load.</pre>
+        </div>
+        </div></div>
+    </section>
+
     <!-- API Keys -->
     <section id="sec-api-keys">
         <div class="section-header">
@@ -1423,8 +1767,57 @@
                     <option value="0">Off</option>
                 </select>
             </div>
+            <div class="field" style="max-width:160px">
+                <label>Screen (optional)</label>
+                <select id="newKeyScreen" style="border:1px solid #ddd;border-radius:4px;padding:5px 6px;font-size:13px;outline:none;width:100%">
+                    <option value="">All photos</option>
+                </select>
+            </div>
             <button class="btn-add" onclick="createApiKey()">Generate Key</button>
         </div>
+        </div></div>
+    </section>
+
+    <!-- Firmware source (auto-update from GitHub) -->
+    <section id="sec-firmware-source">
+        <div class="section-header">
+            <h2>Firmware source <span class="help" data-tip="Keep the built-in board firmware current straight from GitHub. The server clones the repo, rebuilds all boards, and publishes the binaries — devices then OTA-update on their next check-in. Lets a deployed server stay current without a local build.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner" style="padding:20px 24px">
+            <p style="font-size:13px;color:#888;margin:0 0 14px">Pull the built-in firmware from GitHub and rebuild it on the server. Devices update over the air on their next check-in (or via <strong>Update now</strong>). The rebuild uses a generic config — paired devices keep their own saved Wi-Fi.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;max-width:720px">
+                <div style="flex:2;min-width:260px"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Repo URL (https)</label><input id="fsRepo" class="cd-in" placeholder="https://github.com/you/PhotoDock"></div>
+                <div style="flex:1;min-width:120px"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Branch / tag</label><input id="fsRef" class="cd-in" placeholder="main"></div>
+            </div>
+            <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                <button class="btn-cancel" onclick="saveFirmwareSource()">Save</button>
+                <button class="btn-add" onclick="pullRebuild()">&#10227; Pull latest &amp; rebuild</button>
+                <span id="fsMeta" style="font-size:12px;color:rgba(255,255,255,0.45)"></span>
+            </div>
+            <pre id="fsLog" style="display:none;margin-top:12px;max-height:300px;overflow:auto;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.5;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-word"></pre>
+            <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:18px 0 9px">Version history &amp; revert</div>
+            <p style="font-size:12px;color:#888;margin:0 0 10px">Roll a model's served firmware back to a previously‑built version. Devices update to it on their next check‑in (use <strong>Update now</strong> to push immediately).</p>
+            <div id="fsVersions"></div>
+        </div></div>
+    </section>
+
+    <!-- Custom devices -->
+    <section id="sec-custom-devices">
+        <div class="section-header">
+            <h2>Custom devices <span class="help" data-tip="Add support for your own e-ink screen by pointing PhotoDock at a GitHub firmware repo. The server clones and builds it, then it becomes a flashable device type with OTA. Admin only — only add repositories you trust.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner" style="padding:20px 24px">
+            <p style="font-size:13px;color:#888;margin:0 0 14px">Point PhotoDock at a GitHub firmware repo (a PlatformIO project). It's cloned and built on the server, then appears as a device type you can flash &amp; OTA. <strong style="color:#e0a">Only add repos you trust</strong> — the server compiles their code.</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;max-width:720px">
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Name</label><input id="cdName" class="cd-in" placeholder="My E-Ink Screen"></div>
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Model id (must match what the firmware reports)</label><input id="cdModel" class="cd-in" placeholder="my-eink-v1"></div>
+                <div style="grid-column:1/-1"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">GitHub repo URL (https)</label><input id="cdRepo" class="cd-in" placeholder="https://github.com/you/my-photodock-firmware"></div>
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Branch / tag</label><input id="cdRef" class="cd-in" placeholder="main"></div>
+                <div><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">PlatformIO env (optional)</label><input id="cdEnv" class="cd-in" placeholder="e.g. my-board"></div>
+            </div>
+            <button class="btn-add" style="margin-top:12px" onclick="addCustomDevice()">+ Add device</button>
+            <div id="cdList" style="margin-top:18px"></div>
+            <pre id="cdBuildLog" style="display:none;margin-top:12px;max-height:300px;overflow:auto;background:#0f172a;color:#cbd5e1;font-size:12px;line-height:1.5;padding:14px;border-radius:8px;white-space:pre-wrap;word-break:break-word"></pre>
         </div></div>
     </section>
 
@@ -1466,6 +1859,7 @@
                 <option value="standard">Standard</option>
                 <option value="admin">Admin</option>
             </select>
+            <small style="display:block;margin-top:6px;color:#888">A user's display access comes from their role. Set which displays each role can see in <b>Roles &amp; Permissions</b> below.</small>
         </div>
         <div class="modal-actions">
             <button class="btn-cancel" onclick="closeModal()">Cancel</button>
@@ -1478,6 +1872,7 @@
 
 <script>
     let editingUserId = null;
+    let allUsers = [];
     let toastTimer;
 
     function relTimeAgo(iso) {
@@ -1494,13 +1889,41 @@
     function setTheme(theme) {
         document.documentElement.setAttribute('data-theme', theme);
         localStorage.setItem('theme', theme);
-        const btn = document.getElementById('themeBtn');
-        if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
+        const sel = document.getElementById('themeSelect');
+        if (sel) sel.value = theme;
     }
 
     function toggleTheme() {
         const current = document.documentElement.getAttribute('data-theme');
         setTheme(current === 'dark' ? 'light' : 'dark');
+    }
+
+    // ── Background theme (shared TPDTheme used by gallery/screens/pair) ──────
+    function renderBgThemePresets() {
+        if (!window.TPDTheme) return;
+        const cur = TPDTheme.get();
+        const sel = document.getElementById('bgThemeSelect');
+        if (!sel) return;
+        const opts = Object.entries(TPDTheme.PRESETS)
+            .map(([id, p]) => `<option value="${id}">${p.name}</option>`).join('');
+        sel.innerHTML = opts + `<option value="custom">Custom colour…</option>`;
+        sel.value = cur.preset || 'blue';
+        const c = document.getElementById('bgThemeCustom');
+        if (c) {
+            c.style.display = cur.preset === 'custom' ? '' : 'none';
+            if (cur.preset === 'custom' && cur.color) c.value = cur.color;
+        }
+    }
+    function onBgThemeSelect() {
+        const id = document.getElementById('bgThemeSelect').value;
+        if (id === 'custom') selectBgTheme('custom', document.getElementById('bgThemeCustom').value);
+        else                 selectBgTheme(id);
+    }
+    function selectBgTheme(id, color) {
+        if (!window.TPDTheme) return;
+        if (id === 'custom') TPDTheme.set({ preset: 'custom', color });
+        else                 TPDTheme.set({ preset: id });
+        renderBgThemePresets();
     }
 
     // Init theme from localStorage or system preference
@@ -1534,6 +1957,7 @@
     async function loadUsers() {
         const res = await fetch('/api/admin/users');
         const users = await res.json();
+        allUsers = users;
         const tbody = document.getElementById('userTableBody');
 
         if (users.length === 0) {
@@ -1558,7 +1982,7 @@
                 <td style="font-size:13px;white-space:nowrap">${relTimeAgo(u.lastLogin)}</td>
                 <td>
                     <div class="actions">
-                        <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}', '${escHtml(u.username)}', '${u.role}')">&#9998;</button>
+                        <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}')">&#9998;</button>
                         ${u.twoFactorEnabled ? `<button class="icon-btn danger" title="Reset 2FA" onclick="adminReset2FA('${u.id}', '${escHtml(u.username)}')">&#128274;</button>` : ''}
                         ${u.blocked
                             ? `<button class="icon-btn" title="Unblock account" onclick="setUserBlocked('${u.id}', '${escHtml(u.username)}', false)" style="color:#2e7d32">&#128275;</button>`
@@ -1613,11 +2037,13 @@
         loadUsers();
     }
 
-    function openEditModal(id, username, role) {
+    function openEditModal(id) {
+        const u = allUsers.find(x => x.id === id);
+        if (!u) return;
         editingUserId = id;
-        document.getElementById('editUsername').value = username;
+        document.getElementById('editUsername').value = u.username;
         document.getElementById('editPassword').value = '';
-        document.getElementById('editRole').value = role;
+        document.getElementById('editRole').value = u.role;
         document.getElementById('editModal').classList.add('open');
     }
 
@@ -1648,11 +2074,39 @@
         loadUsers();
     }
 
+    // ── Screens (data only — UI lives at /screens) ─────────────────────────
+    let allScreens = [];
+
+    async function loadScreens() {
+        const res  = await fetch('/api/screens');
+        allScreens = res.ok ? await res.json() : [];
+        // Populate screen dropdown in the API key form
+        const newKeyScreen = document.getElementById('newKeyScreen');
+        if (newKeyScreen) {
+            newKeyScreen.innerHTML = '<option value="">All photos</option>' +
+                allScreens.map(s => `<option value="${s.id}">${escHtml(s.name)}</option>`).join('');
+        }
+    }
+
     // ── API Keys ───────────────────────────────────────────────────────────
     async function loadApiKeys() {
-        const res  = await fetch('/api/admin/apikeys');
-        const keys = await res.json();
         const tbody = document.getElementById('keyTableBody');
+        let keys;
+        try {
+            const res = await fetch('/api/admin/apikeys');
+            if (!res.ok) {
+                tbody.innerHTML = `<tr class="empty-row"><td colspan="4">Could not load API keys (${res.status}${res.status===403?' — needs admin permission':''}).</td></tr>`;
+                return;
+            }
+            keys = await res.json();
+        } catch (e) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Could not load API keys (network error).</td></tr>';
+            return;
+        }
+        if (!Array.isArray(keys)) {
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="4">Unexpected response loading API keys.</td></tr>';
+            return;
+        }
 
         if (keys.length === 0) {
             tbody.innerHTML = '<tr class="empty-row"><td colspan="4">No API keys</td></tr>';
@@ -1661,10 +2115,13 @@
 
         // null/undefined allowedEndpoints means all endpoints allowed (backward compat)
         const hasEp = (k, name) => !k.allowedEndpoints || k.allowedEndpoints.includes(name);
+        // Paired devices store a label instead of a name.
+        const keyName = k => k.name || k.label || '(unnamed device)';
 
+        try {
         tbody.innerHTML = keys.map(k => `
             <tr id="row-${k.id}">
-                <td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(k.name)}">${escHtml(k.name)}</td>
+                <td style="max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(keyName(k))}">${escHtml(keyName(k))}</td>
                 <td style="font-size:13px;white-space:nowrap">
                     <div style="display:flex;align-items:center;gap:4px">
                         <input type="number" min="1" value="${k.intervalMinutes || 5}"
@@ -1678,15 +2135,15 @@
                 <td>
                     <div style="display:flex;gap:4px">
                         <button class="icon-btn" title="Expand settings" onclick="toggleKeyExpand('${k.id}')">&#9881;</button>
-                        <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(k.name)}')">&#128465;</button>
+                        <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(keyName(k))}')">&#128465;</button>
                     </div>
                 </td>
             </tr>
             <tr id="expand-${k.id}" style="display:none">
                 <td colspan="4" style="padding:0">
-                    <div style="background:#f8fafc;border-top:1px solid #e8edf2;border-bottom:1px solid #e8edf2;padding:14px 16px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
+                    <div style="background:rgba(255,255,255,0.04);border-top:1px solid rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);padding:14px 16px;display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start">
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API Key</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API Key</div>
                             <div class="key-cell">
                                 <span class="key-masked" id="keyval-${k.id}">••••••••••••</span>
                                 <button class="icon-btn" title="Show/hide" onclick="toggleKey('${k.id}', '${escHtml(k.key)}')">&#128065;</button>
@@ -1694,7 +2151,7 @@
                             </div>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Image size</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Image size</div>
                             <div style="display:flex;align-items:center;gap:4px">
                                 <input type="number" min="1" max="7680" value="${k.imageWidth || ''}" placeholder="1920"
                                     id="imgw-${k.id}" style="width:58px;border:1px solid #ddd;border-radius:4px;padding:3px 5px;font-size:12px;outline:none"
@@ -1706,7 +2163,7 @@
                             </div>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Endpoints</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Endpoints</div>
                             <div style="display:flex;flex-direction:column;gap:4px">
                                 <label class="ep-toggle"><input type="checkbox" id="ep-current-${k.id}" ${hasEp(k,'current') ? 'checked' : ''} onchange="saveKeySettings('${k.id}')"> current</label>
                                 <label class="ep-toggle"><input type="checkbox" id="ep-all-${k.id}"     ${hasEp(k,'all')     ? 'checked' : ''} onchange="saveKeySettings('${k.id}')"> all</label>
@@ -1714,7 +2171,7 @@
                             </div>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Date overlay</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Date overlay</div>
                             <select id="showdate-${k.id}"
                                 style="border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
                                 onchange="saveKeySettings('${k.id}')">
@@ -1724,13 +2181,25 @@
                             </select>
                         </div>
                         <div>
-                            <div style="font-size:11px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Created</div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Screen</div>
+                            <select id="screen-${k.id}"
+                                style="border:1px solid #ddd;border-radius:4px;padding:4px 6px;font-size:13px;outline:none"
+                                onchange="saveKeySettings('${k.id}')">
+                                <option value="" ${!k.screenId ? 'selected' : ''}>All photos</option>
+                                ${allScreens.map(s => `<option value="${s.id}" ${k.screenId === s.id ? 'selected' : ''}>${escHtml(s.name)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Created</div>
                             <div style="font-size:13px">${new Date(k.createdAt).toLocaleDateString()}</div>
                         </div>
                     </div>
                 </td>
             </tr>
         `).join('');
+        } catch (e) {
+            tbody.innerHTML = `<tr class="empty-row"><td colspan="4">Error rendering API keys: ${escHtml(e.message)}</td></tr>`;
+        }
     }
 
     async function saveKeySettings(id) {
@@ -1741,11 +2210,12 @@
             document.getElementById(`ep-${ep}-${id}`)?.checked
         );
         const showDateVal = document.getElementById(`showdate-${id}`)?.value;
-        const showDate = showDateVal === '1' ? true : showDateVal === '0' ? false : null;
+        const showDate    = showDateVal === '1' ? true : showDateVal === '0' ? false : null;
+        const screenId    = document.getElementById(`screen-${id}`)?.value || null;
         const res = await fetch(`/api/admin/apikeys/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ interval, imageWidth, imageHeight, allowedEndpoints, showDate })
+            body: JSON.stringify({ interval, imageWidth, imageHeight, allowedEndpoints, showDate, screenId })
         });
         if (!res.ok) showToast('Could not save key settings', 'error');
         else showToast('Key updated.');
@@ -1763,10 +2233,11 @@
 
         const newShowDateVal = document.getElementById('newKeyShowDate')?.value;
         const showDate = newShowDateVal === '1' ? true : newShowDateVal === '0' ? false : null;
+        const screenId = document.getElementById('newKeyScreen')?.value || null;
         const res  = await fetch('/api/admin/apikeys', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, interval, imageWidth, imageHeight, allowedEndpoints, showDate })
+            body: JSON.stringify({ name, interval, imageWidth, imageHeight, allowedEndpoints, showDate, screenId })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
@@ -1817,7 +2288,7 @@
 
     // ── Helpers ────────────────────────────────────────────────────────────
     function escHtml(str) {
-        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     }
 
     document.getElementById('editModal').addEventListener('click', e => {
@@ -1839,6 +2310,8 @@
         const res   = await fetch('/api/admin/roles');
         const roles = await res.json();
         const container = document.getElementById('rolesContainer');
+        // Screens may not have loaded yet — needed to render the access list.
+        if (!allScreens.length) await loadScreens().catch(() => {});
 
         if (Object.keys(roles).length === 0) {
             container.innerHTML = '<p style="color:#bbb;text-align:center;padding:20px">No roles defined.</p>';
@@ -1865,6 +2338,7 @@
                             </div>
                         `).join('')}
                     </div>
+                    ${renderRoleScreens(role, perms)}
                 </div>
             `).join('');
         }
@@ -1872,6 +2346,38 @@
         // Refresh role dropdowns in user forms
         updateRoleDropdowns(roles);
         return roles;
+    }
+
+    // The display-access list for one role (group). Roles with "Manage settings"
+    // are admins, so they always see every display and need no list.
+    function renderRoleScreens(role, perms) {
+        const heading = `<div class="perm-row" style="border:none;padding-bottom:4px"><label style="font-weight:600">Display access<small>Which screens members of this role can see</small></label></div>`;
+        if (perms.canManage) {
+            return heading + `<div style="font-size:13px;color:#888;padding:2px 2px 8px">This role can manage settings, so it has access to <b>all displays</b>.</div>`;
+        }
+        if (!allScreens.length) {
+            return heading + `<div style="font-size:13px;color:#888;padding:2px 2px 8px">No displays yet.</div>`;
+        }
+        const sel = new Set(perms.screens || []);
+        const rows = allScreens.map(s => `
+            <label style="display:flex;align-items:center;gap:8px;padding:4px 2px;font-size:13px;cursor:pointer">
+                <input type="checkbox" data-role-screen="${role}" value="${s.id}" ${sel.has(s.id) ? 'checked' : ''}
+                    onchange="saveRoleScreens('${role}')">
+                <span>${escHtml(s.name)}</span>
+            </label>`).join('');
+        return heading + `<div style="padding:2px 2px 6px">${rows}</div>`;
+    }
+
+    async function saveRoleScreens(role) {
+        const screens = [...document.querySelectorAll(`input[data-role-screen="${role}"]`)]
+            .filter(cb => cb.checked).map(cb => cb.value);
+        const res = await fetch(`/api/admin/roles/${role}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ screens })
+        });
+        if (!res.ok) { showToast('Could not save display access', 'error'); loadRoles(); }
+        else showToast(`"${roleLabel(role)}" display access saved.`);
     }
 
     function updateRoleDropdowns(roles) {
@@ -1957,6 +2463,7 @@
         applyTheme(color);
         document.getElementById('userInactivityDays').value    = s.userInactivityDays    ?? 0;
         document.getElementById('apiKeyInactivityDays').value  = s.apiKeyInactivityDays  ?? 0;
+        renderBgThemePresets();
     }
 
     async function saveDisplaySettings() {
@@ -2024,12 +2531,68 @@
         document.getElementById('urlImage').textContent     = `${base}/api/slideshow/image`;
         document.getElementById('exampleQuery').textContent = `${base}/api/slideshow/current?key=YOUR_KEY`;
         document.getElementById('curlExample').textContent  = `curl -H "x-api-key: YOUR_KEY" ${base}/api/slideshow/current`;
+        const devUrl = document.getElementById('deviceServerUrl');
+        if (devUrl) devUrl.textContent = base;
     }
 
     async function copyText(text) {
         await navigator.clipboard.writeText(text);
         showToast('Copied to clipboard.');
     }
+
+    // ── Device logs ─────────────────────────────────────────────────────────
+    let _deviceLogs = [];
+    async function loadDeviceLogs() {
+        const el = document.getElementById('deviceLogs');
+        el.textContent = 'Loading…';
+        try {
+            const r = await fetch('/api/admin/device-logs');
+            if (!r.ok) { el.textContent = 'Could not load logs.'; return; }
+            _deviceLogs = await r.json();
+            // Build the screen filter from the screens that actually have logs.
+            const sel = document.getElementById('deviceLogScreenFilter');
+            const prev = sel.value;
+            const screens = new Map();          // screenId -> name
+            let hasUnpaired = false;
+            for (const d of _deviceLogs) {
+                if (d.screenId) screens.set(d.screenId, d.screenName || d.screenId);
+                else hasUnpaired = true;
+            }
+            const opts = ['<option value="">All screens</option>'];
+            for (const [id, name] of screens) opts.push(`<option value="${escHtml(id)}">${escHtml(name)}</option>`);
+            if (hasUnpaired) opts.push('<option value="__none__">Unpaired devices</option>');
+            sel.innerHTML = opts.join('');
+            if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+            renderDeviceLogs();
+        } catch { el.textContent = 'Could not load logs.'; }
+    }
+    function renderDeviceLogs() {
+        const el = document.getElementById('deviceLogs');
+        const filter = document.getElementById('deviceLogScreenFilter').value;
+        let list = _deviceLogs;
+        if (filter === '__none__')  list = list.filter(d => !d.screenId);
+        else if (filter)            list = list.filter(d => d.screenId === filter);
+        if (!list.length) { el.textContent = 'No device logs for this filter yet. They appear after a paired device wakes.'; return; }
+        const lastAt = d => (d.entries || []).reduce((m, e) => Math.max(m, +new Date(e.at) || 0), 0);
+        // Most recently active device first…
+        const devices = [...list].sort((a, b) => lastAt(b) - lastAt(a));
+        const out = [];
+        for (const dev of devices) {
+            const where = dev.screenName || 'Unpaired';
+            const who   = dev.keyName ? ` · ${dev.keyName}` : '';
+            out.push(`━━ ${where}${who}  (${dev.deviceId}) ━━`);
+            // …and newest log entry on top within each device.
+            const entries = [...(dev.entries || [])].sort((a, b) => new Date(b.at) - new Date(a.at));
+            for (const e of entries) {
+                out.push(`[${new Date(e.at).toLocaleString()}]`);
+                out.push(e.text.trimEnd());
+                out.push('');
+            }
+        }
+        el.textContent = out.join('\n');
+    }
+    window.loadDeviceLogs = loadDeviceLogs;
+    window.renderDeviceLogs = renderDeviceLogs;
 
     // ── My Email ───────────────────────────────────────────────────────────
     async function loadMyEmail() {
@@ -2300,6 +2863,7 @@
         else          { statusEl.style.color = '#2e7d32'; statusEl.textContent = `Test email sent to ${to}.`; }
     }
 
+
     // ── Init ───────────────────────────────────────────────────────────────
     // ── Version / Changelog ────────────────────────────────────────────────
     let allChangelog = [];
@@ -2476,7 +3040,9 @@
     loadDisplaySettings();
     loadActivityLog();
     loadRoles().then(() => loadUsers());
-    loadApiKeys();
+    // Load keys regardless of whether the screens fetch succeeds (they share a
+    // dropdown but must not block each other).
+    loadScreens().catch(() => {}).finally(() => loadApiKeys());
     initApiDocs();
     loadVersion();
     initCollapsible();
@@ -2500,6 +3066,7 @@
 
     // ── Grid layout — drag to reorder, toggle full/half width ─────────────
     const GRID_DEFAULTS = {
+        'sec-usage':     'full',
         'sec-activity':  'full',
         'sec-security':  'half',
         'sec-email':     'half',
@@ -2507,7 +3074,11 @@
         'sec-users':     'full',
         'sec-roles':     'half',
         'sec-api-ref':   'half',
+        'sec-device-setup': 'full',
+        'sec-device-logs': 'full',
         'sec-api-keys':  'full',
+        'sec-firmware-source': 'full',
+        'sec-custom-devices': 'full',
         'sec-version':   'half',
     };
 
@@ -2589,6 +3160,242 @@
         dragClass:  'sortable-drag',
         onEnd: saveGridLayout,
     });
+
+    // ── Settings tabs ────────────────────────────────────────────────────────
+    const SECTION_GROUP = {
+        'sec-usage':       'usage',
+        'sec-activity':    'logs',
+        'sec-users':       'users',
+        'sec-roles':       'users',
+        'sec-security':    'server',
+        'sec-email':       'server',
+        'sec-display':     'server',
+        'sec-api-ref':     'server',
+        'sec-device-setup':'logs',
+        'sec-device-logs': 'logs',
+        'sec-api-keys':    'server',
+        'sec-firmware-source': 'server',
+        'sec-custom-devices': 'server',
+        'sec-version':     'server',
+    };
+    let _metricsTimer = null;
+    function switchTab(group) {
+        document.querySelectorAll('.settings-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === group));
+        document.querySelectorAll('main > section').forEach(s => {
+            s.style.display = (SECTION_GROUP[s.id] || 'server') === group ? '' : 'none';
+        });
+        localStorage.setItem('adminActiveTab', group);
+        // Only poll metrics while the Usage tab is open.
+        if (_metricsTimer) { clearInterval(_metricsTimer); _metricsTimer = null; }
+        if (group === 'usage') { loadSystemMetrics(); _metricsTimer = setInterval(loadSystemMetrics, 5000); }
+        if (group === 'logs')  { loadDeviceLogs(); }
+    }
+    window.switchTab = switchTab;
+
+    // ── Usage gauges ─────────────────────────────────────────────────────────
+    function fmtBytes(b) {
+        if (b == null) return '—';
+        if (b >= 1e9) return (b / 1073741824).toFixed(1) + ' GB';
+        if (b >= 1e6) return (b / 1048576).toFixed(0) + ' MB';
+        return (b / 1024).toFixed(0) + ' KB';
+    }
+    function gaugeColor(p) { return p >= 90 ? '#ef4444' : p >= 70 ? '#f59e0b' : '#22c55e'; }
+    function gaugeCard(label, pct, sub) {
+        const r = 42, c = 2 * Math.PI * r, off = c * (1 - Math.max(0, Math.min(100, pct)) / 100);
+        const col = gaugeColor(pct);
+        return `<div class="gauge-card">
+            <svg width="110" height="110" viewBox="0 0 110 110">
+              <circle cx="55" cy="55" r="${r}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="10"/>
+              <circle cx="55" cy="55" r="${r}" fill="none" stroke="${col}" stroke-width="10" stroke-linecap="round"
+                stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 55 55)"/>
+              <text x="55" y="59" text-anchor="middle" font-size="24" font-weight="700" fill="#fff">${pct}%</text>
+            </svg>
+            <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.85)">${label}</div>
+            <div class="gauge-sub">${sub}</div>
+        </div>`;
+    }
+    async function loadSystemMetrics() {
+        const el = document.getElementById('usageGauges');
+        const meta = document.getElementById('usageMeta');
+        if (!el) return;
+        try {
+            const r = await fetch('/api/admin/system-metrics');
+            if (!r.ok) { el.innerHTML = '<p style="padding:24px;color:#f87171">Could not load metrics.</p>'; return; }
+            const m = await r.json();
+            let html = '';
+            html += gaugeCard('CPU', m.cpu.pct, `${m.cpu.cores} core${m.cpu.cores === 1 ? '' : 's'}`);
+            html += gaugeCard('Memory', m.ram.pct, `${fmtBytes(m.ram.used)} / ${fmtBytes(m.ram.total)}`);
+            if (m.storage && m.storage.kind === 'disk')
+                html += gaugeCard('Disk', m.storage.pct, `${fmtBytes(m.storage.used)} / ${fmtBytes(m.storage.total)} used`);
+            else if (m.storage)
+                html += `<div class="gauge-card"><div style="font-size:26px;font-weight:700;color:#fff">${fmtBytes(m.storage.used)}</div><div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.85)">Photos on disk</div><div class="gauge-sub">disk free space unavailable</div></div>`;
+            el.innerHTML = html;
+            const up = s => { s = Math.floor(s); const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), mn = Math.floor(s % 3600 / 60); return d ? `${d}d ${h}h` : h ? `${h}h ${mn}m` : `${mn}m`; };
+            if (meta) meta.innerHTML = `<span>📷 ${m.uploads.count} photos · ${fmtBytes(m.uploads.bytes)}</span>`
+                + `<span>🖥 ${m.host.platform} · up ${up(m.host.uptime)}</span>`
+                + `<span>⚙ Node ${m.proc.node} · server up ${up(m.proc.uptime)} · ${fmtBytes(m.proc.rss)} RSS</span>`;
+        } catch { el.innerHTML = '<p style="padding:24px;color:#f87171">Could not load metrics.</p>'; }
+    }
+    window.loadSystemMetrics = loadSystemMetrics;
+
+    // ── Custom devices (clone + build a firmware repo) ───────────────────────
+    async function loadCustomDevices() {
+        const el = document.getElementById('cdList');
+        if (!el) return;
+        try {
+            const list = await (await fetch('/api/admin/custom-devices')).json();
+            if (!list.length) { el.innerHTML = '<div style="font-size:13px;color:rgba(255,255,255,0.4)">No custom devices yet.</div>'; return; }
+            el.innerHTML = list.map(d => {
+                const st = d.status || 'new';
+                const badge = `<span class="cd-badge ${st}">${st}</span>`;
+                const ver = d.version ? `<code style="font-size:11px;color:rgba(255,255,255,0.5)">${escHtml(d.version.slice(0,8))}</code>` : '';
+                const err = d.error ? `<div style="font-size:11px;color:#f87171;flex-basis:100%">${escHtml(d.error)}</div>` : '';
+                return `<div class="cd-row">
+                    <div style="flex:1;min-width:220px">
+                        <div style="font-weight:600;color:#fff;display:flex;gap:8px;align-items:center;flex-wrap:wrap">${escHtml(d.name)} ${badge} ${ver}</div>
+                        <div style="font-size:11px;color:rgba(255,255,255,0.45);margin-top:3px">${escHtml(d.modelId)} · <a href="${escHtml(d.repoUrl)}" target="_blank" style="color:#22d3ee">${escHtml(d.repoUrl)}</a> @ ${escHtml(d.ref)}${d.env?' · env '+escHtml(d.env):''}</div>
+                    </div>
+                    <button class="btn-add" style="font-size:12px;padding:6px 12px" onclick="buildCustomDevice('${d.id}')">${st==='ready'?'Rebuild':'Build'}</button>
+                    <button class="btn-cancel" style="font-size:12px;padding:6px 12px" onclick="deleteCustomDevice('${d.id}', this)" data-name="${escHtml(d.name)}">Delete</button>
+                    ${err}
+                </div>`;
+            }).join('');
+        } catch { el.innerHTML = '<div style="color:#f87171">Could not load custom devices.</div>'; }
+    }
+    window.loadCustomDevices = loadCustomDevices;
+    async function addCustomDevice() {
+        const body = {
+            name:    document.getElementById('cdName').value.trim(),
+            modelId: document.getElementById('cdModel').value.trim(),
+            repoUrl: document.getElementById('cdRepo').value.trim(),
+            ref:     document.getElementById('cdRef').value.trim() || 'main',
+            env:     document.getElementById('cdEnv').value.trim(),
+        };
+        if (!body.name || !body.modelId || !body.repoUrl) { showToast('Name, model id and repo URL are required', 'error'); return; }
+        const r = await fetch('/api/admin/custom-devices', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); showToast(e.error || 'Could not add', 'error'); return; }
+        ['cdName','cdModel','cdRepo','cdRef','cdEnv'].forEach(id => document.getElementById(id).value = '');
+        showToast('Custom device added — click Build to compile it.');
+        loadCustomDevices();
+    }
+    window.addCustomDevice = addCustomDevice;
+    async function deleteCustomDevice(id, btn) {
+        const name = btn?.dataset?.name || 'this device';
+        if (!confirm('Delete custom device "' + name + '"? This removes its built firmware too.')) return;
+        await fetch('/api/admin/custom-devices/' + id, { method: 'DELETE' });
+        loadCustomDevices();
+    }
+    window.deleteCustomDevice = deleteCustomDevice;
+    async function buildCustomDevice(id) {
+        const log = document.getElementById('cdBuildLog');
+        log.style.display = 'block'; log.textContent = 'Starting build…\n';
+        loadCustomDevices();
+        try {
+            const res = await fetch('/api/admin/custom-devices/' + id + '/build', { method: 'POST' });
+            if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+                const e = await res.json().catch(()=>({})); log.textContent += '\n' + (e.error || 'Build failed'); return;
+            }
+            const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+            while (true) {
+                const { done, value } = await reader.read(); if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n'); buf = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const msg = JSON.parse(line.slice(5).trim());
+                    if (msg.type === 'log') { log.textContent += msg.data; log.scrollTop = log.scrollHeight; }
+                    else if (msg.type === 'done') { log.textContent += '\n✓ ' + msg.data; showToast('Build complete'); loadCustomDevices(); }
+                    else if (msg.type === 'error') { log.textContent += '\n✗ ' + msg.data; showToast('Build failed', 'error'); loadCustomDevices(); }
+                }
+            }
+        } catch (e) { log.textContent += '\n✗ ' + e.message; }
+    }
+    window.buildCustomDevice = buildCustomDevice;
+    loadCustomDevices();
+
+    // ── Firmware source (pull built-in firmware from GitHub + rebuild) ───────
+    async function loadFirmwareSource() {
+        if (!document.getElementById('fsRepo')) return;
+        try {
+            const s = await (await fetch('/api/admin/firmware/source')).json();
+            document.getElementById('fsRepo').value = s.repoUrl || '';
+            if (!s.repoUrl && s.suggestedRepoUrl) document.getElementById('fsRepo').placeholder = s.suggestedRepoUrl;
+            document.getElementById('fsRef').value = s.ref || 'main';
+            const v = s.versions || {};
+            const parts = [];
+            if (s.lastBuiltAt) parts.push('last rebuilt ' + relTimeAgo(s.lastBuiltAt));
+            if (v['PhotoPainter-E6'])  parts.push('PhotoPainter ' + v['PhotoPainter-E6'].slice(0,8));
+            if (v['reTerminal-E1001']) parts.push('reTerminal ' + v['reTerminal-E1001'].slice(0,8));
+            document.getElementById('fsMeta').textContent = parts.join(' · ');
+        } catch {}
+    }
+    window.loadFirmwareSource = loadFirmwareSource;
+    async function saveFirmwareSource() {
+        const body = { repoUrl: document.getElementById('fsRepo').value.trim(), ref: document.getElementById('fsRef').value.trim() || 'main' };
+        const r = await fetch('/api/admin/firmware/source', { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); showToast(e.error || 'Could not save', 'error'); return; }
+        showToast('Firmware source saved.'); loadFirmwareSource();
+    }
+    window.saveFirmwareSource = saveFirmwareSource;
+    async function pullRebuild() {
+        const log = document.getElementById('fsLog');
+        log.style.display = 'block'; log.textContent = 'Pulling & rebuilding…\n';
+        try {
+            const res = await fetch('/api/admin/firmware/pull-rebuild', { method: 'POST' });
+            if (!res.ok && res.headers.get('content-type')?.includes('application/json')) {
+                const e = await res.json().catch(()=>({})); log.textContent += '\n' + (e.error || 'Failed'); return;
+            }
+            const reader = res.body.getReader(); const dec = new TextDecoder(); let buf = '';
+            while (true) {
+                const { done, value } = await reader.read(); if (done) break;
+                buf += dec.decode(value, { stream: true });
+                const lines = buf.split('\n'); buf = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data:')) continue;
+                    const msg = JSON.parse(line.slice(5).trim());
+                    if (msg.type === 'log') { log.textContent += msg.data; log.scrollTop = log.scrollHeight; }
+                    else if (msg.type === 'done') { log.textContent += '\n✓ ' + msg.data; showToast('Firmware rebuilt'); loadFirmwareSource(); loadFirmwareVersions(); }
+                    else if (msg.type === 'error') { log.textContent += '\n✗ ' + msg.data; showToast('Rebuild failed', 'error'); }
+                }
+            }
+        } catch (e) { log.textContent += '\n✗ ' + e.message; }
+    }
+    window.pullRebuild = pullRebuild;
+    async function loadFirmwareVersions() {
+        const el = document.getElementById('fsVersions');
+        if (!el) return;
+        const models = [{ id: 'PhotoPainter-E6', name: 'Waveshare PhotoPainter (E6)' }, { id: 'reTerminal-E1001', name: 'Seeed reTerminal E1001' }];
+        try { for (const d of await (await fetch('/api/admin/custom-devices')).json()) models.push({ id: d.modelId, name: d.name + ' (custom)' }); } catch {}
+        const row = (m, v, isCur) => `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+            <code style="font-size:12px;color:rgba(255,255,255,0.7)">${escHtml(v.hash.slice(0,8))}</code>
+            ${isCur ? '<span class="cd-badge ready">running</span>' : ''}
+            <span style="font-size:12px;color:rgba(255,255,255,0.55);flex:1;min-width:120px">${v.title ? escHtml(v.title) : ''}${v.archivedAt ? ' · archived ' + relTimeAgo(v.archivedAt) : ''}</span>
+            ${isCur ? '' : `<button class="btn-cancel" style="font-size:12px;padding:5px 12px" onclick="revertFirmware('${escHtml(m.id)}','${escHtml(v.hash)}')">Revert to this</button>`}
+        </div>`;
+        const blocks = await Promise.all(models.map(async m => {
+            let data; try { data = await (await fetch('/api/admin/firmware/versions?model=' + encodeURIComponent(m.id))).json(); } catch { return ''; }
+            if (!data || data.error) return '';
+            const cur = data.current ? row(m, data.current, true) : '';
+            const old = (data.versions || []).map(v => row(m, v, false)).join('');
+            if (!cur && !old) return '';
+            return `<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);margin-bottom:2px">${escHtml(m.name)}</div>${cur}${old || '<div style="font-size:11px;color:rgba(255,255,255,0.35);padding:4px 0">No earlier versions archived yet — they appear after the next rebuild.</div>'}</div>`;
+        }));
+        el.innerHTML = blocks.filter(Boolean).join('') || '<div style="font-size:12px;color:rgba(255,255,255,0.4)">No firmware built yet.</div>';
+    }
+    window.loadFirmwareVersions = loadFirmwareVersions;
+    async function revertFirmware(model, hash) {
+        if (!confirm(`Revert ${model} to firmware ${hash.slice(0,8)}? Devices roll back to it on the next Update.`)) return;
+        const r = await fetch('/api/admin/firmware/revert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model, hash }) });
+        if (!r.ok) { const e = await r.json().catch(()=>({})); showToast(e.error || 'Revert failed', 'error'); return; }
+        showToast('Reverted — push it to devices with “Update now”.');
+        loadFirmwareVersions();
+    }
+    window.revertFirmware = revertFirmware;
+    loadFirmwareSource();
+    loadFirmwareVersions();
+
+    // Restore last tab (default Usage).
+    switchTab(localStorage.getItem('adminActiveTab') || 'usage');
 
     // ── Global help tooltip (body-level so overflow:hidden never clips it) ──
     const helpTip = document.createElement('div');

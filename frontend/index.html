@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>PhotoDock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <script src="/theme.js"></script>
+  <style>
+    body { min-height: 100vh; overflow-y: auto; }
+
+    #app { position: relative; min-height: 100vh; }
+
+    /* ── Header ─────────────────────────────────────── */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      margin: 12px 16px 0;
+      border-radius: 16px;
+      padding: 0 16px;
+      height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .header-logo span {
+      font-size: 16px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: rgba(255,255,255,0.9);
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .hbtn {
+      padding: 6px 14px;
+      border-radius: 10px;
+      font-size: 13px;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* ── Upload dropdown ─────────────────────────────── */
+    .upload-wrap { position: relative; }
+    .upload-dropdown {
+      display: none;
+      position: absolute;
+      right: 0;
+      top: calc(100% + 6px);
+      min-width: 200px;
+      border-radius: 12px;
+      padding: 6px;
+      z-index: 100;
+    }
+    .upload-dropdown.open { display: block; }
+    .upload-item {
+      width: 100%;
+      text-align: left;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: rgba(255,255,255,0.8);
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      cursor: pointer;
+      display: block;
+    }
+    .upload-item:hover { background: rgba(255,255,255,0.08); }
+
+    /* ── Breadcrumb ──────────────────────────────────── */
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 20px 6px;
+      position: relative;
+      z-index: 5;
+    }
+
+    .breadcrumb-title {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      color: rgba(255,255,255,0.92);
+    }
+
+    .breadcrumb-count {
+      font-size: 13px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    .color-dot {
+      width: 13px;
+      height: 13px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .device-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      background: rgba(217,119,6,0.18);
+      color: #fbbf24;
+    }
+
+    /* ── Screen cards grid ───────────────────────────── */
+    .screens-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 16px;
+      padding: 8px 20px 90px;
+      position: relative;
+      z-index: 5;
+    }
+
+    .screen-card {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      border-radius: 18px;
+      overflow: hidden;
+      cursor: pointer;
+      padding: 0;
+      text-align: left;
+      font-family: 'Inter', sans-serif;
+      transition: transform 0.15s;
+    }
+
+    .screen-card:hover { transform: translateY(-2px); }
+
+    .screen-card-bg {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 2px;
+    }
+
+    .screen-card-cell {
+      background: rgba(255,255,255,0.04);
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: rgba(255,255,255,0.1);
+    }
+
+    .screen-card-overlay {
+      position: absolute;
+      inset: 0;
+    }
+
+    .screen-card-info {
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      bottom: 13px;
+    }
+
+    .screen-card-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      letter-spacing: -0.01em;
+    }
+
+    .screen-card-meta {
+      font-size: 12px;
+      color: rgba(255,255,255,0.85);
+      margin-top: 2px;
+    }
+
+    .health-strip {
+      margin-top: 9px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 9px;
+      border-radius: 10px;
+      background: rgba(0,0,0,0.4);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.12);
+      font-size: 11.5px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .health-batt-shell {
+      position: relative;
+      width: 22px;
+      height: 11px;
+      border-radius: 2.5px;
+      border: 1.5px solid rgba(255,255,255,0.5);
+      padding: 1.5px;
+    }
+
+    .health-batt-fill {
+      height: 100%;
+      border-radius: 1px;
+    }
+
+    .health-batt-nub {
+      position: absolute;
+      right: -3px;
+      top: 3px;
+      width: 2px;
+      height: 5px;
+      border-radius: 1px;
+      background: rgba(255,255,255,0.5);
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .divider-v {
+      width: 1px;
+      height: 13px;
+      background: rgba(255,255,255,0.2);
+      flex-shrink: 0;
+    }
+
+    /* ── Add-new tile ────────────────────────────────── */
+    .add-tile {
+      aspect-ratio: 1 / 1;
+      border-radius: 18px;
+      border: 1.5px dashed rgba(255,255,255,0.22);
+      background: rgba(255,255,255,0.02);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: 'Inter', sans-serif;
+      color: rgba(255,255,255,0.5);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .add-tile-plus {
+      font-size: 30px;
+      font-weight: 300;
+      line-height: 1;
+    }
+
+    /* ── Album cards grid ────────────────────────────── */
+    .albums-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      padding: 8px 20px 90px;
+      position: relative;
+      z-index: 5;
+    }
+
+    .album-card {
+      border-radius: 16px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.15s;
+    }
+
+    .album-card:hover { transform: translateY(-2px); }
+
+    .album-card-cover {
+      position: relative;
+      height: 150px;
+      background: rgba(255,255,255,0.03);
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 1fr 1fr;
+      gap: 2px;
+      overflow: hidden;
+    }
+
+    .album-cover-cell {
+      background: rgba(255,255,255,0.05);
+      background-size: cover;
+      background-position: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      color: rgba(255,255,255,0.1);
+    }
+
+    .album-fav-badge {
+      position: absolute;
+      top: 9px;
+      left: 9px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: #fde047;
+    }
+
+    .album-empty-msg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-style: italic;
+      color: rgba(255,255,255,0.35);
+    }
+
+    .album-card-footer {
+      padding: 11px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .album-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.9);
+    }
+
+    .album-card-count {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+    }
+
+    .album-add-tile {
+      min-height: 201px;
+      border-radius: 16px;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: 'Inter', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    /* ── Photos grid ─────────────────────────────────── */
+    .photos-section {
+      position: relative;
+      z-index: 5;
+      padding: 8px 20px 90px;
+    }
+
+    .photos-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+
+    .photos-hint {
+      font-size: 13px;
+      color: rgba(255,255,255,0.45);
+    }
+
+    .photos-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 12px;
+      border-radius: 16px;
+      transition: border-color 0.15s, background 0.15s;
+      border: 2px dashed transparent;
+      padding: 0;
+    }
+
+    .photos-grid.drag-over {
+      border-width: 2px;
+      border-style: dashed;
+      padding: 10px;
+    }
+
+    .photo-tile {
+      position: relative;
+      aspect-ratio: 1 / 1;
+      border-radius: 13px;
+      overflow: hidden;
+    }
+
+    .photo-tile img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .photo-tile-bg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 30px;
+      opacity: 0.5;
+    }
+
+    .photo-delete {
+      position: absolute;
+      top: 7px;
+      right: 7px;
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .photo-tile:hover .photo-delete { display: flex; }
+
+    .photo-fit {
+      position: absolute;
+      bottom: 7px;
+      left: 7px;
+      height: 24px;
+      padding: 0 9px;
+      border-radius: 12px;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      display: none;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .photo-tile:hover .photo-fit { display: inline-flex; }
+
+    .photo-add-tile {
+      aspect-ratio: 1 / 1;
+      border-radius: 13px;
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 600;
+      font-size: 12.5px;
+      background: transparent;
+    }
+
+    /* ── Modals ──────────────────────────────────────── */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 400;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-box {
+      width: 380px;
+      max-width: 95vw;
+      border-radius: 18px;
+      padding: 22px 24px;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.92);
+      margin-bottom: 4px;
+    }
+
+    .modal-sub {
+      font-size: 12.5px;
+      color: rgba(255,255,255,0.45);
+      margin-bottom: 16px;
+    }
+
+    .modal-input {
+      font-size: 13.5px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+    }
+
+    .color-picker { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 20px; }
+
+    .color-swatch {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: box-shadow 0.12s;
+    }
+
+    .color-swatch.selected { border-color: #fff; }
+
+    .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
+
+    .modal-btn {
+      padding: 8px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* ── Slideshow overlay ───────────────────────────── */
+    .ss-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .ss-slide {
+      position: absolute;
+      inset: 0;
+      background-size: cover;
+      background-position: center;
+      transition: opacity 1.2s cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .ss-top-bar {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 64px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      z-index: 20;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.6), transparent);
+    }
+
+    .ss-title { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.8); }
+
+    .ss-arrow {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      font-size: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+      padding: 0;
+    }
+
+    .ss-date {
+      position: absolute;
+      top: 80px;
+      right: 28px;
+      z-index: 10;
+      text-align: right;
+      pointer-events: none;
+    }
+
+    .ss-date-day { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.85); text-shadow: 0 1px 8px rgba(0,0,0,0.6); }
+    .ss-date-time { font-size: 22px; font-weight: 300; color: rgba(255,255,255,0.7); text-shadow: 0 1px 8px rgba(0,0,0,0.6); margin-top: 2px; }
+
+    .ss-dots {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      z-index: 20;
+      background: linear-gradient(to top, rgba(0,0,0,0.6), transparent);
+    }
+
+    .ss-dot {
+      height: 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      background: rgba(255,255,255,0.35);
+      transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .ss-dot.active { background: rgba(255,255,255,0.95); }
+
+    .ss-progress-bar {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 3px;
+      background: rgba(255,255,255,0.15);
+      z-index: 21;
+    }
+
+    .ss-progress-fill {
+      height: 100%;
+      background: #29c76f;
+      width: 0%;
+    }
+  </style>
+</head>
+<body>
+<div class="space-bg" id="bgEl"></div>
+<div id="app">
+  <!-- JS renders content here -->
+  <div class="site-header glass" id="siteHeader">
+    <div class="header-logo">
+      <img src="/favicon.svg" width="24" height="24" alt="">
+      <span>PhotoDock</span>
+    </div>
+    <div class="header-actions">
+      <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
+      <a href="/admin" class="glass-btn hbtn">⚙ Settings</a>
+      <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
+      <button class="glass-btn hbtn" onclick="openSlideshow()">▶ Slideshow</button>
+      <a href="/logout" class="glass-btn hbtn">Log out</a>
+      <div class="upload-wrap">
+        <button class="cyan-btn hbtn" id="uploadToggle" onclick="toggleUploadMenu()">↑ Upload ▾</button>
+        <div class="glass upload-dropdown" id="uploadDropdown">
+          <div class="upload-item" style="color:rgba(255,255,255,0.4);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;cursor:default;padding-bottom:4px">Upload to</div>
+          <div id="uploadMenuItems"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="breadcrumb" id="breadcrumb"></div>
+  <div id="mainContent"></div>
+</div>
+
+<!-- New Screen Modal -->
+<div class="modal-backdrop" id="newScreenModal" style="display:none" onclick="if(event.target===this)closeNewScreenModal()">
+  <div class="glass modal-box">
+    <div class="modal-title">New Screen</div>
+    <input class="glass-input modal-input" type="text" id="newScreenName" placeholder="Screen name — e.g. Hallway"
+      onkeydown="if(event.key==='Enter')confirmNewScreen();if(event.key==='Escape')closeNewScreenModal()">
+    <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:9px">Colour</div>
+    <div class="color-picker" id="colorPicker"></div>
+    <div class="modal-footer">
+      <button class="glass-btn modal-btn" onclick="closeNewScreenModal()">Cancel</button>
+      <button class="cyan-btn modal-btn" onclick="confirmNewScreen()">Create Screen</button>
+    </div>
+  </div>
+</div>
+
+<!-- New Album Modal -->
+<div class="modal-backdrop" id="newAlbumModal" style="display:none" onclick="if(event.target===this)closeNewAlbumModal()">
+  <div class="glass modal-box" style="width:360px">
+    <div class="modal-title">New Album</div>
+    <div class="modal-sub" id="newAlbumSub"></div>
+    <input class="glass-input modal-input" type="text" id="newAlbumName" placeholder="Album name — e.g. Summer 2024"
+      onkeydown="if(event.key==='Enter')confirmNewAlbum();if(event.key==='Escape')closeNewAlbumModal()">
+    <div class="modal-footer">
+      <button class="glass-btn modal-btn" onclick="closeNewAlbumModal()">Cancel</button>
+      <button class="cyan-btn modal-btn" onclick="confirmNewAlbum()">Create Album</button>
+    </div>
+  </div>
+</div>
+
+<!-- Slideshow overlay -->
+<div id="ssOverlay" class="ss-overlay" style="display:none">
+  <div id="ssSlides"></div>
+  <div class="ss-top-bar">
+    <div class="ss-title" id="ssTitle"></div>
+    <div style="display:flex;gap:6px">
+      <button class="glass-btn hbtn" onclick="toggleSsPause()">⏸</button>
+      <button class="glass-btn hbtn" onclick="closeSlideshow()">✕ Close</button>
+    </div>
+  </div>
+  <button class="glass-btn ss-arrow" style="left:20px" onclick="ssPrev()">‹</button>
+  <button class="glass-btn ss-arrow" style="right:20px" onclick="ssNext()">›</button>
+  <div class="ss-date">
+    <div class="ss-date-day" id="ssDateDay"></div>
+    <div class="ss-date-time" id="ssDateTime"></div>
+  </div>
+  <div class="ss-dots" id="ssDots"></div>
+  <div class="ss-progress-bar"><div class="ss-progress-fill" id="ssProgress"></div></div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*" multiple style="display:none" onchange="onFileInputChange()">
+
+<script>
+const SCREEN_COLORS = ['#06b6d4','#d97706','#22c55e','#a855f7','#f43f5e','#3b82f6','#eab308','#ec4899'];
+const HEALTH_COLOR = { good: '#22c55e', warn: '#f59e0b', bad: '#ef4444' };
+const STATUS_DOT   = { online: '#22c55e', recent: '#f59e0b', sleeping: '#3b82f6', offline: '#6b7280' };
+
+// Human-readable labels for firmware-reported states
+const FW_STATE_LABELS = {
+  setup:       'Setting up',
+  connecting:  'Connecting',
+  wifi_failed: 'Wi-Fi failed',
+  server:      'Server unreachable',
+  low_batt:    'Low battery',
+  updating:    'Updating',
+  empty:       'No photos',
+  paired:      'Just paired',
+  sleeping:    'Sleeping',
+  error:       'Error',
+  online:      null, // use connection status label instead
+};
+
+function fwStateDisplay(state) {
+  return FW_STATE_LABELS[state] ?? null;
+}
+
+function relativeTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m <  1) return 'just now';
+  if (m <  60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.floor(h / 24) + 'd ago';
+}
+
+// State
+let screens   = [];
+let albums    = [];
+let photos    = [];
+let curView   = 'screens';   // 'screens' | 'albums' | 'photos'
+let curScreen = null;
+let curAlbum  = null;
+let selectedColor = SCREEN_COLORS[0];
+
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+// ── Data loading ──────────────────────────────────────────
+async function init() {
+  await loadScreens();
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
+
+async function loadScreens() {
+  const res = await fetch('/api/screens');
+  if (!res.ok) { location.href = '/login'; return; }
+  screens = await res.json();
+}
+
+async function loadAlbums(screenId) {
+  const res = await fetch('/api/screens/' + screenId + '/albums');
+  albums = res.ok ? await res.json() : [];
+}
+
+async function loadPhotos(albumId) {
+  const res = await fetch('/api/images?albumId=' + albumId);
+  photos = res.ok ? await res.json() : [];
+}
+
+// ── Navigation ────────────────────────────────────────────
+async function openScreen(id) {
+  curScreen = screens.find(s => s.id === id);
+  await loadAlbums(id);
+  curView = 'albums';
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
+
+async function openAlbum(id) {
+  curAlbum = albums.find(a => a.id === id);
+  await loadPhotos(id);
+  curView = 'photos';
+  renderBreadcrumb();
+  renderContent();
+}
+
+async function goToScreens() {
+  curView = 'screens';
+  curScreen = null;
+  curAlbum = null;
+  await loadScreens();
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
+
+async function goToAlbums() {
+  curView = 'albums';
+  curAlbum = null;
+  await loadAlbums(curScreen.id);
+  renderBreadcrumb();
+  renderContent();
+}
+
+// ── Rendering ─────────────────────────────────────────────
+function renderBreadcrumb() {
+  const bc = document.getElementById('breadcrumb');
+  const parts = [];
+
+  if (curView === 'albums') {
+    parts.push(`<button class="glass-btn hbtn" onclick="goToScreens()">← Screens</button>`);
+    parts.push(`<span class="color-dot" style="background:${curScreen.color};box-shadow:0 0 0 3px ${hexA(curScreen.color,0.22)}"></span>`);
+    parts.push(`<span class="breadcrumb-title">${esc(curScreen.name)}</span>`);
+    parts.push(`<span class="breadcrumb-count">· ${albums.length} album${albums.length===1?'':'s'}</span>`);
+  } else if (curView === 'photos') {
+    parts.push(`<button class="glass-btn hbtn" onclick="goToAlbums()">← ${esc(curScreen.name)}</button>`);
+    parts.push(`<span class="color-dot" style="background:${curScreen.color};box-shadow:0 0 0 3px ${hexA(curScreen.color,0.22)}"></span>`);
+    parts.push(`<span class="breadcrumb-title">${esc(curAlbum.name)}</span>`);
+    if (curAlbum.fav) parts.push(`<span style="font-size:15px;color:#fde047">★</span>`);
+    parts.push(`<span class="breadcrumb-count">· ${photos.length} photo${photos.length===1?'':'s'}</span>`);
+  } else {
+    parts.push(`<span class="breadcrumb-title">Screens</span>`);
+    parts.push(`<span class="breadcrumb-count">· ${screens.length} screen${screens.length===1?'':'s'}</span>`);
+  }
+
+  bc.innerHTML = parts.join('');
+}
+
+function renderContent() {
+  // Fixed deep-space backdrop driven by the user's chosen theme
+  if (window.TPDTheme) window.TPDTheme.apply();
+
+  if (curView === 'screens')      renderScreensView();
+  else if (curView === 'albums')  renderAlbumsView();
+  else                            renderPhotosView();
+}
+
+function renderScreensView() {
+  const content = document.getElementById('mainContent');
+  let html = `<div class="screens-grid">`;
+
+  for (const s of screens) {
+    const allPhotos = []; // We don't have full photo lists here, just counts
+    const albumCount  = s.albumCount  || 0;
+    const imageCount  = s.imageCount  || 0;
+    const color = s.color || '#06b6d4';
+    const gradient = `linear-gradient(to top, ${hexA(color,0.88)} 0%, ${hexA(color,0.28)} 42%, transparent 68%)`;
+    const border    = `1.5px solid ${hexA(color,0.55)}`;
+    const shadow    = `0 0 0 1px ${hexA(color,0.12)}, 0 8px 28px ${hexA(color,0.16)}`;
+
+    let healthHtml = '';
+    if (s.device && s.deviceInfo) {
+      const d  = s.deviceInfo;
+      const hc = HEALTH_COLOR[d.level] || '#22c55e';
+      const dc = STATUS_DOT[d.status]  || '#6b7280';
+      const fwStateLabel = fwStateDisplay(d.deviceStatus);
+      const lastSeenStr  = d.lastSeen ? relativeTime(d.lastSeen) : '';
+      // Charging: green fill + lightning bolt instead of a (often unreliable) %.
+      const charging  = !!d.charging;
+      const battColor = charging ? '#34d399' : hc;
+      const battFill  = charging ? ((d.batt != null && d.batt > 0) ? d.batt : 100) : (d.batt ?? 0);
+      const battText  = charging
+        ? '⚡ ' + ((d.batt != null && d.batt > 0) ? d.batt + '%' : 'Charging')
+        : (d.batt ?? '—') + '%';
+      healthHtml = `<div class="health-strip">
+        <div style="display:flex;align-items:center;gap:5px">
+          <div class="health-batt-shell">
+            <div class="health-batt-fill" style="width:${battFill}%;background:${battColor}"></div>
+            <div class="health-batt-nub"></div>
+          </div>
+          <span${charging ? ' style="color:#34d399;font-weight:600"' : ''}>${battText}</span>
+        </div>
+        <div class="divider-v"></div>
+        <div style="display:flex;align-items:center;gap:5px">
+          <span class="status-dot" style="background:${dc};box-shadow:0 0 6px ${dc}"></span>
+          <span>${esc(fwStateLabel || d.statusLabel)}</span>
+        </div>
+        ${lastSeenStr ? `<div class="divider-v"></div><span style="font-size:10px;color:rgba(255,255,255,0.4)">${esc(lastSeenStr)}</span>` : ''}
+      </div>`;
+    }
+
+    const deviceBadge = s.device ? `<span class="device-badge" style="position:absolute;top:10px;right:10px">🖥 Device</span>` : '';
+
+    html += `<button class="screen-card" style="border:${border};box-shadow:${shadow}" onclick="openScreen('${s.id}')">
+      <div class="screen-card-bg">
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+      </div>
+      <div class="screen-card-overlay" style="background:${gradient}"></div>
+      <span style="position:absolute;top:11px;left:11px;width:12px;height:12px;border-radius:50%;background:${color};box-shadow:0 0 0 2px rgba(0,0,0,0.35)"></span>
+      ${deviceBadge}
+      <div class="screen-card-info">
+        <div class="screen-card-name">${esc(s.name)}</div>
+        <div class="screen-card-meta">${albumCount} album${albumCount===1?'':'s'} · ${imageCount} photo${imageCount===1?'':'s'}</div>
+        ${healthHtml}
+      </div>
+    </button>`;
+  }
+
+  html += `<button class="add-tile" onclick="openNewScreenModal()">
+    <span class="add-tile-plus">+</span>
+    <span>New Screen</span>
+  </button>`;
+
+  html += `</div>`;
+  content.innerHTML = html;
+}
+
+function renderAlbumsView() {
+  const content = document.getElementById('mainContent');
+  const color = curScreen.color || '#06b6d4';
+  let html = `<div class="albums-grid">`;
+
+  for (const a of albums) {
+    const count = a.photoCount || 0;
+    const favBadge = a.fav ? `<div class="album-fav-badge">★</div>` : '';
+    const emptyMsg = count === 0 ? `<div class="album-empty-msg">No photos yet</div>` : '';
+
+    html += `<div class="album-card glass" style="border-top:2.5px solid ${color}" onclick="openAlbum('${a.id}')">
+      <div class="album-card-cover">
+        <div class="album-cover-cell"></div>
+        <div class="album-cover-cell"></div>
+        <div class="album-cover-cell"></div>
+        <div class="album-cover-cell"></div>
+        ${favBadge}
+        ${emptyMsg}
+      </div>
+      <div class="album-card-footer">
+        <span class="album-card-name">${esc(a.name)}</span>
+        <span class="album-card-count">${count} photo${count===1?'':'s'}</span>
+      </div>
+    </div>`;
+  }
+
+  html += `<button class="album-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="openNewAlbumModal()">
+    <span class="add-tile-plus">+</span>
+    <span>New Album</span>
+  </button>`;
+
+  html += `</div>`;
+  content.innerHTML = html;
+}
+
+function renderPhotosView() {
+  const content = document.getElementById('mainContent');
+  const color = curScreen.color || '#06b6d4';
+  const count = photos.length;
+  const hint = count === 0 ? 'Drag photos here or use Upload' : `${count} photo${count===1?'':'s'} in this album`;
+
+  let photosHtml = '';
+  for (const p of photos) {
+    const fit = p.imageFit === 'cover' ? 'cover' : p.imageFit === 'contain' ? 'contain' : 'auto';
+    const fitLabel = fit === 'cover' ? 'Fill' : fit === 'contain' ? 'Fit' : 'Auto';
+    const fitTitle = 'Fit on screen: ' + (fit === 'cover' ? 'Fill (crop edges)' : fit === 'contain' ? 'Fit whole photo (bars)' : 'Follow screen setting') + ' — click to change';
+    photosHtml += `<div class="photo-tile glass">
+      <img src="${esc(p.url)}" alt="${esc(p.filename)}">
+      <button class="photo-delete" onclick="deletePhoto('${esc(p.filename)}')">✕</button>
+      <button class="photo-fit" title="${esc(fitTitle)}" onclick="cycleFit('${esc(p.filename)}','${fit}')">${fitLabel}</button>
+    </div>`;
+  }
+
+  photosHtml += `<button class="photo-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="pickFiles()">
+    <span style="font-size:30px;font-weight:300;line-height:1">+</span>
+    <span>Add photos</span>
+  </button>`;
+
+  content.innerHTML = `<div class="photos-section">
+    <div class="photos-topbar">
+      <span class="photos-hint">${hint}</span>
+      <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="pickFiles()">↑ Upload photos</button>
+    </div>
+    <div class="photos-grid" id="photosGrid"
+      ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"
+      style="border-color:transparent">
+      ${photosHtml}
+    </div>
+  </div>`;
+}
+
+// ── Upload menu ───────────────────────────────────────────
+function buildUploadMenu() {
+  const container = document.getElementById('uploadMenuItems');
+  if (!container) return;
+  if (curView === 'photos' && curAlbum) {
+    container.innerHTML = `<button class="upload-item" onclick="pickFiles();closeUploadMenu()">This album: ${esc(curAlbum.name)}</button>`;
+  } else if (curView === 'albums' && curScreen) {
+    container.innerHTML = `<button class="upload-item" onclick="pickFiles();closeUploadMenu()">Screen: ${esc(curScreen.name)}</button>`;
+  } else {
+    let html = '';
+    for (const s of screens) {
+      html += `<button class="upload-item" onclick="startUploadToScreen('${s.id}');closeUploadMenu()">${esc(s.name)}</button>`;
+    }
+    container.innerHTML = html || '<div class="upload-item" style="opacity:0.5;cursor:default">No screens yet</div>';
+  }
+}
+
+function toggleUploadMenu() {
+  document.getElementById('uploadDropdown').classList.toggle('open');
+}
+
+function closeUploadMenu() {
+  document.getElementById('uploadDropdown').classList.remove('open');
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.upload-wrap')) closeUploadMenu();
+});
+
+// ── File picking / drag-drop ──────────────────────────────
+let uploadTarget = null; // { screenId, albumId }
+
+function pickFiles() {
+  if (curView === 'photos' && curAlbum) {
+    uploadTarget = { screenId: curScreen.id, albumId: curAlbum.id };
+  } else if (curView === 'albums' && curScreen) {
+    uploadTarget = { screenId: curScreen.id, albumId: null };
+  }
+  document.getElementById('fileInput').click();
+}
+
+function startUploadToScreen(screenId) {
+  uploadTarget = { screenId, albumId: null };
+  document.getElementById('fileInput').click();
+}
+
+async function onFileInputChange() {
+  const input = document.getElementById('fileInput');
+  const files = Array.from(input.files || []);
+  input.value = '';
+  if (!files.length) return;
+  await uploadFiles(files);
+}
+
+async function uploadFiles(files) {
+  const fd = new FormData();
+  for (const f of files) fd.append('images', f);
+  if (uploadTarget?.screenId) fd.append('screenId', uploadTarget.screenId);
+  if (uploadTarget?.albumId)  fd.append('albumId',  uploadTarget.albumId);
+
+  const res = await fetch('/api/upload', { method: 'POST', body: fd });
+  if (!res.ok) { alert('Upload failed'); return; }
+
+  if (curView === 'photos' && curAlbum) {
+    await loadPhotos(curAlbum.id);
+    renderPhotosView();
+    renderBreadcrumb();
+  } else {
+    await loadScreens();
+  }
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  const grid = document.getElementById('photosGrid');
+  if (!grid) return;
+  const color = curScreen?.color || '#06b6d4';
+  grid.style.borderColor = hexA(color, 0.5);
+  grid.style.background  = hexA(color, 0.06);
+}
+
+function onDragLeave() {
+  const grid = document.getElementById('photosGrid');
+  if (!grid) return;
+  grid.style.borderColor = 'transparent';
+  grid.style.background  = 'transparent';
+}
+
+async function onDrop(e) {
+  e.preventDefault();
+  onDragLeave();
+  if (curView !== 'photos' || !curAlbum) return;
+  const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
+  if (!files.length) return;
+  uploadTarget = { screenId: curScreen.id, albumId: curAlbum.id };
+  await uploadFiles(files);
+}
+
+// ── Delete photo ──────────────────────────────────────────
+async function deletePhoto(filename) {
+  if (!confirm('Delete this photo?')) return;
+  const res = await fetch('/api/images/' + encodeURIComponent(filename), { method: 'DELETE' });
+  if (!res.ok) { alert('Could not delete'); return; }
+  await loadPhotos(curAlbum.id);
+  renderPhotosView();
+  renderBreadcrumb();
+}
+
+// ── Per-photo fit override ────────────────────────────────
+// Cycle: auto (follow screen) → cover (fill) → contain (fit) → auto
+async function cycleFit(filename, current) {
+  const next = current === 'auto' ? 'cover' : current === 'cover' ? 'contain' : 'default';
+  const res = await fetch('/api/images/' + encodeURIComponent(filename) + '/fit', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ imageFit: next }),
+  });
+  if (!res.ok) { alert('Could not update fit'); return; }
+  // Reflect locally without a full reload.
+  const p = photos.find(x => x.filename === filename);
+  if (p) p.imageFit = (next === 'default') ? null : next;
+  renderPhotosView();
+}
+
+// ── New Screen modal ──────────────────────────────────────
+function openNewScreenModal() {
+  document.getElementById('newScreenModal').style.display = 'flex';
+  document.getElementById('newScreenName').value = '';
+  renderColorPicker();
+  setTimeout(() => document.getElementById('newScreenName').focus(), 50);
+}
+
+function closeNewScreenModal() {
+  document.getElementById('newScreenModal').style.display = 'none';
+}
+
+function renderColorPicker() {
+  selectedColor = SCREEN_COLORS[0];
+  const picker = document.getElementById('colorPicker');
+  picker.innerHTML = SCREEN_COLORS.map(c =>
+    `<button class="color-swatch${c===selectedColor?' selected':''}" style="background:${c};box-shadow:${c===selectedColor?'0 0 0 2px '+c:'none'}" onclick="selectColor('${c}')"></button>`
+  ).join('');
+}
+
+function selectColor(c) {
+  selectedColor = c;
+  renderColorPicker();
+  document.querySelectorAll('.color-swatch').forEach(el => {
+    const ec = el.style.background;
+    el.className = 'color-swatch' + (ec === c ? ' selected' : '');
+    el.style.boxShadow = ec === c ? '0 0 0 2px ' + c : 'none';
+  });
+}
+
+async function confirmNewScreen() {
+  const name = document.getElementById('newScreenName').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/screens', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, color: selectedColor })
+  });
+  if (!res.ok) { alert('Could not create screen'); return; }
+  closeNewScreenModal();
+  await loadScreens();
+  renderBreadcrumb();
+  renderContent();
+  buildUploadMenu();
+}
+
+// ── New Album modal ───────────────────────────────────────
+function openNewAlbumModal() {
+  document.getElementById('newAlbumModal').style.display = 'flex';
+  document.getElementById('newAlbumSub').textContent = 'in ' + (curScreen?.name || '');
+  document.getElementById('newAlbumName').value = '';
+  setTimeout(() => document.getElementById('newAlbumName').focus(), 50);
+}
+
+function closeNewAlbumModal() {
+  document.getElementById('newAlbumModal').style.display = 'none';
+}
+
+async function confirmNewAlbum() {
+  const name = document.getElementById('newAlbumName').value.trim();
+  if (!name || !curScreen) return;
+  const res = await fetch('/api/screens/' + curScreen.id + '/albums', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (!res.ok) { alert('Could not create album'); return; }
+  closeNewAlbumModal();
+  await loadAlbums(curScreen.id);
+  renderBreadcrumb();
+  renderContent();
+}
+
+// ── Slideshow ─────────────────────────────────────────────
+let ssPhotos = [], ssIdx = 0, ssPaused = false, ssTimer = null, ssRaf = null, ssStart = 0;
+const SS_DURATION = 8000;
+
+async function openSlideshow() {
+  let src = [];
+  if (curView === 'photos' && photos.length) {
+    src = photos;
+  } else {
+    const res = await fetch('/api/images' + (curScreen ? '?screenId=' + curScreen.id : ''));
+    src = res.ok ? await res.json() : [];
+  }
+  if (!src.length) { alert('No photos to show.'); return; }
+  ssPhotos = src;
+  ssIdx = 0;
+  ssPaused = false;
+
+  const overlay = document.getElementById('ssOverlay');
+  overlay.style.display = 'block';
+  document.getElementById('ssTitle').textContent = curAlbum?.name || curScreen?.name || 'All Photos';
+  renderSsSlides();
+  renderSsDots();
+  updateSsDate();
+  setInterval(updateSsDate, 30000);
+  startSsTimer();
+}
+
+function renderSsSlides() {
+  const container = document.getElementById('ssSlides');
+  container.innerHTML = ssPhotos.map((p, i) =>
+    `<div class="ss-slide" style="background-image:url(${esc(p.url)});opacity:${i===ssIdx?1:0}"></div>`
+  ).join('');
+}
+
+function renderSsDots() {
+  const dotsEl = document.getElementById('ssDots');
+  dotsEl.innerHTML = ssPhotos.map((_, i) =>
+    `<div class="ss-dot${i===ssIdx?' active':''}" style="width:${i===ssIdx?18:8}px" onclick="ssGoto(${i})"></div>`
+  ).join('');
+}
+
+function updateSsDate() {
+  const now = new Date();
+  document.getElementById('ssDateDay').textContent  = now.toLocaleDateString('en-GB', { weekday:'long', day:'numeric', month:'long' });
+  document.getElementById('ssDateTime').textContent = now.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
+
+function startSsTimer() {
+  clearTimeout(ssTimer);
+  cancelAnimationFrame(ssRaf);
+  ssStart = performance.now();
+  const tick = now => {
+    const p = Math.min((now - ssStart) / SS_DURATION * 100, 100);
+    document.getElementById('ssProgress').style.width = p + '%';
+    if (p < 100) ssRaf = requestAnimationFrame(tick);
+  };
+  ssRaf = requestAnimationFrame(tick);
+  ssTimer = setTimeout(ssNext, SS_DURATION);
+}
+
+function ssNext() {
+  ssIdx = (ssIdx + 1) % ssPhotos.length;
+  ssUpdate();
+}
+
+function ssPrev() {
+  ssIdx = (ssIdx - 1 + ssPhotos.length) % ssPhotos.length;
+  ssUpdate();
+}
+
+function ssGoto(i) {
+  ssIdx = i;
+  ssUpdate();
+}
+
+function ssUpdate() {
+  const slides = document.querySelectorAll('.ss-slide');
+  slides.forEach((el, i) => el.style.opacity = i === ssIdx ? 1 : 0);
+  renderSsDots();
+  if (!ssPaused) startSsTimer();
+}
+
+function toggleSsPause() {
+  ssPaused = !ssPaused;
+  const btn = document.querySelector('.ss-top-bar .glass-btn');
+  if (btn) btn.textContent = ssPaused ? '▶ Play' : '⏸';
+  if (ssPaused) {
+    clearTimeout(ssTimer);
+    cancelAnimationFrame(ssRaf);
+  } else {
+    startSsTimer();
+  }
+}
+
+function closeSlideshow() {
+  clearTimeout(ssTimer);
+  cancelAnimationFrame(ssRaf);
+  document.getElementById('ssOverlay').style.display = 'none';
+}
+
+document.addEventListener('keydown', e => {
+  const ss = document.getElementById('ssOverlay');
+  if (ss.style.display !== 'none') {
+    if (e.key === 'ArrowRight') ssNext();
+    else if (e.key === 'ArrowLeft') ssPrev();
+    else if (e.key === 'Escape') closeSlideshow();
+  }
+  if (e.key === 'Escape') {
+    if (document.getElementById('newScreenModal').style.display !== 'none') closeNewScreenModal();
+    if (document.getElementById('newAlbumModal').style.display !== 'none') closeNewAlbumModal();
+  }
+});
+
+function esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+init();
+
+// Refresh screen health data every 30 seconds while on the screens view
+setInterval(async () => {
+  if (curView === 'screens') {
+    await loadScreens();
+    renderScreensView();
+  }
+}, 30000);
+</script>
+</body>
+</html>
