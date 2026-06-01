@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.1.1",
+    "date": "2026-06-01",
+    "changes": [
+      "Fix the setup and login pages loading without styling or logo on a fresh install — static assets (stylesheet, favicon) were being caught by the authentication redirect and are now served correctly while page shells stay protected"
+    ]
+  },
+  {
     "version": "2.1.0",
     "date": "2026-06-01",
     "changes": [
