@@ -1626,15 +1626,14 @@ void setup() {
                 if (!showServerScreen("empty")) epd_show_no_photos();
                 deep_sleep(sleep_s);
             }
-            // Genuine connection/server problem.
+            // Genuine connection/server problem. WiFi is up — only the server is
+            // unreachable — so show a clear "cannot reach server" screen and
+            // sleep/retry. We deliberately do NOT wipe the config or drop into the
+            // setup portal: a transient outage (server reboot, proxy/DNS/cert blip)
+            // would otherwise erase a working device. The error screen tells the
+            // user to hold BOOT at power-on to reconfigure a genuinely wrong address.
+            logln("Server unreachable â€” showing error, retrying next wake");
             epd_show_error(cfg.serverHost.c_str(), cfg.serverPort);
-            if (firstBoot) {
-                logln("Server unreachable on first boot â€” starting portal");
-                clearConfig();
-                String ap = apNameFromMac();
-                epd_show_setup(ap.c_str());
-                startCaptivePortal();
-            }
             deep_sleep(sleep_s);
         }
         WiFiClient *stream = http.getStreamPtr();
