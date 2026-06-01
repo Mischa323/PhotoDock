@@ -5,6 +5,32 @@
       "name": "Seeed reTerminal E1001 (7.5\" monochrome)",
       "releases": [
         {
+          "version": "2026.06.01-e874157",
+          "date": "2026-06-01",
+          "commit": "e874157",
+          "buildHash": "72af70756b871a32",
+          "title": "Add reTerminal E1001 support, custom-device system, auto-changelog & PhotoDock rename",
+          "changes": [
+            "Multi-board firmware:",
+            "Board-abstraction (board.h) + second PlatformIO env; one codebase builds the",
+            "Waveshare PhotoPainter (E6) and the Seeed reTerminal E1001 (UC8179 7.5\" mono).",
+            "UC8179 driver + B/W Floyd-Steinberg dithering (4-gray is phase 2); ADC battery",
+            "(no AXP2101); 3 buttons; reports its own model id.",
+            "Model-aware build/OTA: each board's binary lives in firmware_build/<model>/ and",
+            "devices only ever pull their own firmware.",
+            "Custom devices (admin-only): register a GitHub firmware repo; the server clones",
+            "and builds it (streamed log) into a flashable + OTA-able device type. Wizard",
+            "device-type dropdown and OTA model resolution are now dynamic.",
+            "Auto-changelog: copy_firmware.py records a firmware-changelog entry from the git",
+            "commit on each build (once per commit, stamped with the build hash), so the",
+            "changelog never goes stale; the server marks the running build by hash.",
+            "Branding: rename stale \"Photo Display\"/\"PhotoDisplay\"/\"PhotoPainter\" product",
+            "strings to PhotoDock (Wi-Fi AP is now PhotoDock-XXXX); kept the factual Waveshare",
+            "hardware name and model id."
+          ],
+          "auto": true
+        },
+        {
           "version": "2026.05.31-1",
           "date": "2026-05-31",
           "title": "Initial reTerminal E1001 support",
@@ -22,6 +48,32 @@
     "PhotoPainter-E6": {
       "name": "Waveshare 7.3\" PhotoPainter (E6 Spectra 6)",
       "releases": [
+        {
+          "version": "2026.06.01-e874157",
+          "date": "2026-06-01",
+          "commit": "e874157",
+          "buildHash": "c3af9a967e87973e",
+          "title": "Add reTerminal E1001 support, custom-device system, auto-changelog & PhotoDock rename",
+          "changes": [
+            "Multi-board firmware:",
+            "Board-abstraction (board.h) + second PlatformIO env; one codebase builds the",
+            "Waveshare PhotoPainter (E6) and the Seeed reTerminal E1001 (UC8179 7.5\" mono).",
+            "UC8179 driver + B/W Floyd-Steinberg dithering (4-gray is phase 2); ADC battery",
+            "(no AXP2101); 3 buttons; reports its own model id.",
+            "Model-aware build/OTA: each board's binary lives in firmware_build/<model>/ and",
+            "devices only ever pull their own firmware.",
+            "Custom devices (admin-only): register a GitHub firmware repo; the server clones",
+            "and builds it (streamed log) into a flashable + OTA-able device type. Wizard",
+            "device-type dropdown and OTA model resolution are now dynamic.",
+            "Auto-changelog: copy_firmware.py records a firmware-changelog entry from the git",
+            "commit on each build (once per commit, stamped with the build hash), so the",
+            "changelog never goes stale; the server marks the running build by hash.",
+            "Branding: rename stale \"Photo Display\"/\"PhotoDisplay\"/\"PhotoPainter\" product",
+            "strings to PhotoDock (Wi-Fi AP is now PhotoDock-XXXX); kept the factual Waveshare",
+            "hardware name and model id."
+          ],
+          "auto": true
+        },
         {
           "version": "2026.05.31-a20c4b8",
           "date": "2026-05-31",

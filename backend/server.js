@@ -256,7 +256,6 @@ if (!appData.logs)          { appData.logs          = []; saveData(appData); }
 if (!appData.imageMetadata) { appData.imageMetadata = {}; saveData(appData); }
 if (!appData.screens)       { appData.screens       = []; saveData(appData); }
 if (!appData.albums)        { appData.albums        = []; saveData(appData); }
-if (!appData.deviceStates)  { appData.deviceStates  = {}; saveData(appData); }
 if (!appData.deviceStatus)  { appData.deviceStatus  = {}; saveData(appData); }
 
 const MAX_LOGS = 500;
@@ -552,8 +551,8 @@ function findBoot0() {
 // Map a wizard "device type" to its PlatformIO env, firmware output folder and
 // the URL prefix esp-web-tools downloads its parts from.
 const DEVICE_BUILDS = {
-    'waveshare-s3-photopainter': { env: 'esp32s3-photopainter', dir: FIRMWARE_DIR,                                 urlPrefix: '/firmware' },
-    'reterminal-e1001':          { env: 'reterminal-e1001',     dir: path.join(FIRMWARE_DIR, 'reterminal-e1001'), urlPrefix: '/firmware/reterminal-e1001' },
+    'waveshare-s3-photopainter': { env: 'esp32s3-photopainter', dir: FIRMWARE_DIR,                                 urlPrefix: '/firmware',                   model: 'PhotoPainter-E6' },
+    'reterminal-e1001':          { env: 'reterminal-e1001',     dir: path.join(FIRMWARE_DIR, 'reterminal-e1001'), urlPrefix: '/firmware/reterminal-e1001',  model: 'reTerminal-E1001' },
 };
 function deviceBuild(type) { return DEVICE_BUILDS[type] || DEVICE_BUILDS['waveshare-s3-photopainter']; }
 
@@ -640,23 +639,7 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
         }
         try {
             const buildDir = path.join(ESP32_DIR, '.pio', 'build', bld.env);
-            fs.mkdirSync(bld.dir, { recursive: true });
-            for (const f of ['bootloader.bin', 'partitions.bin', 'firmware.bin'])
-                fs.copyFileSync(path.join(buildDir, f), path.join(bld.dir, f));
-            const boot0 = findBoot0();
-            if (boot0) fs.copyFileSync(boot0, path.join(bld.dir, 'boot_app0.bin'));
-            else send('log', '⚠ boot_app0.bin not found — flash may require a full erase\n');
-            const manifest = {
-                name: 'PhotoDock Firmware',
-                version: '1.0.0',
-                builds: [{ chipFamily: 'ESP32-S3', parts: [
-                    { path: `${bld.urlPrefix}/bootloader.bin`, offset: 0 },
-                    { path: `${bld.urlPrefix}/partitions.bin`, offset: 32768 },
-                    { path: `${bld.urlPrefix}/boot_app0.bin`,  offset: 57344 },
-                    { path: `${bld.urlPrefix}/firmware.bin`,   offset: 65536 },
-                ]}],
-            };
-            fs.writeFileSync(path.join(bld.dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+            writeFirmwareOutput(buildDir, bld.dir, bld.urlPrefix, 'PhotoDock', send);
             send('done', 'Build succeeded — firmware is ready to flash');
         } catch (e) {
             send('error', `Post-build copy failed: ${e.message}`);
@@ -670,6 +653,12 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
 // admin-only and intended for a trusted, self-hosted operator. A malicious repo
 // could run arbitrary build scripts — only add repos you trust.
 function customDevices() { return appData.customDevices || (appData.customDevices = []); }
+// Strict input validators. These run on values that get passed to `git`/`pio`
+// (which use a shell on Windows), so they must reject shell metacharacters
+// (spaces, quotes, ; & | $ ` etc.) to prevent command injection.
+const RE_GIT_URL = /^https:\/\/[\w.-]+(:\d+)?\/[\w./~-]+?(\.git)?\/?$/;
+const RE_GIT_REF = /^[\w][\w./-]{0,99}$/;
+const RE_PIO_ENV = /^[\w-]{1,40}$/;
 function slugify(s) {
     return String(s).toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 40) || 'device';
 }
@@ -688,8 +677,12 @@ app.post('/api/admin/custom-devices', requireAdmin, express.json(), (req, res) =
     const { name, repoUrl, ref, env, modelId } = req.body || {};
     if (!name?.trim() || !repoUrl?.trim() || !modelId?.trim())
         return res.status(400).json({ error: 'name, repoUrl and modelId are required' });
-    if (!/^https:\/\/[^\s]+\/[^\s]+/.test(repoUrl.trim()))
-        return res.status(400).json({ error: 'repoUrl must be an https git URL' });
+    if (!RE_GIT_URL.test(repoUrl.trim()))
+        return res.status(400).json({ error: 'repoUrl must be a plain https git URL (no spaces or special characters)' });
+    if (ref && !RE_GIT_REF.test(ref.trim()))
+        return res.status(400).json({ error: 'Invalid branch/tag name' });
+    if (env && !RE_PIO_ENV.test(env.trim()))
+        return res.status(400).json({ error: 'Invalid PlatformIO env name' });
     if (customDevices().some(d => d.modelId === modelId.trim()))
         return res.status(400).json({ error: 'A custom device with that model id already exists' });
     const dev = {
@@ -805,23 +798,7 @@ app.post('/api/admin/custom-devices/:id/build', requireAdmin, async (req, res) =
         if (!outDir) return finish(false, 'Build produced no firmware.bin');
 
         const destDir = path.join(FIRMWARE_DIR, dev.slug);
-        fs.mkdirSync(destDir, { recursive: true });
-        for (const f of ['bootloader.bin', 'partitions.bin', 'firmware.bin']) {
-            const src = path.join(outDir, f);
-            if (fs.existsSync(src)) fs.copyFileSync(src, path.join(destDir, f));
-        }
-        const boot0 = findBoot0();
-        if (boot0) fs.copyFileSync(boot0, path.join(destDir, 'boot_app0.bin'));
-        const prefix = `/firmware/${dev.slug}`;
-        fs.writeFileSync(path.join(destDir, 'manifest.json'), JSON.stringify({
-            name: `${dev.name} Firmware`, version: '1.0.0',
-            builds: [{ chipFamily: 'ESP32-S3', parts: [
-                { path: `${prefix}/bootloader.bin`, offset: 0 },
-                { path: `${prefix}/partitions.bin`, offset: 32768 },
-                { path: `${prefix}/boot_app0.bin`,  offset: 57344 },
-                { path: `${prefix}/firmware.bin`,   offset: 65536 },
-            ]}],
-        }, null, 2));
+        writeFirmwareOutput(outDir, destDir, `/firmware/${dev.slug}`, dev.name, send);
 
         dev.version = currentFirmwareInfo(dev.modelId)?.version || null;
         dev.builtAt = new Date().toISOString();
@@ -845,6 +822,217 @@ app.get('/api/device-types', (req, res) => {
     }
     types.forEach(t => { if (t.ready === undefined) t.ready = ready(t.manifest); });
     res.json(types);
+});
+
+// ── Firmware source: pull the built-in firmware from GitHub and rebuild ───────
+// Lets a deployed server stay current without a local build. Reuses the same
+// clone/build pipeline as custom devices, but for THIS project's built-in boards.
+// Default firmware source for every setup — the canonical PhotoDock repo on main.
+// (Still editable per install in Settings → Firmware source.)
+const DEFAULT_FIRMWARE_REPO = 'https://github.com/Mischa323/PhotoDock';
+const DEFAULT_FIRMWARE_REF  = 'main';
+function firmwareSource() {
+    if (!appData.firmwareSource) appData.firmwareSource = { repoUrl: DEFAULT_FIRMWARE_REPO, ref: DEFAULT_FIRMWARE_REF, lastBuiltAt: null };
+    return appData.firmwareSource;
+}
+function detectOriginUrl() {
+    try { return require('child_process').execSync('git remote get-url origin', { cwd: ROOT_DIR, timeout: 4000 }).toString().trim(); }
+    catch { return ''; }
+}
+const FW_PARTS = ['firmware.bin', 'bootloader.bin', 'partitions.bin', 'boot_app0.bin'];
+function binHash(file) {
+    try { return crypto.createHash('md5').update(fs.readFileSync(file)).digest('hex').slice(0, 16); }
+    catch { return null; }
+}
+function writeFirmwareManifest(dir, urlPrefix, name) {
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
+        name: `${name} Firmware`, version: '1.0.0',
+        builds: [{ chipFamily: 'ESP32-S3', parts: [
+            { path: `${urlPrefix}/bootloader.bin`, offset: 0 },
+            { path: `${urlPrefix}/partitions.bin`, offset: 32768 },
+            { path: `${urlPrefix}/boot_app0.bin`,  offset: 57344 },
+            { path: `${urlPrefix}/firmware.bin`,   offset: 65536 },
+        ]}],
+    }, null, 2));
+}
+// Keep the currently-served binary set (under dir/archive/<hash>/) so it can be
+// reverted to later. Filesystem-based so local builds (copy_firmware.py) and the
+// server builds stay consistent; the versions endpoint reads the same folder.
+function archiveFirmware(dir, send) {
+    const bin = path.join(dir, 'firmware.bin');
+    if (!fs.existsSync(bin)) return;
+    const hash = binHash(bin);
+    if (!hash) return;
+    const archRoot = path.join(dir, 'archive');
+    const archDir  = path.join(archRoot, hash);
+    if (!fs.existsSync(path.join(archDir, 'firmware.bin'))) {
+        fs.mkdirSync(archDir, { recursive: true });
+        for (const f of FW_PARTS) { const s = path.join(dir, f); if (fs.existsSync(s)) fs.copyFileSync(s, path.join(archDir, f)); }
+        if (send) send('log', `↳ archived previous build ${hash}\n`);
+    }
+    // Keep the 10 most recent archived versions.
+    try {
+        const items = fs.readdirSync(archRoot)
+            .map(n => ({ n, t: fs.statSync(path.join(archRoot, n)).mtimeMs }))
+            .sort((a, b) => b.t - a.t);
+        for (const it of items.slice(10)) fs.rmSync(path.join(archRoot, it.n), { recursive: true, force: true });
+    } catch {}
+}
+// Copy a finished PlatformIO build's binaries into `dir` and write the manifest,
+// archiving whatever was there before so it can be reverted to.
+function writeFirmwareOutput(buildDir, dir, urlPrefix, name, send) {
+    fs.mkdirSync(dir, { recursive: true });
+    archiveFirmware(dir, send);
+    for (const f of ['bootloader.bin', 'partitions.bin', 'firmware.bin']) {
+        const src = path.join(buildDir, f);
+        if (fs.existsSync(src)) fs.copyFileSync(src, path.join(dir, f));
+    }
+    const boot0 = findBoot0();
+    if (boot0) fs.copyFileSync(boot0, path.join(dir, 'boot_app0.bin'));
+    else if (send) send('log', '⚠ boot_app0.bin not found — flash may need a full erase\n');
+    writeFirmwareManifest(dir, urlPrefix, name);
+}
+
+app.get('/api/admin/firmware/source', requireAdmin, (_req, res) => {
+    const s = firmwareSource();
+    res.json({
+        repoUrl: s.repoUrl || '',
+        ref: s.ref || 'main',
+        lastBuiltAt: s.lastBuiltAt || null,
+        suggestedRepoUrl: s.repoUrl ? '' : detectOriginUrl(),
+        versions: {
+            'PhotoPainter-E6':  currentFirmwareInfo('PhotoPainter-E6')?.version || null,
+            'reTerminal-E1001': currentFirmwareInfo('reTerminal-E1001')?.version || null,
+        },
+    });
+});
+
+app.put('/api/admin/firmware/source', requireAdmin, express.json(), (req, res) => {
+    const { repoUrl, ref } = req.body || {};
+    if (repoUrl !== undefined) {
+        if (repoUrl && !RE_GIT_URL.test(repoUrl.trim())) return res.status(400).json({ error: 'repoUrl must be a plain https git URL (no spaces or special characters)' });
+        firmwareSource().repoUrl = (repoUrl || '').trim();
+    }
+    if (ref !== undefined) {
+        if (ref && !RE_GIT_REF.test(ref.trim())) return res.status(400).json({ error: 'Invalid branch/tag name' });
+        firmwareSource().ref = (ref || 'main').trim();
+    }
+    saveData(appData);
+    res.json(firmwareSource());
+});
+
+app.post('/api/admin/firmware/pull-rebuild', requireAdmin, async (_req, res) => {
+    if (buildInProgress) return res.status(409).json({ error: 'A build is already in progress' });
+    const s = firmwareSource();
+    const repoUrl = s.repoUrl || DEFAULT_FIRMWARE_REPO || detectOriginUrl();
+    const ref     = s.ref || DEFAULT_FIRMWARE_REF;
+    if (!repoUrl) return res.status(400).json({ error: 'Set a firmware source repo URL first' });
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.socket?.setTimeout(0);
+    res.flushHeaders();
+    const send = (type, data) => { try { res.write(`data: ${JSON.stringify({ type, data })}\n\n`); } catch {} };
+    const keepalive = setInterval(() => { try { res.write(': ping\n\n'); } catch {} }, 15000);
+    const finish = (ok, msg) => { clearInterval(keepalive); buildInProgress = false; if (ok) { s.lastBuiltAt = new Date().toISOString(); saveData(appData); } send(ok ? 'done' : 'error', msg); res.end(); };
+
+    buildInProgress = true;
+    try {
+        fs.mkdirSync(CUSTOM_FW_DIR, { recursive: true });
+        const cloneDir = path.join(CUSTOM_FW_DIR, '_builtin');
+        let code;
+        if (fs.existsSync(path.join(cloneDir, '.git'))) {
+            send('log', `▶ Updating ${repoUrl} (${ref})\n`);
+            code = await runStreamed('git', ['-C', cloneDir, 'fetch', '--depth', '1', 'origin', ref], {}, send);
+            if (code === 0) code = await runStreamed('git', ['-C', cloneDir, 'checkout', '-f', 'FETCH_HEAD'], {}, send);
+        } else {
+            try { fs.rmSync(cloneDir, { recursive: true, force: true }); } catch {}
+            send('log', `▶ Cloning ${repoUrl} (${ref})\n`);
+            code = await runStreamed('git', ['clone', '--depth', '1', '--branch', ref, repoUrl, cloneDir], {}, send);
+        }
+        if (code !== 0) return finish(false, 'git clone/update failed — check the repo URL and branch');
+
+        const espDir = path.join(cloneDir, 'esp32');
+        if (!fs.existsSync(path.join(espDir, 'platformio.ini'))) return finish(false, 'esp32/platformio.ini not found in the repo');
+
+        // Write a generic config.h (no baked Wi-Fi/key) — OTA devices keep their
+        // own saved config; a fresh flash uses the captive-portal setup.
+        const genericConfig = [
+            '#pragma once',
+            '#define DEFAULT_SLEEP_S         (5 * 60)',
+            '#define JPEG_BUF_SIZE           (512 * 1024)',
+            '#define DEFAULT_WIFI_SSID       ""',
+            '#define DEFAULT_WIFI_PASS       ""',
+            '#define DEFAULT_SERVER_HOST     ""',
+            '#define DEFAULT_SERVER_PORT     8080',
+            '#define DEFAULT_API_KEY         ""',
+        ].join('\n') + '\n';
+        fs.mkdirSync(path.join(espDir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(espDir, 'src', 'config.h'), genericConfig);
+
+        send('log', '▶ Building all board targets…\n');
+        code = await runStreamed(findPio(), ['run'], { cwd: espDir, env: { ...process.env, CI: '1', PLATFORMIO_DISABLE_AUTO_CHECK_UPDATES: '1' } }, send);
+        if (code !== 0) return finish(false, 'PlatformIO build failed');
+
+        // Publish each built-in board's binary into firmware_build/.
+        for (const [type, bld] of Object.entries(DEVICE_BUILDS)) {
+            const outDir = path.join(espDir, '.pio', 'build', bld.env);
+            if (!fs.existsSync(path.join(outDir, 'firmware.bin'))) { send('log', `⚠ ${type}: no firmware.bin\n`); continue; }
+            writeFirmwareOutput(outDir, bld.dir, bld.urlPrefix, 'PhotoDock', send);
+            send('log', `✓ Published ${type}\n`);
+        }
+        finish(true, 'Pulled & rebuilt — devices will pull the update on their next check-in (or click Update now)');
+    } catch (e) {
+        finish(false, `Rebuild error: ${e.message}`);
+    }
+});
+
+// ── Firmware versions & revert ───────────────────────────────────────────────
+// Is this a model we actually serve firmware for (built-in or custom)?
+function knownModel(model) {
+    return !!MODEL_FW_DIR[model] || (appData.customDevices || []).some(d => d.modelId === model);
+}
+app.get('/api/admin/firmware/versions', requireAdmin, (req, res) => {
+    const model = req.query.model;
+    if (!knownModel(model)) return res.status(400).json({ error: 'unknown model' });
+    const dir = modelFw(model).dir;
+    const cur = currentFirmwareInfo(model)?.version || null;
+    const models = readFirmwareChangelog();
+    const byHash = {};
+    for (const r of (models[model]?.releases || [])) if (r.buildHash) byHash[r.buildHash] = { title: r.title, date: r.date };
+    const decorate = h => ({ hash: h, ...(byHash[h] || {}) });
+    // The archived versions are the folders under <dir>/archive/<hash>/ — a single
+    // filesystem source of truth shared by server builds and local builds.
+    let versions = [];
+    try {
+        const archRoot = path.join(dir, 'archive');
+        versions = fs.readdirSync(archRoot)
+            .filter(h => h !== cur && fs.existsSync(path.join(archRoot, h, 'firmware.bin')))
+            .map(h => ({ ...decorate(h), archivedAt: fs.statSync(path.join(archRoot, h)).mtime.toISOString() }))
+            .sort((a, b) => new Date(b.archivedAt) - new Date(a.archivedAt));
+    } catch {}
+    res.json({
+        model,
+        current: cur ? { ...decorate(cur), isCurrent: true } : null,
+        versions,
+    });
+});
+
+app.post('/api/admin/firmware/revert', requireAdmin, express.json(), (req, res) => {
+    const { model, hash } = req.body || {};
+    if (!knownModel(model)) return res.status(400).json({ error: 'unknown model' });
+    const safeHash = String(hash || '').replace(/[^a-f0-9]/g, '');
+    const fw = modelFw(model);
+    const archDir = path.join(fw.dir, 'archive', safeHash);
+    if (!safeHash || !fs.existsSync(path.join(archDir, 'firmware.bin')))
+        return res.status(404).json({ error: 'That firmware version is not archived' });
+    // Archive the current live build first so the revert is itself reversible.
+    archiveFirmware(fw.dir);
+    for (const f of FW_PARTS) { const s = path.join(archDir, f); if (fs.existsSync(s)) fs.copyFileSync(s, path.join(fw.dir, f)); }
+    const name = (appData.customDevices || []).find(d => d.modelId === model)?.name || 'PhotoDock';
+    writeFirmwareManifest(fw.dir, fw.urlPrefix, name);
+    res.json({ ok: true, version: currentFirmwareInfo(model)?.version || null });
 });
 
 
@@ -1450,46 +1638,6 @@ function getScreenFiles(keyRecord) {
     return all.filter(f => (meta[f]?.screenId || null) === screenId);
 }
 
-// ── Device ping ────────────────────────────────────────────────────────────
-// Firmware calls this on every wake cycle to report its current health.
-// batt: 0-100, wifi: 0-4 (RSSI buckets), fw: firmware version string, status: string
-app.post('/api/devices/ping', requireApiKey, (req, res) => {
-    const keyRecord = req.apiKey;
-    const screenId  = keyRecord.screenId || null;
-    const { batt, wifi, fw, status } = req.body || {};
-
-    const battNum  = Number(batt);
-    const wifiNum  = Number(wifi);
-    const level    = battNum <= 15 ? 'bad' : battNum <= 30 ? 'warn' : 'good';
-    const wlabels  = ['No signal', 'Weak', 'Fair', 'Good', 'Excellent'];
-    const wlabel   = wlabels[Math.min(Math.max(Math.round(wifiNum), 0), 4)] || 'Unknown';
-
-    if (!appData.deviceStates) appData.deviceStates = {};
-    appData.deviceStates[keyRecord.id] = {
-        keyId:    keyRecord.id,
-        screenId,
-        batt:     isNaN(battNum) ? null : battNum,
-        wifi:     isNaN(wifiNum) ? null : wifiNum,
-        level,
-        wlabel,
-        fw:       fw || null,
-        status:   status || 'online',
-        lastSeen: new Date().toISOString(),
-    };
-    saveData(appData);
-
-    // Return next image info so the device can immediately decide what to show
-    const files    = getScreenFiles(keyRecord);
-    const interval = (keyRecord.intervalMinutes || 5) * 60 * 1000;
-    const slot     = Math.floor(Date.now() / interval);
-    const filename = files.length ? files[slot % files.length] : null;
-    const baseUrl  = `${req.protocol}://${req.get('host')}`;
-    res.json({
-        ok: true,
-        imageUrl:         filename ? `${baseUrl}/uploads/${filename}` : null,
-        intervalMinutes:  keyRecord.intervalMinutes || 5,
-    });
-});
 
 // Current local minutes-of-day in a timezone (0-1439).
 function nowMinutesInTz(tz) {
@@ -1768,7 +1916,17 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
 app.get('/api/version', (_req, res) => res.json({ version: appVersion, changelog }));
 
 // Serve built firmware files for esp-web-tools
-app.use('/firmware', express.static(FIRMWARE_DIR));
+// Firmware binaries can contain baked Wi-Fi credentials, so they must NOT be
+// downloadable anonymously. Allow a logged-in user (browser flashing via
+// esp-web-tools sends the session cookie) or a valid device API key (OTA passes
+// ?key=). requireAuth lets /firmware through so a session-less device reaches
+// this check rather than being redirected to /login.
+app.use('/firmware', (req, res, next) => {
+    if (req.currentUser) return next();
+    const key = req.query.key || req.headers['x-api-key'];
+    if (key && (appData.apiKeys || []).some(k => k.key === key)) return next();
+    return res.status(401).json({ error: 'Authentication required to download firmware' });
+}, express.static(FIRMWARE_DIR));
 
 // ── Static files ───────────────────────────────────────────────────────────
 app.use(express.static(FRONTEND_DIR));
@@ -1994,8 +2152,10 @@ app.get('/api/device/firmware', requireApiKey, (req, res) => {
         saveData(appData);
     }
     const baseUrl = `${req.protocol}://${req.get('host')}`;
+    // Include the device's API key so it can authenticate the (now non-public)
+    // firmware download.
     res.json({ version: info.version, size: info.size, update: should ? 'yes' : 'no',
-               url: `${baseUrl}${modelFw(model).urlPrefix}/firmware.bin` });
+               url: `${baseUrl}${modelFw(model).urlPrefix}/firmware.bin?key=${encodeURIComponent(key.key)}` });
 });
 
 // Device uploads its captured log buffer each wake. Kept as a small ring per device.
@@ -2015,13 +2175,26 @@ app.post('/api/device/log', requireApiKey, express.json({ limit: '64kb' }), (req
     res.json({ ok: true });
 });
 
-// Admin: read a device's recent logs (optionally filter by apiKeyId or deviceId).
+// Admin: read a device's recent logs. Each device is decorated with the screen
+// it's paired to (via its API key) so the dashboard can filter logs per screen.
+// Optional filters: ?deviceId= ?apiKeyId= ?screenId= (empty screenId = unpaired).
 app.get('/api/admin/device-logs', requireAdmin, (req, res) => {
     const logs = appData.deviceLogs || {};
-    const { deviceId, apiKeyId } = req.query;
-    let list = Object.values(logs);
+    const keys = appData.apiKeys || [];
+    const screens = appData.screens || [];
+    const { deviceId, apiKeyId, screenId } = req.query;
+    let list = Object.values(logs).map(l => {
+        const key = keys.find(k => k.id === l.apiKeyId);
+        const sid = key?.screenId || null;
+        const scr = sid ? screens.find(s => s.id === sid) : null;
+        return { ...l, screenId: sid, screenName: scr?.name || null, keyName: key?.name || null };
+    });
     if (deviceId) list = list.filter(l => l.deviceId === deviceId);
     if (apiKeyId) list = list.filter(l => l.apiKeyId === apiKeyId);
+    if (screenId !== undefined) {
+        const want = screenId === '' ? null : screenId;
+        list = list.filter(l => l.screenId === want);
+    }
     // Newest entries first within each device.
     list = list.map(l => ({ ...l, entries: [...l.entries].reverse() }));
     res.json(list);
@@ -2198,7 +2371,6 @@ function rssiToBars(rssi) {
 
 app.get('/api/screens', (req, res) => {
     const meta     = appData.imageMetadata || {};
-    const states   = appData.deviceStates  || {};   // legacy /api/devices/ping store
     const statuses = appData.deviceStatus  || {};    // what the firmware posts
     const now      = Date.now();
 
@@ -2214,10 +2386,8 @@ app.get('/api/screens', (req, res) => {
         let deviceInfo  = null;
         if (linkedKeys.length) {
             const fwList = Object.values(statuses).filter(d => linkedKeyIds.has(d.apiKeyId) || d.screenId === s.id);
-            const legList = linkedKeys.map(k => states[k.id]).filter(Boolean);
-            // Prefer the most recently seen across all keys and both stores.
-            const src = [...fwList, ...legList]
-                .sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen))[0];
+            // Prefer the most recently seen status across all the screen's keys.
+            const src = fwList.sort((a, b) => new Date(b.lastSeen) - new Date(a.lastSeen))[0];
             if (src) {
                 const ageMs = now - new Date(src.lastSeen).getTime();
                 // Offline detection is relative to how often the device is
@@ -2419,9 +2589,7 @@ app.delete('/api/screens/:id', requireAdmin, (req, res) => {
     const removedKeyIds = (appData.apiKeys || []).filter(k => k.screenId === screenId).map(k => k.id);
     if (removedKeyIds.length) {
         appData.apiKeys = appData.apiKeys.filter(k => k.screenId !== screenId);
-        // Clear both live-status maps: deviceStates is keyed by key id,
-        // deviceStatus is keyed by device id with an apiKeyId field.
-        for (const keyId of removedKeyIds) delete (appData.deviceStates || {})[keyId];
+        // Clear the live-status map (keyed by device id with an apiKeyId field).
         if (appData.deviceStatus) {
             for (const [devId, d] of Object.entries(appData.deviceStatus)) {
                 if (removedKeyIds.includes(d.apiKeyId)) delete appData.deviceStatus[devId];
