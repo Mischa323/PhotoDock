@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.1.0",
+    "date": "2026-06-01",
+    "changes": [
+      "Device WiFi passwords are now encrypted at rest (AES-256-GCM) — the password is stored encrypted and reused for rebuilds, and config.h is wiped back to a credential-free state after every firmware build so no plaintext is left on the server",
+      "The setup wizard marks WiFi networks that already have a saved password and lets you leave the field blank to reuse it",
+      "Docker deployment now pulls ghcr.io/mischa323/photodock (the renamed image), so updates keep flowing after the repository was renamed from Terminal-Photo-Display to PhotoDock"
+    ]
+  },
+  {
     "version": "2.0.0",
     "date": "2026-06-01",
     "changes": [
