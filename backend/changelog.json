@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.2.0",
+    "date": "2026-06-01",
+    "changes": [
+      "Devices can now connect to the server over HTTPS when their server port is set to 443 — works behind a TLS-terminating reverse proxy (Nginx, Caddy, Cloudflare Tunnel). Set the device's server host to your domain and the port to 443.",
+      "Certificate validation is skipped on the device so Let's Encrypt, self-signed and proxy certificates all work; traffic is still encrypted. Status, image, screen, pairing and OTA all use the secure connection."
+    ]
+  },
+  {
     "version": "2.1.2",
     "date": "2026-06-01",
     "changes": [
