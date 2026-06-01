@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.1.2",
+    "date": "2026-06-01",
+    "changes": [
+      "Fix automatic firmware setup producing a device that couldn't join WiFi — the option to reuse a saved WiFi password could silently bake an empty password; the wizard now always requires the password and the server refuses to build an automatic device without one"
+    ]
+  },
+  {
     "version": "2.1.1",
     "date": "2026-06-01",
     "changes": [
