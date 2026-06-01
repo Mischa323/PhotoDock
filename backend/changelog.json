@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.3.1",
+    "date": "2026-06-01",
+    "changes": [
+      "Photos now show who uploaded them — each photo in an album displays the uploader's username (for photos uploaded after this update)"
+    ]
+  },
+  {
     "version": "2.3.0",
     "date": "2026-06-01",
     "changes": [
