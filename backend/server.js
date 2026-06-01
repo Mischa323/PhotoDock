@@ -643,6 +643,11 @@ app.post('/api/admin/firmware/build', requireAdmin, express.json(), (req, res) =
     //  - provided -> remember it encrypted so this device can be rebuilt later.
     // config.h must be plaintext for the compiler, so it is wiped after the build.
     if (wifi_ssid && !wifi_password) wifi_password = decryptSecret((appData.wifiCreds || {})[wifi_ssid]);
+    // Automatic setup must have a usable password — never silently build a device
+    // that can't join WiFi (that's what "auto firmware won't connect" looks like).
+    if (wifi_ssid && server_host && !wifi_password) {
+        return res.status(400).json({ error: 'Enter the WiFi password — automatic setup needs it to connect.' });
+    }
     if (wifi_ssid && wifi_password) {
         (appData.wifiCreds || (appData.wifiCreds = {}))[wifi_ssid] = encryptSecret(wifi_password);
         saveData(appData);
