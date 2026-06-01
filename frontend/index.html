@@ -441,6 +441,23 @@
       opacity: 0.5;
     }
 
+    .photo-uploader {
+      position: absolute;
+      left: 6px; bottom: 6px;
+      max-width: calc(100% - 12px);
+      padding: 3px 8px;
+      border-radius: 7px;
+      background: rgba(0,0,0,0.5);
+      color: rgba(255,255,255,0.92);
+      font-size: 11px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      pointer-events: none;
+      z-index: 2;
+    }
+
     .photo-delete {
       position: absolute;
       top: 7px;
@@ -1004,10 +1021,14 @@ function renderPhotosView() {
     const fit = p.imageFit === 'cover' ? 'cover' : p.imageFit === 'contain' ? 'contain' : 'auto';
     const fitLabel = fit === 'cover' ? 'Fill' : fit === 'contain' ? 'Fit' : 'Auto';
     const fitTitle = 'Fit on screen: ' + (fit === 'cover' ? 'Fill (crop edges)' : fit === 'contain' ? 'Fit whole photo (bars)' : 'Follow screen setting') + ' — click to change';
+    const uploader = p.uploadedBy
+      ? `<div class="photo-uploader" title="Uploaded by ${esc(p.uploadedBy)}">👤 ${esc(p.uploadedBy)}</div>`
+      : '';
     photosHtml += `<div class="photo-tile glass">
       <img src="${esc(p.url)}" alt="${esc(p.filename)}">
       <button class="photo-delete" onclick="deletePhoto('${esc(p.filename)}')">✕</button>
       <button class="photo-fit" title="${esc(fitTitle)}" onclick="cycleFit('${esc(p.filename)}','${fit}')">${fitLabel}</button>
+      ${uploader}
     </div>`;
   }
 
