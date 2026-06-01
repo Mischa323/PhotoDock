@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.2.1",
+    "date": "2026-06-01",
+    "changes": [
+      "Fix a device wiping its configuration and dropping back to the setup portal when the server was only temporarily unreachable — it now shows a 'cannot reach server' screen and retries on the next wake, keeping its WiFi/server settings (hold BOOT at power-on to reconfigure a wrong address)"
+    ]
+  },
+  {
     "version": "2.2.0",
     "date": "2026-06-01",
     "changes": [
