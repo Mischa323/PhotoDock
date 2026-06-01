@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.3.0",
+    "date": "2026-06-01",
+    "changes": [
+      "Any signed-in user (not just admins) can now delete albums — each album card has a delete button. The photos themselves stay in your library; only the album grouping is removed."
+    ]
+  },
+  {
     "version": "2.2.2",
     "date": "2026-06-01",
     "changes": [
