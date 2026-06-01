@@ -1,8 +1,12 @@
 FROM node:20-slim
 
-# Python3 + git for PlatformIO
+# python3 + git for PlatformIO; fonts + fontconfig so server-side SVG text
+# rendering (sharp) has fonts to draw with — without them the device status
+# screens render text as empty boxes (tofu).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-pip git \
+    && apt-get install -y --no-install-recommends \
+       python3 python3-pip git fonts-dejavu-core fontconfig \
+    && fc-cache -f \
     && rm -rf /var/lib/apt/lists/*
 
 # PlatformIO CLI
