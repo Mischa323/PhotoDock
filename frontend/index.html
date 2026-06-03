@@ -665,6 +665,33 @@
       background: #29c76f;
       width: 0%;
     }
+
+    /* ── Mobile / small screens ──────────────────────── */
+    @media (max-width: 640px) {
+      .site-header  { margin: 8px 8px 0; padding: 6px 12px; height: auto; min-height: 50px; }
+      .header-logo span { font-size: 15px; }
+      .header-actions { gap: 5px; }
+      .hbtn { padding: 7px 11px; font-size: 12.5px; }
+
+      .breadcrumb { padding: 14px 14px 2px; gap: 8px; flex-wrap: wrap; }
+      .breadcrumb-title { font-size: 16px; }
+
+      .screens-grid,
+      .albums-grid  { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 12px; padding: 8px 14px 88px; }
+      .photos-section { padding: 8px 14px 88px; }
+      .photos-grid  { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+
+      .screen-card-name { font-size: 15px; }
+      .screen-card-meta { font-size: 11px; }
+      .health-strip { font-size: 9.5px; gap: 5px; }
+    }
+
+    /* Narrow phones: keep screen/album cards two-up instead of one giant card */
+    @media (max-width: 380px) {
+      .screens-grid,
+      .albums-grid { grid-template-columns: 1fr 1fr; }
+      .photos-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+    }
   </style>
 </head>
 <body>

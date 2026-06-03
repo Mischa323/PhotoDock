@@ -249,6 +249,15 @@
     }
     .setup-step-text { font-size: 9px; color: rgba(255,255,255,0.7); }
     .setup-mono { font-family: ui-monospace, monospace; color: #fff; font-weight: 600; }
+
+    /* ── Mobile / small screens ──────────────────────── */
+    @media (max-width: 640px) {
+      .gallery { padding: 8px 12px 80px; gap: 18px; grid-template-columns: 1fr; }
+    }
+    /* The bezel is a fixed 384px (its inner screen preview is pre-scaled in JS),
+       so shrink the whole subtree with zoom to fit narrow phones. */
+    @media (max-width: 440px) { .bezel { zoom: 0.84; } }
+    @media (max-width: 360px) { .bezel { zoom: 0.72; } }
   </style>
 </head>
 <body>
