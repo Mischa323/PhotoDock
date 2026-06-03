@@ -2519,8 +2519,20 @@ app.get('/api/screens', (req, res) => {
         // the screen's keys), for a live preview on the card.
         const imgKey = linkedKeys.filter(k => k.lastImage)
             .sort((a, b) => new Date(b.lastImageAt || 0) - new Date(a.lastImageAt || 0))[0];
-        const currentImage = imgKey && fs.existsSync(path.join(UPLOADS_DIR, imgKey.lastImage))
+        let currentImage = imgKey && fs.existsSync(path.join(UPLOADS_DIR, imgKey.lastImage))
             ? `/uploads/${imgKey.lastImage}` : null;
+        // Fallback: if no device has reported what it's showing yet (e.g. it's
+        // offline, or hasn't fetched since this feature shipped), preview the photo
+        // it *would* be showing right now so the card isn't blank.
+        if (!currentImage) {
+            const files = getScreenFiles(linkedKey || { screenId: s.id });
+            if (files.length) {
+                const ms    = ((linkedKey?.intervalMinutes) || 5) * 60 * 1000;
+                const slot  = Math.floor(Date.now() / ms);
+                const fname = files[((slot % files.length) + files.length) % files.length];
+                if (fs.existsSync(path.join(UPLOADS_DIR, fname))) currentImage = `/uploads/${fname}`;
+            }
+        }
         return {
             ...s,
             currentImage,
