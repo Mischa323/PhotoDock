@@ -1055,6 +1055,11 @@
         .settings-tab:hover { background: rgba(6,182,212,0.1); color: #22d3ee; }
         .settings-tab.active { background: rgba(6,182,212,0.16); border-color: rgba(6,182,212,0.45); color: #22d3ee; }
 
+        /* Master fold: one toggle (the "Settings" title) hides/shows everything. */
+        body.settings-folded #settingsTabs,
+        body.settings-folded main { display: none; }
+        body.settings-folded #settingsFoldChevron { transform: rotate(-90deg); }
+
         /* Usage gauges */
         .gauge-grid { display: flex; flex-wrap: wrap; gap: 18px; padding: 22px 24px; }
         .gauge-card {
@@ -1087,9 +1092,10 @@
 <body>
 
 <header>
-    <div style="display:flex;align-items:center;gap:10px">
+    <div onclick="toggleSettingsFold()" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none" title="Show or hide all settings">
         <img src="/favicon.svg" width="22" height="22" alt="">
         <h1>Settings</h1>
+        <span id="settingsFoldChevron" style="font-size:15px;opacity:0.55;transition:transform 0.2s">&#9662;</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
         <a href="/" class="back-btn">&#8592; Back to Library</a>
@@ -3046,6 +3052,14 @@
             });
         });
     }
+
+    // ── Master settings fold: one toggle (the "Settings" title) hides/shows all ──
+    function toggleSettingsFold() {
+        const folded = document.body.classList.toggle('settings-folded');
+        localStorage.setItem('adminSettingsFolded', folded ? '1' : '0');
+    }
+    window.toggleSettingsFold = toggleSettingsFold;
+    if (localStorage.getItem('adminSettingsFolded') === '1') document.body.classList.add('settings-folded');
 
     loadMyEmail();
     load2FAStatus();
