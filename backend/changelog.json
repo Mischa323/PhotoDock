@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.4.1",
+    "date": "2026-06-03",
+    "changes": [
+      "Screen card image previews now also appear for offline devices and screens that haven't fetched yet — the card falls back to the photo the device would currently be showing instead of staying blank"
+    ]
+  },
+  {
     "version": "2.4.0",
     "date": "2026-06-01",
     "changes": [
