@@ -93,8 +93,16 @@ document.addEventListener('click', e => {
 (function () {
   function applyRole() {
     fetch('/api/me').then(r => (r.ok ? r.json() : null)).then(me => {
-      if (me && me.role !== 'admin') {
+      if (!me) return;
+      if (me.role !== 'admin') {
         document.querySelectorAll('[data-admin-only]').forEach(el => el.remove());
+      }
+      // Show the user's profile photo in the Account link(s), if they have one.
+      if (me.avatar) {
+        document.querySelectorAll('.nav-avatar').forEach(el => {
+          el.textContent = '';
+          el.style.backgroundImage = "url('" + me.avatar + "')";
+        });
       }
     }).catch(() => {});
   }

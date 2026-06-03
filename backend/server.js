@@ -1265,7 +1265,8 @@ app.post('/api/2fa/complete', express.json(), (req, res) => {
 app.get('/api/2fa/status', (req, res) => {
     if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
     const u = appData.users.find(u => u.id === req.currentUser.id);
-    res.json({ enabled: !!u.twoFactorEnabled, method: u.twoFactorMethod || 'totp', email: maskEmail(u.email) });
+    res.json({ enabled: !!u.twoFactorEnabled, method: u.twoFactorMethod || 'totp', email: maskEmail(u.email),
+               hasEmail: !!u.email, mailConfigured: !!(appData.settings?.email?.method) });
 });
 
 app.get('/api/2fa/setup', async (req, res) => {
