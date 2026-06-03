@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.4.0",
+    "date": "2026-06-01",
+    "changes": [
+      "Screen cards on the home page now show a live preview of the photo the device is currently displaying — updated each time the device fetches a new image"
+    ]
+  },
+  {
+    "version": "2.3.2",
+    "date": "2026-06-03",
+    "changes": [
+      "Fix mismatched battery readings on the device card — the headline battery meter now uses the device's fuel-gauge percentage (matching the Power details) instead of a voltage estimate"
+    ]
+  },
+  {
     "version": "2.3.1",
     "date": "2026-06-01",
     "changes": [
