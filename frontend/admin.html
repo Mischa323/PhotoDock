@@ -76,6 +76,19 @@
             section { grid-column: 1 / -1 !important; }
         }
 
+        /* ── Mobile / small screens ───────────────────────────────── */
+        @media (max-width: 640px) {
+            main { margin: 18px auto; padding: 0 12px 48px; gap: 16px; }
+            .settings-tabs { padding: 12px 12px 0; gap: 5px; }
+            .settings-tab  { padding: 8px 13px; font-size: 12.5px; }
+            .settings-grid { grid-template-columns: 1fr 1fr; padding: 16px 14px; }
+            .gauge-grid    { padding: 16px 14px; gap: 12px; }
+            .usage-meta    { padding: 0 14px 16px; }
+        }
+        @media (max-width: 420px) {
+            .settings-grid { grid-template-columns: 1fr; }
+        }
+
         .drag-handle {
             cursor: grab;
             color: #ccc;
