@@ -2477,7 +2477,10 @@ app.get('/api/screens', (req, res) => {
                 else if (ageMs < 3 * expectedMs + grace)  { status = 'recent';   statusLabel = 'Recently seen'; }
                 else                                      { status = 'offline';  statusLabel = 'Offline'; }
                 // Normalize fields from whichever store we used.
-                const batt = src.batt ?? battMvToPercent(src.batteryMv);
+                // Prefer the device's own PMU fuel-gauge percentage (batteryPct) so the
+                // headline battery meter matches the "Level" shown in Power details. Only
+                // fall back to the crude voltage→percent estimate when no gauge value exists.
+                const batt = src.batt ?? src.batteryPct ?? battMvToPercent(src.batteryMv);
                 const w    = src.wifi != null ? { bars: src.wifi, label: src.wlabel || '' }
                                               : rssiToBars(src.wifiRssi);
                 deviceInfo = {
