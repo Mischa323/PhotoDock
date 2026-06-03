@@ -1217,12 +1217,15 @@ app.post('/login', async (req, res) => {
     }
 });
 
-app.post('/logout', (req, res) => {
+// Support both GET (header "Log out" links) and POST.
+function doLogout(req, res) {
     const cookies = parseCookies(req);
     if (cookies[COOKIE_NAME]) deleteToken(cookies[COOKIE_NAME]);
     clearCookie(res, req);
     res.redirect('/login');
-});
+}
+app.get('/logout',  doLogout);
+app.post('/logout', doLogout);
 
 app.get('/screens', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'screens.html')));
 app.get('/admin',   requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'admin.html')));
