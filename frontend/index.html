@@ -56,26 +56,7 @@
       cursor: pointer;
     }
 
-    /* Header nav: inline on desktop, collapses into a ☰ menu on narrow screens */
-    .nav-wrap { position: relative; display: flex; align-items: center; }
-    .nav-toggle { display: none; font-size: 16px; line-height: 1; }
-    .nav-links { display: flex; gap: 6px; align-items: center; }
-
-    @media (max-width: 820px) {
-      .nav-toggle { display: inline-flex; }
-      .nav-links {
-        display: none;
-        position: absolute; right: 0; top: calc(100% + 8px);
-        flex-direction: column; gap: 4px; min-width: 196px; padding: 6px;
-        background: rgba(18,22,31,0.95);
-        backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(255,255,255,0.14); border-radius: 12px;
-        box-shadow: 0 14px 36px rgba(0,0,0,0.45); z-index: 200;
-      }
-      .nav-links.open { display: flex; }
-      .nav-links .hbtn { width: 100%; text-align: left; background: transparent; border-color: transparent; }
-      .nav-links .hbtn:hover { background: rgba(255,255,255,0.08); }
-    }
+    /* Header nav menu styles are shared in glass.css */
 
     /* ── Upload dropdown ─────────────────────────────── */
     .upload-wrap { position: relative; }
@@ -729,9 +710,10 @@
         <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
         <div class="nav-links" id="navLinks">
           <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
-          <a href="/admin" class="glass-btn hbtn">⚙ Settings</a>
+          <a href="/admin" class="glass-btn hbtn" data-admin-only>⚙ Settings</a>
           <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
           <button class="glass-btn hbtn" onclick="openSlideshow()">▶ Slideshow</button>
+          <a href="/account" class="glass-btn hbtn">👤 Account</a>
           <a href="/logout" class="glass-btn hbtn">Log out</a>
         </div>
       </div>
@@ -1134,13 +1116,9 @@ function closeUploadMenu() {
   document.getElementById('uploadDropdown').classList.remove('open');
 }
 
-function toggleNavMenu() {
-  document.getElementById('navLinks').classList.toggle('open');
-}
-
+// toggleNavMenu + nav close are shared in theme.js
 document.addEventListener('click', e => {
   if (!e.target.closest('.upload-wrap')) closeUploadMenu();
-  if (!e.target.closest('.nav-wrap')) document.getElementById('navLinks').classList.remove('open');
 });
 
 // ── File picking / drag-drop ──────────────────────────────

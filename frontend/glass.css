@@ -255,3 +255,23 @@ select.glass-input option {
   /* 16px inputs stop iOS Safari from zooming in when a field is focused */
   .glass-input { font-size: 16px; }
 }
+
+/* ── Header nav menu: inline on desktop, ☰ dropdown on narrow (shared) ── */
+.nav-wrap { position: relative; display: flex; align-items: center; }
+.nav-toggle { display: none; font-size: 16px; line-height: 1; }
+.nav-links { display: flex; gap: 6px; align-items: center; }
+@media (max-width: 820px) {
+  .nav-toggle { display: inline-flex; }
+  .nav-links {
+    display: none;
+    position: absolute; right: 0; top: calc(100% + 8px);
+    flex-direction: column; gap: 4px; min-width: 196px; padding: 6px;
+    background: rgba(18,22,31,0.96);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 12px;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.45); z-index: 200;
+  }
+  .nav-links.open { display: flex; }
+  .nav-links .hbtn { width: 100%; text-align: left; background: transparent; border-color: transparent; }
+  .nav-links .hbtn:hover { background: rgba(255,255,255,0.08); }
+}

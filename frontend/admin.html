@@ -88,6 +88,10 @@
         @media (max-width: 420px) {
             .settings-grid { grid-template-columns: 1fr; }
         }
+        /* Header nav menu links fill the dropdown on narrow screens */
+        @media (max-width: 820px) {
+            .nav-links .back-btn { width: 100%; text-align: left; }
+        }
 
         .drag-handle {
             cursor: grab;
@@ -1098,6 +1102,15 @@
         <span id="settingsFoldChevron" style="font-size:15px;opacity:0.55;transition:transform 0.2s">&#9662;</span>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
+        <div class="nav-wrap">
+            <button class="back-btn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+            <div class="nav-links" id="navLinks">
+                <a href="/screens" class="back-btn">&#128247; Screens</a>
+                <a href="/pair" class="back-btn">&#9881; Pair device</a>
+                <a href="/account" class="back-btn">&#128100; Account</a>
+                <a href="/logout" class="back-btn">Log out</a>
+            </div>
+        </div>
         <a href="/" class="back-btn">&#8592; Back to Library</a>
     </div>
 </header>

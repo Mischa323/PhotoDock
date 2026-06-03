@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Account — PhotoDock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <script src="/theme.js"></script>
+  <style>
+    body { min-height: 100vh; }
+    .site-header {
+      position: sticky; top: 0; z-index: 30;
+      margin: 12px 16px 0; border-radius: 16px; padding: 6px 16px;
+      min-height: 54px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .header-logo { display: flex; align-items: center; gap: 10px; }
+    .header-logo span { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.9); }
+    .hbtn { padding: 6px 14px; border-radius: 10px; font-size: 13px; border: none; cursor: pointer;
+            text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+
+    .wrap { max-width: 560px; margin: 22px auto 80px; padding: 0 16px; position: relative; z-index: 5; }
+    .card { border-radius: 18px; padding: 22px 24px; margin-bottom: 16px; }
+    .card h2 { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.92); margin-bottom: 16px; }
+    .field { margin-bottom: 14px; }
+    .row-btn { display: flex; justify-content: flex-end; margin-top: 2px; }
+    .submit-btn { padding: 11px 20px; font-size: 14px; border-radius: 10px; }
+    .avatar-row { display: flex; align-items: center; gap: 18px; }
+    .avatar {
+      width: 84px; height: 84px; border-radius: 50%; flex-shrink: 0;
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+      display: flex; align-items: center; justify-content: center; font-size: 34px;
+      color: rgba(255,255,255,0.4); background-size: cover; background-position: center;
+    }
+    .msg { font-size: 13px; margin-top: 10px; min-height: 16px; }
+    .msg.ok  { color: #4ade80; }
+    .msg.err { color: #f87171; }
+    .hint { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="space-bg" id="bgEl"></div>
+
+  <div class="site-header glass">
+    <div class="header-logo">
+      <img src="/favicon.svg" width="24" height="24" alt="">
+      <span>Account</span>
+    </div>
+    <div class="header-actions">
+      <div class="nav-wrap">
+        <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+        <div class="nav-links" id="navLinks">
+          <a href="/" class="glass-btn hbtn">&#8962; Gallery</a>
+          <a href="/screens" class="glass-btn hbtn">&#128247; Screens</a>
+          <a href="/admin" class="glass-btn hbtn" data-admin-only>&#9881; Settings</a>
+          <a href="/logout" class="glass-btn hbtn">Log out</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- Profile photo -->
+    <div class="card glass">
+      <h2>Profile photo</h2>
+      <div class="avatar-row">
+        <div class="avatar" id="avatarBox">&#128100;</div>
+        <div>
+          <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="uploadAvatar()">
+          <button class="glass-btn hbtn" onclick="document.getElementById('avatarInput').click()">Choose photo</button>
+          <div class="hint">JPG or PNG, up to 8 MB.</div>
+          <div class="msg" id="avatarMsg"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account details -->
+    <div class="card glass">
+      <h2>Account</h2>
+      <div class="field">
+        <div class="field-label">Username</div>
+        <input class="glass-input" id="username" disabled>
+      </div>
+      <div class="field">
+        <div class="field-label">Email address</div>
+        <input class="glass-input" id="email" type="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="row-btn"><button class="cyan-btn submit-btn" onclick="saveEmail()">Save email</button></div>
+      <div class="msg" id="emailMsg"></div>
+    </div>
+
+    <!-- Password -->
+    <div class="card glass">
+      <h2>Change password</h2>
+      <div class="field">
+        <div class="field-label">Current password</div>
+        <input class="glass-input" id="curPass" type="password" autocomplete="current-password">
+      </div>
+      <div class="field">
+        <div class="field-label">New password</div>
+        <input class="glass-input" id="newPass" type="password" autocomplete="new-password" placeholder="At least 6 characters">
+      </div>
+      <div class="row-btn"><button class="cyan-btn submit-btn" onclick="changePassword()">Update password</button></div>
+      <div class="msg" id="passMsg"></div>
+    </div>
+  </div>
+
+  <script>
+    function setAvatar(url) {
+      const box = document.getElementById('avatarBox');
+      box.textContent = '';
+      box.style.backgroundImage = "url('" + url + "')";
+    }
+    function msg(id, text, ok) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = 'msg ' + (ok ? 'ok' : 'err');
+    }
+    async function load() {
+      const r = await fetch('/api/me');
+      if (!r.ok) { location.href = '/login'; return; }
+      const me = await r.json();
+      document.getElementById('username').value = me.username || '';
+      document.getElementById('email').value = me.email || '';
+      if (me.avatar) setAvatar(me.avatar);
+    }
+    async function saveEmail() {
+      const email = document.getElementById('email').value.trim();
+      const r = await fetch('/api/user/email', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const d = await r.json().catch(() => ({}));
+      msg('emailMsg', r.ok ? 'Email saved.' : (d.error || 'Could not save email'), r.ok);
+    }
+    async function changePassword() {
+      const currentPassword = document.getElementById('curPass').value;
+      const newPassword = document.getElementById('newPass').value;
+      if (!newPassword) return msg('passMsg', 'Enter a new password.', false);
+      const r = await fetch('/api/user/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const d = await r.json().catch(() => ({}));
+      msg('passMsg', r.ok ? 'Password updated.' : (d.error || 'Could not update password'), r.ok);
+      if (r.ok) { document.getElementById('curPass').value = ''; document.getElementById('newPass').value = ''; }
+    }
+    async function uploadAvatar() {
+      const f = document.getElementById('avatarInput').files[0];
+      if (!f) return;
+      const fd = new FormData(); fd.append('avatar', f);
+      msg('avatarMsg', 'Uploading…', true);
+      const r = await fetch('/api/user/avatar', { method: 'POST', body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setAvatar(d.avatar); msg('avatarMsg', 'Photo updated.', true); }
+      else msg('avatarMsg', d.error || 'Upload failed', false);
+    }
+    load();
+  </script>
+</body>
+</html>

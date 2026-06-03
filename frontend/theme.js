@@ -73,3 +73,31 @@
   if (document.readyState !== 'loading') TPDTheme.apply();
   else document.addEventListener('DOMContentLoaded', () => TPDTheme.apply());
 })();
+
+/* ════════════════════════════════════════════════════
+   Shared header nav: ☰ menu toggle + admin-only links
+════════════════════════════════════════════════════ */
+window.toggleNavMenu = function () {
+  const el = document.getElementById('navLinks');
+  if (el) el.classList.toggle('open');
+};
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.nav-wrap')) {
+    const el = document.getElementById('navLinks');
+    if (el) el.classList.remove('open');
+  }
+});
+
+// Hide elements marked [data-admin-only] (e.g. the Settings link) for non-admins.
+(function () {
+  function applyRole() {
+    fetch('/api/me').then(r => (r.ok ? r.json() : null)).then(me => {
+      if (me && me.role !== 'admin') {
+        document.querySelectorAll('[data-admin-only]').forEach(el => el.remove());
+      }
+    }).catch(() => {});
+  }
+  if (document.readyState !== 'loading') applyRole();
+  else document.addEventListener('DOMContentLoaded', applyRole);
+})();

@@ -219,10 +219,17 @@
   <span class="title">Screens</span>
   <div class="header-actions">
     <button class="cyan-btn hbtn" onclick="openSetup()">&#65291; Set up a device</button>
-    <a href="/pair" class="glass-btn hbtn" title="Pair a device that's already on your WiFi and showing a QR code">&#128241; Pair a device</a>
-    <button class="glass-btn hbtn" onclick="openFwLog()" title="See what changed in the device firmware">&#128221; Firmware log</button>
-    <a href="/" class="glass-btn hbtn">&#8962; Gallery</a>
-    <a href="/admin" class="glass-btn hbtn">&#9881; Settings</a>
+    <div class="nav-wrap">
+      <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+      <div class="nav-links" id="navLinks">
+        <a href="/" class="glass-btn hbtn">&#8962; Gallery</a>
+        <a href="/admin" class="glass-btn hbtn" data-admin-only>&#9881; Settings</a>
+        <a href="/pair" class="glass-btn hbtn" title="Pair a device that's already on your WiFi and showing a QR code">&#128241; Pair a device</a>
+        <button class="glass-btn hbtn" onclick="openFwLog()" title="See what changed in the device firmware">&#128221; Firmware log</button>
+        <a href="/account" class="glass-btn hbtn">&#128100; Account</a>
+        <a href="/logout" class="glass-btn hbtn">Log out</a>
+      </div>
+    </div>
   </div>
 </div>
 
