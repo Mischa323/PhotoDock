@@ -1226,6 +1226,7 @@ app.post('/logout', (req, res) => {
 
 app.get('/screens', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'screens.html')));
 app.get('/admin',   requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'admin.html')));
+app.get('/account', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'account.html')));
 
 // ── 2FA — login completion (unauthenticated) ───────────────────────────────
 app.get('/2fa',     (_req, res) => res.sendFile(path.join(FRONTEND_DIR, '2fa.html')));
@@ -1380,6 +1381,57 @@ app.put('/api/user/email', (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Account: change own password ─────────────────────────────────────────────
+app.put('/api/user/password', express.json(), async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const { currentPassword, newPassword } = req.body || {};
+    if (!newPassword || String(newPassword).length < 6)
+        return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    if (!(await verifyPassword(currentPassword || '', u.password)))
+        return res.status(400).json({ error: 'Current password is incorrect' });
+    u.password = await hashPassword(newPassword);
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// ── Account: profile photo (avatar) ───────────────────────────────────────────
+const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
+try { fs.mkdirSync(AVATARS_DIR, { recursive: true }); } catch {}
+const avatarUpload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => cb(null, AVATARS_DIR),
+        filename: (req, file, cb) => cb(null, req.currentUser.id + (path.extname(file.originalname).toLowerCase() || '.jpg')),
+    }),
+    fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+    limits: { fileSize: 8 * 1024 * 1024 },
+});
+app.post('/api/user/avatar', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    avatarUpload.single('avatar')(req, res, err => {
+        if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+        if (!req.file) return res.status(400).json({ error: 'Please choose an image' });
+        const u = appData.users.find(u => u.id === req.currentUser.id);
+        if (u.avatar && u.avatar !== req.file.filename) {   // drop the old file if the ext changed
+            try { fs.unlinkSync(path.join(AVATARS_DIR, u.avatar)); } catch {}
+        }
+        u.avatar = req.file.filename;
+        u.avatarVer = (u.avatarVer || 0) + 1;
+        saveData(appData);
+        res.json({ ok: true, avatar: `/api/user/avatar/${u.id}?v=${u.avatarVer}` });
+    });
+});
+app.get('/api/user/avatar/:id', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const u = appData.users.find(u => u.id === req.params.id);
+    if (!u || !u.avatar) return res.status(404).end();
+    const p = path.join(AVATARS_DIR, u.avatar);
+    if (!fs.existsSync(p)) return res.status(404).end();
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(p);
+});
+
 // Admin: reset another user's 2FA
 app.delete('/api/admin/users/:id/2fa', requireAdmin, (req, res) => {
     const u = appData.users.find(u => u.id === req.params.id);
@@ -1394,7 +1446,10 @@ app.delete('/api/admin/users/:id/2fa', requireAdmin, (req, res) => {
 app.get('/api/me', (req, res) => {
     const user = req.currentUser;
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
-    res.json({ id: user.id, username: user.username, role: user.role, permissions: getPermissions(user.role), twoFactorEnabled: !!user.twoFactorEnabled });
+    const u = appData.users.find(x => x.id === user.id) || {};
+    res.json({ id: user.id, username: user.username, role: user.role, permissions: getPermissions(user.role),
+               twoFactorEnabled: !!u.twoFactorEnabled, email: u.email || '',
+               avatar: u.avatar ? `/api/user/avatar/${user.id}?v=${u.avatarVer || 0}` : null });
 });
 
 // ── Admin API — sessions (admin only) ─────────────────────────────────────
