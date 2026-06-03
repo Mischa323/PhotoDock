@@ -934,13 +934,19 @@ function renderScreensView() {
 
     const deviceBadge = s.device ? `<span class="device-badge" style="position:absolute;top:10px;right:10px">🖥 Device</span>` : '';
 
+    // Live preview of the photo the device is currently showing (falls back to
+    // the empty placeholder cells when we don't know what it's showing yet).
+    const bg = s.currentImage
+      ? `<div class="screen-card-bg" style="display:block;background-image:url('${esc(s.currentImage)}');background-size:cover;background-position:center"></div>`
+      : `<div class="screen-card-bg">
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+        <div class="screen-card-cell"></div>
+      </div>`;
+
     html += `<button class="screen-card" style="border:${border};box-shadow:${shadow}" onclick="openScreen('${s.id}')">
-      <div class="screen-card-bg">
-        <div class="screen-card-cell"></div>
-        <div class="screen-card-cell"></div>
-        <div class="screen-card-cell"></div>
-        <div class="screen-card-cell"></div>
-      </div>
+      ${bg}
       <div class="screen-card-overlay" style="background:${gradient}"></div>
       <span style="position:absolute;top:11px;left:11px;width:12px;height:12px;border-radius:50%;background:${color};box-shadow:0 0 0 2px rgba(0,0,0,0.35)"></span>
       ${deviceBadge}

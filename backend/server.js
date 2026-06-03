@@ -1931,6 +1931,12 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     const slot     = Math.floor(Date.now() / intervalMs);
     const filename = files[(((slot + offset) % files.length) + files.length) % files.length];
     const filepath = path.join(UPLOADS_DIR, filename);
+    // Remember what this device is currently showing so the dashboard can preview it.
+    if (keyRecord.lastImage !== filename) {
+        keyRecord.lastImage   = filename;
+        keyRecord.lastImageAt = new Date().toISOString();
+        saveData(appData);
+    }
     const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
     // Per-key date overlay override (set in admin panel)
     if (keyRecord.showDate === true)  { settings.showDate = true;  settings.showDayName = true; }
@@ -2509,8 +2515,16 @@ app.get('/api/screens', (req, res) => {
         }
         const serverFw = currentFirmwareInfo();
         const deviceFw = deviceInfo?.fw || null;
+        // The photo the device is currently showing (most recently fetched across
+        // the screen's keys), for a live preview on the card.
+        const imgKey = linkedKeys.filter(k => k.lastImage)
+            .sort((a, b) => new Date(b.lastImageAt || 0) - new Date(a.lastImageAt || 0))[0];
+        const currentImage = imgKey && fs.existsSync(path.join(UPLOADS_DIR, imgKey.lastImage))
+            ? `/uploads/${imgKey.lastImage}` : null;
         return {
             ...s,
+            currentImage,
+            currentImageAt: imgKey?.lastImageAt || null,
             imageCount:  Object.values(meta).filter(m => m.screenId === s.id).length,
             albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
             intervalMinutes: linkedKey?.intervalMinutes || 5,
