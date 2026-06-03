@@ -1176,106 +1176,6 @@
         </div></div>
     </section>
 
-    <!-- My Security -->
-    <section id="sec-security">
-        <div class="section-header"><h2>My Security</h2></div>
-        <div class="section-body"><div class="section-body-inner">
-        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px" id="twoFaSection">
-
-            <!-- Email address -->
-            <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px;flex-wrap:wrap;gap:8px">
-                <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px;flex:1">
-                    Email address <span class="help" data-tip="Your email address is used when email 2FA is enabled — a code is sent here at each login. It is also used for future notifications.">?</span>
-                    <small style="font-size:12px;color:#999">Used for email 2FA codes and notifications</small>
-                </label>
-                <div style="display:flex;gap:8px;align-items:center">
-                    <input type="email" id="myEmailInput" class="tz-input" placeholder="you@example.com" style="width:210px">
-                    <button class="btn-add" onclick="saveMyEmail()">Save</button>
-                </div>
-            </div>
-
-            <!-- 2FA status row -->
-            <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px">
-                <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px">
-                    Two-Factor Authentication <span class="help" data-tip="2FA adds a second step after your password. Even if someone knows your password, they still need the code to log in.">?</span>
-                    <small style="font-size:12px;color:#999" id="twoFaMethodLabel">Use an authenticator app or email for extra login security</small>
-                </label>
-                <span id="twoFaBadge" style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px"></span>
-            </div>
-
-            <!-- Method selector (only shown when 2FA is disabled) -->
-            <div id="twoFaMethodRow" style="display:none;max-width:480px">
-                <label style="font-size:13px;color:#555;display:block;margin-bottom:8px">2FA method</label>
-                <div style="display:flex;gap:20px">
-                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-                        <input type="radio" name="twoFaMethod" value="totp" id="methodTotp" checked> Authenticator app <span class="help" data-tip="Generates time-based codes in an app like Google Authenticator or Authy. Works offline — no internet needed on your phone.">?</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-                        <input type="radio" name="twoFaMethod" value="email" id="methodEmail"> Email code <span class="help" data-tip="Sends a 6-digit code to your email address at each login. Requires email to be configured in the Email section below.">?</span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- TOTP setup panel -->
-            <div id="twoFaSetupPanel" style="display:none;flex-direction:column;gap:14px;max-width:480px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
-                <img id="twoFaQr" src="" alt="QR code" style="width:180px;height:180px;border-radius:8px;border:1px solid #ddd;background:#fff">
-                <div style="font-size:12px;color:#888">Or enter the secret manually: <code id="twoFaSecret" style="font-family:monospace;color:#333;word-break:break-all"></code></div>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaEnableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirm2FAEnable()">
-                    <button class="btn-add" onclick="confirm2FAEnable()">Activate</button>
-                    <button class="btn-cancel" onclick="cancel2FASetup()">Cancel</button>
-                </div>
-            </div>
-
-            <!-- Email 2FA enable panel -->
-            <div id="twoFaEmailEnablePanel" style="display:none;flex-direction:column;gap:14px;max-width:480px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444" id="emailEnableMsg">A 6-digit code has been sent to your email address. Enter it below to activate email 2FA.</p>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaEmailEnableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirmEmailEnable()">
-                    <button class="btn-add" onclick="confirmEmailEnable()">Activate</button>
-                    <button class="btn-cancel" onclick="cancel2FASetup()">Cancel</button>
-                    <button class="btn-cancel" onclick="resend2FAEmailCode('enable')">Resend code</button>
-                </div>
-            </div>
-
-            <!-- TOTP disable panel -->
-            <div id="twoFaDisablePanel" style="display:none;flex-direction:column;gap:10px;max-width:480px;background:#fff5f5;border:1px solid #fcd;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444">Enter your current authenticator code to disable 2FA.</p>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaDisableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirm2FADisable()">
-                    <button style="background:#c0392b;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600" onclick="confirm2FADisable()">Disable 2FA</button>
-                    <button class="btn-cancel" onclick="cancel2FADisable()">Cancel</button>
-                </div>
-            </div>
-
-            <!-- Email 2FA disable panel -->
-            <div id="twoFaEmailDisablePanel" style="display:none;flex-direction:column;gap:10px;max-width:480px;background:#fff5f5;border:1px solid #fcd;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444" id="emailDisableMsg">A code has been sent to your email address. Enter it below to disable 2FA.</p>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaEmailDisableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirmEmailDisable()">
-                    <button style="background:#c0392b;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600" onclick="confirmEmailDisable()">Disable 2FA</button>
-                    <button class="btn-cancel" onclick="cancel2FADisable()">Cancel</button>
-                    <button class="btn-cancel" onclick="resend2FAEmailCode('disable')">Resend code</button>
-                </div>
-            </div>
-
-            <!-- Action button -->
-            <div>
-                <button class="btn-add" id="twoFaToggleBtn" onclick="toggle2FA()" style="display:none"></button>
-            </div>
-        </div>
-        </div></div>
-    </section>
-
     <!-- Email -->
     <section id="sec-email">
         <div class="section-header"><h2>Email</h2></div>
@@ -3074,8 +2974,6 @@
     window.toggleSettingsFold = toggleSettingsFold;
     if (localStorage.getItem('adminSettingsFolded') === '1') document.body.classList.add('settings-folded');
 
-    loadMyEmail();
-    load2FAStatus();
     loadEmailConfig();
     loadDisplaySettings();
     loadActivityLog();
@@ -3098,7 +2996,7 @@
                     <div style="font-weight:600;margin-bottom:4px">Account created successfully!</div>
                     <div style="color:#a5d8e6;font-size:13px">We recommend setting up multi-factor authentication to protect your account.</div>
                 </div>
-                <button onclick="document.getElementById('sec-security').scrollIntoView({behavior:'smooth'});this.closest('div[style]').remove()" style="background:#06b6d4;color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">Set up MFA</button>
+                <button onclick="location.href='/account'" style="background:#06b6d4;color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">Set up MFA</button>
                 <button onclick="this.closest('div[style]').remove()" style="background:transparent;color:#888;border:none;cursor:pointer;font-size:18px;line-height:1;padding:0 4px">✕</button>`;
             document.body.appendChild(banner);
         }, 400);
@@ -3108,7 +3006,6 @@
     const GRID_DEFAULTS = {
         'sec-usage':     'full',
         'sec-activity':  'full',
-        'sec-security':  'half',
         'sec-email':     'half',
         'sec-display':   'full',
         'sec-users':     'full',
@@ -3207,7 +3104,6 @@
         'sec-activity':    'logs',
         'sec-users':       'users',
         'sec-roles':       'users',
-        'sec-security':    'server',
         'sec-email':       'server',
         'sec-display':     'server',
         'sec-api-ref':     'server',
