@@ -362,9 +362,22 @@
 
         .btn-save-settings:hover { background: var(--accent-hover); }
 
-        .alert-type-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-        .alert-type-row label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; margin: 0; }
-        .alert-type-row a { font-size: 12px; color: var(--accent); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+        .alert-types-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 11px 28px;
+            margin-top: 4px;
+        }
+        .alert-type-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 9px 12px;
+            background: rgba(125,125,125,0.06);
+            border: 1px solid rgba(125,125,125,0.14);
+            border-radius: 8px;
+        }
+        .alert-type-row label { display: flex; align-items: center; gap: 9px; font-size: 13.5px; cursor: pointer; margin: 0; white-space: nowrap; }
+        .alert-type-row label input { flex-shrink: 0; }
+        .alert-type-row a { font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
         .alert-type-row a:hover { text-decoration: underline; }
 
         tbody tr { border-bottom: 1px solid #f0f3f0; }
@@ -1274,7 +1287,7 @@
             <h3 style="margin:0 0 14px;font-size:15px">Alerts &amp; delivery</h3>
             <p style="margin:0 0 16px;font-size:13px;color:#666">Device &amp; server health emails (offline, back online, paired, low battery, firmware update, storage almost full) are sent to admin accounts. Links inside those emails use the public dashboard URL below.</p>
             <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
-                <div class="settings-row">
+                <div class="settings-row" style="grid-column:span 2">
                     <label for="publicUrl">
                         Public dashboard URL <span class="help" data-tip="The address admins use to reach this dashboard from outside, e.g. https://photos.example.com. Used for the buttons and links inside alert emails. Leave blank to omit links.">?</span>
                         <small>Used for links inside alert emails</small>
@@ -1300,12 +1313,12 @@
                         <option value="dark">Dark</option>
                     </select>
                 </div>
-                <div class="settings-row">
+                <div class="settings-row" style="grid-column:1 / -1">
                     <label>
                         Which alerts <span class="help" data-tip="Choose which events send an email. Turn the master switch above off to silence all of them at once. Use Preview to see exactly what each email looks like.">?</span>
                         <small>Enable or disable mail per alert — preview each one</small>
                     </label>
-                    <div id="alertTypes" style="display:flex;flex-direction:column;gap:9px">
+                    <div id="alertTypes" class="alert-types-list">
                         <div class="alert-type-row"><label><input type="checkbox" data-alert="offline"> Device went offline</label><a href="/api/admin/email/preview/offline" target="_blank" rel="noopener">Preview &#8599;</a></div>
                         <div class="alert-type-row"><label><input type="checkbox" data-alert="back_online"> Device back online</label><a href="/api/admin/email/preview/back_online" target="_blank" rel="noopener">Preview &#8599;</a></div>
                         <div class="alert-type-row"><label><input type="checkbox" data-alert="paired"> Device paired</label><a href="/api/admin/email/preview/paired" target="_blank" rel="noopener">Preview &#8599;</a></div>
@@ -1314,14 +1327,14 @@
                         <div class="alert-type-row"><label><input type="checkbox" data-alert="storage"> Storage almost full</label><a href="/api/admin/email/preview/storage" target="_blank" rel="noopener">Preview &#8599;</a></div>
                     </div>
                 </div>
-                <div class="settings-row">
+                <div class="settings-row" style="grid-column:1 / -1">
                     <label>
                         Other emails <span class="help" data-tip="These are sent as part of their flow (when you invite a user, or when someone requests a password reset) and can't be turned off here — but you can preview them.">?</span>
                         <small>Sent during their flow — preview only</small>
                     </label>
-                    <div style="display:flex;flex-direction:column;gap:9px">
-                        <div class="alert-type-row"><label style="color:#777">User invite</label><a href="/api/admin/email/preview/invite" target="_blank" rel="noopener">Preview &#8599;</a></div>
-                        <div class="alert-type-row"><label style="color:#777">Password reset</label><a href="/api/admin/email/preview/password_reset" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                    <div class="alert-types-list">
+                        <div class="alert-type-row"><label>User invite</label><a href="/api/admin/email/preview/invite" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><label>Password reset</label><a href="/api/admin/email/preview/password_reset" target="_blank" rel="noopener">Preview &#8599;</a></div>
                     </div>
                 </div>
             </div>
