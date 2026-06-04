@@ -199,6 +199,64 @@ async function sendEmail(to, subject, html) {
     }
 }
 
+// ── Branded email templates (designed HTML, one file per event × light/dark) ──
+const EMAIL_TEMPLATES_DIR = path.join(__dirname, 'email-templates');
+const _emailTplCache = {};
+function loadEmailTemplate(name, theme) {
+    const k = `${name}.${theme}`;
+    if (_emailTplCache[k] === undefined) {
+        try { _emailTplCache[k] = fs.readFileSync(path.join(EMAIL_TEMPLATES_DIR, `${name}.${theme}.html`), 'utf8'); }
+        catch { _emailTplCache[k] = null; }
+    }
+    return _emailTplCache[k];
+}
+function escEmail(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+// The templates ship with example values; map each event's example literals to
+// the live values so the original designs stay untouched.
+const EMAIL_REPLACERS = {
+    low_battery: v => [['Living Room Frame', v.deviceName], ['width:9%', `width:${v.batteryPct}%`],
+                       ['width:91%', `width:${100 - v.batteryPct}%`], ['>9%<', `>${v.batteryPct}%<`],
+                       ['Good', v.wifiLabel], ['Just now', v.lastSeen]],
+    paired:      v => [['Studio Frame', v.deviceName], ['Just now', v.lastSeen]],
+    offline:     v => [['Kitchen Display', v.deviceName], ['47 minutes ago', v.lastSeen], ['47 min ago', v.lastSeen]],
+    back_online: v => [['Kitchen Display', v.deviceName], ['Just now', v.lastSeen]],
+};
+function renderEmailTemplate(name, vars) {
+    // Escape only the free-text (user-controlled) fields; keep numeric/structural
+    // values (battery %, bar widths, the >9%< tokens, URL) raw so we don't mangle
+    // the markup.
+    const e = s => (s != null ? escEmail(s) : s);
+    const v = Object.assign({}, vars, {
+        deviceName: e(vars.deviceName), deviceModel: e(vars.deviceModel),
+        wifiLabel: e(vars.wifiLabel), lastSeen: e(vars.lastSeen),
+    });
+    const theme = appData.settings?.emailTheme === 'dark' ? 'dark' : 'light';
+    let html = loadEmailTemplate(name, theme) || loadEmailTemplate(name, 'light');
+    if (!html) return null;
+    for (const [from, to] of (EMAIL_REPLACERS[name] || (() => []))(v)) {
+        if (to == null) continue;
+        html = html.split(from).join(String(to));
+    }
+    // Model + dashboard URL appear in every template — replace robustly.
+    if (v.deviceModel)  html = html.replace(/TRMNL[^<"]*?e-ink/g, v.deviceModel);
+    if (v.dashboardUrl) html = html.split('https://photos.home.local').join(v.dashboardUrl);
+    return html;
+}
+function adminEmails() {
+    return appData.users.filter(u => appData.roles?.[u.role]?.canManage && u.email).map(u => u.email);
+}
+// Render a branded template and email it to all admins. No-op if mail isn't set
+// up or device alerts are turned off. Fire-and-forget (never blocks a request).
+async function sendDeviceAlert(templateName, subject, vars) {
+    if (!appData.settings?.email?.method) return;
+    if (appData.settings?.deviceAlerts === false) return;
+    const html = renderEmailTemplate(templateName, vars);
+    if (!html) return;
+    for (const email of adminEmails()) {
+        try { await sendEmail(email, subject, html); } catch { /* skip a bad address */ }
+    }
+}
+
 // ── Login rate limiter ─────────────────────────────────────────────────────
 const loginAttempts = new Map();
 
@@ -1125,6 +1183,14 @@ app.post('/api/devices/pair/:token/link', express.json(), (req, res) => {
     p.status = 'complete';
     p.apiKeyId = apiKey.id;
     p.screenId = screenId;
+
+    // "Device paired" alert to admins.
+    const screen = (appData.screens || []).find(s => s.id === screenId);
+    sendDeviceAlert('paired', `${screen?.name || 'Your display'} is connected and ready`, {
+        deviceName: screen?.name || 'Your display', deviceModel: p.model || 'Photo display',
+        lastSeen: 'Just now', dashboardUrl: `${req.protocol}://${req.get('host')}`,
+    });
+
     res.json({ ok: true });
 });
 
@@ -2222,6 +2288,27 @@ app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
         lastSeen:        new Date().toISOString(),
     };
     saveData(appData);
+
+    // Low-battery alert — emailed once when it drops below 10% (re-arms above 20%).
+    try {
+        const st  = appData.deviceStatus[id];
+        const pct = st.batteryPct;
+        if (pct != null && !st.charging) {
+            if (pct < 10 && !key.lowBattNotified) {
+                key.lowBattNotified = true; saveData(appData);
+                const screen = (appData.screens || []).find(s => s.id === key.screenId);
+                const name = screen?.name || key.name || 'Your display';
+                sendDeviceAlert('low_battery', `${name} is low on battery (${pct}%)`, {
+                    deviceName: name, deviceModel: st.model || 'Photo display',
+                    batteryPct: pct, wifiLabel: rssiToBars(st.wifiRssi).label || 'OK', lastSeen: 'Just now',
+                    dashboardUrl: `${req.protocol}://${req.get('host')}`,
+                });
+            } else if (pct > 20 && key.lowBattNotified) {
+                key.lowBattNotified = false; saveData(appData);   // recovered — re-arm
+            }
+        }
+    } catch {}
+
     res.json({ ok: true });
 });
 
