@@ -1264,6 +1264,44 @@
             </div>
         </div>
 
+        <!-- Alerts & delivery -->
+        <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
+            <h3 style="margin:0 0 14px;font-size:15px">Alerts &amp; delivery</h3>
+            <p style="margin:0 0 16px;font-size:13px;color:#666">Device &amp; server health emails (offline, back online, paired, low battery, firmware update, storage almost full) are sent to admin accounts. Links inside those emails use the public dashboard URL below.</p>
+            <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
+                <div class="settings-row">
+                    <label for="publicUrl">
+                        Public dashboard URL <span class="help" data-tip="The address admins use to reach this dashboard from outside, e.g. https://photos.example.com. Used for the buttons and links inside alert emails. Leave blank to omit links.">?</span>
+                        <small>Used for links inside alert emails</small>
+                    </label>
+                    <input type="url" id="publicUrl" class="tz-input" placeholder="https://photos.example.com">
+                </div>
+                <div class="settings-row">
+                    <label for="deviceAlerts">
+                        Email alerts <span class="help" data-tip="Master switch for device and server health emails. When off, no offline / back-online / paired / battery / firmware / storage emails are sent.">?</span>
+                        <small>Send device &amp; server health emails</small>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer">
+                        <input type="checkbox" id="deviceAlerts"> Enabled
+                    </label>
+                </div>
+                <div class="settings-row">
+                    <label for="emailTheme">
+                        Email appearance <span class="help" data-tip="Light or dark styling for the HTML alert emails.">?</span>
+                        <small>Light or dark email design</small>
+                    </label>
+                    <select id="emailTheme" class="tz-input">
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
+                <button class="btn-save-settings" onclick="saveAlertSettings()">Save</button>
+                <p id="alertStatus" style="font-size:13px;margin:0;min-height:18px"></p>
+            </div>
+        </div>
+
         <!-- Inactivity notifications -->
         <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
             <h3 style="margin:0 0 14px;font-size:15px">Inactivity notifications</h3>
@@ -2754,7 +2792,28 @@
             document.getElementById('graphClientId').value  = cfg.graph.clientId || '';
             document.getElementById('graphFrom').value      = cfg.graph.from     || '';
         }
+        document.getElementById('publicUrl').value      = cfg.publicUrl || '';
+        document.getElementById('deviceAlerts').checked = cfg.deviceAlerts !== false;
+        document.getElementById('emailTheme').value     = cfg.emailTheme === 'dark' ? 'dark' : 'light';
         updateEmailMethodUI();
+    }
+
+    async function saveAlertSettings() {
+        const st = document.getElementById('alertStatus');
+        st.style.color = '#888'; st.textContent = 'Saving…';
+        // Send the current method only — omitting smtp/graph preserves saved
+        // credentials server-side (the PUT keeps existing values when absent).
+        const body = {
+            method:       document.getElementById('emailMethod').value,
+            publicUrl:    document.getElementById('publicUrl').value.trim(),
+            deviceAlerts: document.getElementById('deviceAlerts').checked,
+            emailTheme:   document.getElementById('emailTheme').value
+        };
+        const res = await fetch('/api/admin/email', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        if (res.ok) { st.style.color = '#2e7d32'; st.textContent = 'Saved.'; showToast('Alert settings saved.'); }
+        else        { st.style.color = '#c0392b'; st.textContent = 'Could not save.'; }
     }
 
     function updateEmailMethodUI() {
