@@ -1512,8 +1512,12 @@
                 <input type="text" id="newUsername" placeholder="john">
             </div>
             <div class="field">
-                <label>Password</label>
+                <label>Password <small style="color:#999;font-weight:400">(or invite)</small></label>
                 <input type="password" id="newPassword" placeholder="••••••••">
+            </div>
+            <div class="field">
+                <label>Email <small style="color:#999;font-weight:400">(for invites &amp; alerts)</small></label>
+                <input type="email" id="newEmail" placeholder="john@example.com">
             </div>
             <div class="field" style="max-width:130px">
                 <label>Role</label>
@@ -1523,6 +1527,8 @@
                 </select>
             </div>
             <button class="btn-add" onclick="createUser()">Add User</button>
+            <button class="btn-add" onclick="inviteUser()"
+                style="background:#fff;color:var(--accent);border:1px solid var(--accent)">Send invite</button>
         </div>
         <div style="padding:16px 24px;border-top:1px solid #f0f0f0;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <label for="maxLoginAttempts" style="font-size:13px;color:#555;font-weight:500;flex-shrink:0">
@@ -1962,6 +1968,8 @@
                 <td>
                     ${u.blocked
                         ? `<span style="font-size:12px;font-weight:700;color:#c0392b;background:#fdecea;padding:2px 10px;border-radius:20px" title="${u.failedLoginAttempts} failed attempt(s)">Blocked</span>`
+                        : u.pending
+                        ? `<span style="font-size:12px;font-weight:700;color:#b26a00;background:#fff3e0;padding:2px 10px;border-radius:20px" title="Invite sent — waiting for the user to set a password">Pending</span>`
                         : `<span style="font-size:12px;color:#2e7d32">Active</span>`}
                 </td>
                 <td style="font-size:13px;white-space:nowrap">${relTimeAgo(u.lastLogin)}</td>
@@ -1982,20 +1990,43 @@
     async function createUser() {
         const username = document.getElementById('newUsername').value.trim();
         const password = document.getElementById('newPassword').value;
+        const email    = document.getElementById('newEmail').value.trim();
         const role     = document.getElementById('newRole').value;
         if (!username || !password) return showToast('Fill in username and password', 'error');
 
         const res = await fetch('/api/admin/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, role })
+            body: JSON.stringify({ username, password, email, role })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
 
         document.getElementById('newUsername').value = '';
         document.getElementById('newPassword').value = '';
+        document.getElementById('newEmail').value    = '';
         showToast(`User "${username}" created.`);
+        loadUsers();
+    }
+
+    async function inviteUser() {
+        const username = document.getElementById('newUsername').value.trim();
+        const email    = document.getElementById('newEmail').value.trim();
+        const role     = document.getElementById('newRole').value;
+        if (!username || !email) return showToast('Fill in a username and email to send an invite', 'error');
+
+        const res = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, role, invite: true })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+
+        document.getElementById('newUsername').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('newEmail').value    = '';
+        showToast(`Invite sent to ${email}.`);
         loadUsers();
     }
 
