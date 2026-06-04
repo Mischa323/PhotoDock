@@ -226,6 +226,15 @@ const EMAIL_REPLACERS = {
                        ['94% used', `${v.pct}% used`], ['(94%)', `(${v.pct}%)`],
                        ['4.7 GB', v.used], ['5 GB', v.total]],
     firmware:    v => [['Hallway Frame', v.deviceName], ['1.17.0', v.newVersion], ['1.16.2', v.currentVersion]],
+    invite:      v => { const r = [['https://photos.home.local/invite/accept', v.acceptUrl],
+                       ['Henderson Family', v.serverName], ['Editor', v.roleLabel],
+                       ['Mischa', v.inviterName]];   // name first, single pass — avoids re-matching
+                       // Then fill the inviter's email, or drop the "(…)" if there isn't one.
+                       r.push(v.inviterEmail ? ['mischa@home.local', v.inviterEmail] : [' (mischa@home.local)', '']);
+                       return r; },
+    password_reset: v => [['https://photos.home.local/reset', v.resetUrl],
+                       ['you@home.local', v.email], ['418 902', v.code],
+                       ['Jun 3, 2026 · 9:42 PM', v.when], ['192.168.1.24', v.ip]],
 };
 function renderEmailTemplate(name, vars) {
     // Escape only the free-text (user-controlled) fields; keep numeric/structural
@@ -235,6 +244,9 @@ function renderEmailTemplate(name, vars) {
     const v = Object.assign({}, vars, {
         deviceName: e(vars.deviceName), deviceModel: e(vars.deviceModel),
         wifiLabel: e(vars.wifiLabel), lastSeen: e(vars.lastSeen),
+        inviterName: e(vars.inviterName), inviterEmail: e(vars.inviterEmail),
+        serverName: e(vars.serverName), roleLabel: e(vars.roleLabel),
+        email: e(vars.email), ip: e(vars.ip), when: e(vars.when),
     });
     const theme = appData.settings?.emailTheme === 'dark' ? 'dark' : 'light';
     let html = loadEmailTemplate(name, theme) || loadEmailTemplate(name, 'light');
@@ -262,6 +274,16 @@ async function sendDeviceAlert(templateName, subject, vars) {
         try { await sendEmail(email, subject, html); } catch { /* skip a bad address */ }
     }
 }
+
+// The externally-reachable base URL for links in account emails: the configured
+// public dashboard URL when set, else whatever host this request came in on.
+function publicBase(req) {
+    return appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`;
+}
+// A friendly name for the server, shown in the invite email's info card.
+function serverLabel(base) { try { return new URL(base).host; } catch { return 'PhotoDock'; } }
+// Human-readable role label (role keys are lowercase, e.g. "editor" → "Editor").
+function roleLabel(role) { return role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Member'; }
 
 // ── Login rate limiter ─────────────────────────────────────────────────────
 const loginAttempts = new Map();
@@ -507,6 +529,10 @@ function requireAuth(req, res, next) {
     if (req.path === '/pair') return next();
     if (req.path === '/api/devices/pair/request') return next();
     if (req.method === 'GET' && req.path.startsWith('/api/devices/pair/')) return next();
+    // Public account flows — invite acceptance & password reset (no session yet).
+    if (req.path === '/forgot' || req.path === '/api/password/forgot' || req.path === '/api/password/reset') return next();
+    if (req.path.startsWith('/reset/') || req.path.startsWith('/api/reset/')) return next();
+    if (req.path.startsWith('/invite/accept') || req.path.startsWith('/api/invite/')) return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -1235,7 +1261,7 @@ app.post('/login', async (req, res) => {
         addLog('login_fail', { user: username, ip, detail: 'account blocked' });
         return res.redirect('/login?error=blocked');
     }
-    if (user && (await verifyPassword(password, user.password))) {
+    if (user && user.password && (await verifyPassword(password, user.password))) {
         resetRateLimit(ip);
         user.failedLoginAttempts = 0;
         if (user.twoFactorEnabled) {
@@ -1302,6 +1328,76 @@ app.post('/logout', doLogout);
 app.get('/screens', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'screens.html')));
 app.get('/admin',   requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'admin.html')));
 app.get('/account', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'account.html')));
+
+// ── Public account flows — invite acceptance & password reset ──────────────
+app.get('/forgot',               (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'forgot.html')));
+app.get('/reset/:token',         (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'reset.html')));
+app.get('/invite/accept/:token', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'invite.html')));
+
+// Invite — validate a token (for the accept page) and complete account setup.
+app.get('/api/invite/:token', (req, res) => {
+    const u = appData.users.find(u => u.inviteToken === req.params.token);
+    if (!u || !u.pending) return res.status(404).json({ error: 'This invite is no longer valid.' });
+    if (u.inviteExpires && Date.now() > u.inviteExpires) return res.status(410).json({ error: 'This invite has expired.' });
+    res.json({ valid: true, username: u.username, email: u.email || null });
+});
+app.post('/api/invite/accept', express.json(), async (req, res) => {
+    const { token, password } = req.body || {};
+    const u = appData.users.find(u => u.inviteToken === token);
+    if (!u || !u.pending) return res.status(404).json({ error: 'This invite is no longer valid.' });
+    if (u.inviteExpires && Date.now() > u.inviteExpires) return res.status(410).json({ error: 'This invite has expired.' });
+    if (!password || String(password).length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
+    u.password = await hashPassword(password);
+    delete u.pending; delete u.inviteToken; delete u.inviteExpires;
+    u.lastLogin = new Date().toISOString();
+    saveData(appData);
+    addLog('invite_accepted', { user: u.username });
+    const { token: authToken, expiresAt } = createToken(u.id);   // log them straight in
+    setCookie(res, authToken, expiresAt, req);
+    res.json({ ok: true });
+});
+
+// Password reset — request a link (no user enumeration) and complete the reset.
+app.post('/api/password/forgot', express.json(), async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    res.json({ ok: true });   // always succeed — never reveal whether an address exists
+    if (!email || !appData.settings?.email?.method) return;
+    const u = appData.users.find(u => (u.email || '').toLowerCase() === email);
+    if (!u) return;
+    const token = crypto.randomBytes(24).toString('hex');
+    const code  = String(Math.floor(100000 + Math.random() * 900000));
+    u.resetToken = token; u.resetCode = code; u.resetExpires = Date.now() + 30 * 60 * 1000;
+    saveData(appData);
+    const base = publicBase(req);
+    const tz = appData.settings?.timezone || DEFAULT_SETTINGS.timezone;
+    const now = new Date();
+    const when = `${now.toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' })} · `
+               + `${now.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' })}`;
+    const html = renderEmailTemplate('password_reset', {
+        email: u.email, code: `${code.slice(0, 3)} ${code.slice(3)}`, when,
+        ip: req.ip, resetUrl: `${base}/reset/${token}`, dashboardUrl: base,
+    });
+    try { if (html) await sendEmail(u.email, 'Reset your PhotoDock password', html); }
+    catch (e) { console.error('Reset email failed:', e.message); }
+    addLog('password_reset_requested', { user: u.username });
+});
+app.get('/api/reset/:token', (req, res) => {
+    const u = appData.users.find(u => u.resetToken === req.params.token);
+    if (!u || !u.resetExpires || Date.now() > u.resetExpires) return res.status(404).json({ error: 'This reset link is invalid or has expired.' });
+    res.json({ valid: true, username: u.username });
+});
+app.post('/api/password/reset', express.json(), async (req, res) => {
+    const { token, password } = req.body || {};
+    const u = appData.users.find(u => u.resetToken === token);
+    if (!u || !u.resetExpires || Date.now() > u.resetExpires) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+    if (!password || String(password).length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
+    u.password = await hashPassword(password);
+    delete u.resetToken; delete u.resetCode; delete u.resetExpires;
+    u.failedLoginAttempts = 0; u.blocked = false;   // a successful reset clears any lockout
+    saveData(appData);
+    addLog('password_reset', { user: u.username });
+    res.json({ ok: true });
+});
 
 // ── 2FA — login completion (unauthenticated) ───────────────────────────────
 app.get('/2fa',     (_req, res) => res.sendFile(path.join(FRONTEND_DIR, '2fa.html')));
@@ -1548,15 +1644,43 @@ app.delete('/api/admin/sessions/:userId', requireAdmin, (req, res) => {
 
 // ── Admin API — users ──────────────────────────────────────────────────────
 app.get('/api/admin/users', requireAdmin, (_req, res) => {
-    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role, email: u.email || null, twoFactorEnabled: !!u.twoFactorEnabled, blocked: !!u.blocked, failedLoginAttempts: u.failedLoginAttempts || 0, lastLogin: u.lastLogin || null })));
+    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role, email: u.email || null, twoFactorEnabled: !!u.twoFactorEnabled, blocked: !!u.blocked, pending: !!u.pending, failedLoginAttempts: u.failedLoginAttempts || 0, lastLogin: u.lastLogin || null })));
 });
 
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
-    const { username, password, role } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const { username, password, role, email, invite } = req.body;
+    if (!username) return res.status(400).json({ error: 'Username required' });
     if (!appData.roles?.[role]) return res.status(400).json({ error: 'Unknown role' });
     if (appData.users.some(u => u.username === username)) return res.status(400).json({ error: 'Username already exists' });
-    const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role };
+
+    // Invite flow: create a pending account with no password and email a setup link.
+    if (invite) {
+        const mail = String(email || '').trim();
+        if (!mail) return res.status(400).json({ error: 'An email address is required to send an invite' });
+        if (!appData.settings?.email?.method) return res.status(400).json({ error: 'Configure email first to send invites' });
+        if (appData.users.some(u => (u.email || '').toLowerCase() === mail.toLowerCase()))
+            return res.status(400).json({ error: 'A user with that email already exists' });
+        const token = crypto.randomBytes(24).toString('hex');
+        const user = { id: crypto.randomUUID(), username, role, email: mail, pending: true,
+                       inviteToken: token, inviteExpires: Date.now() + 7 * 86400 * 1000 };
+        appData.users.push(user);
+        saveData(appData);
+        const base = publicBase(req);
+        const inviter = req.currentUser;
+        const html = renderEmailTemplate('invite', {
+            inviterName: inviter?.username || 'An administrator', inviterEmail: inviter?.email || '',
+            serverName: serverLabel(base), roleLabel: roleLabel(role),
+            acceptUrl: `${base}/invite/accept/${token}`, dashboardUrl: base,
+        });
+        try { if (html) await sendEmail(mail, `${inviter?.username || 'PhotoDock'} invited you to a photo display`, html); }
+        catch (e) { console.error('Invite email failed:', e.message); }
+        addLog('user_invited', { by: inviter?.username, target: username, email: mail });
+        return res.json({ id: user.id, username, role, invited: true });
+    }
+
+    if (!password) return res.status(400).json({ error: 'Username and password required' });
+    const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role,
+                   email: String(email || '').trim() || undefined };
     appData.users.push(user);
     saveData(appData);
     res.json({ id: user.id, username: user.username, role: user.role });
