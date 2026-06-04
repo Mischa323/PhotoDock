@@ -42,6 +42,20 @@
 
         header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
 
+        /* Header matched to the other pages (dark glass + glass buttons) */
+        .site-header {
+            position: sticky; top: 0; z-index: 30; color: #fff;
+            margin: 12px 16px 0; border-radius: 16px; padding: 6px 16px;
+            min-height: 54px; display: flex; align-items: center; justify-content: space-between;
+        }
+        .header-logo { display: flex; align-items: center; gap: 10px; }
+        .header-logo span { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.92); }
+        .hbtn { padding: 6px 14px; border-radius: 10px; font-size: 13px; border: none; cursor: pointer; }
+        /* Light theme has a light page background, so the glass look would be
+           invisible — give the header a solid accent fill there instead. Dark
+           theme keeps the glass header (matching the other pages). */
+        html:not([data-theme="dark"]) .site-header { background: var(--accent-header); }
+
         .back-btn {
             background: rgba(255,255,255,0.15);
             color: #fff;
@@ -1095,26 +1109,26 @@
 </head>
 <body>
 
-<header>
-    <div onclick="toggleSettingsFold()" style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none" title="Show or hide all settings">
-        <img src="/favicon.svg" width="22" height="22" alt="">
-        <h1>Settings</h1>
+<div class="site-header glass">
+    <div onclick="toggleSettingsFold()" class="header-logo" style="cursor:pointer;user-select:none" title="Show or hide all settings">
+        <img src="/favicon.svg" width="24" height="24" alt="">
+        <span>Settings</span>
         <span id="settingsFoldChevron" style="font-size:15px;opacity:0.55;transition:transform 0.2s">&#9662;</span>
     </div>
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:6px">
         <div class="nav-wrap">
-            <button class="back-btn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+            <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
             <div class="nav-links" id="navLinks">
-                <a href="/" class="back-btn">⌂ Gallery</a>
-                <a href="/screens" class="back-btn">🖼 Screens</a>
-                <a href="/admin" class="back-btn" data-admin-only>⚙ Settings</a>
-                <a href="/pair" class="back-btn">⊞ Pair device</a>
-                <a href="/account" class="back-btn"><span class="nav-avatar">👤</span> Account</a>
-                <a href="/logout" class="back-btn">Log out</a>
+                <a href="/" class="glass-btn hbtn">⌂ Gallery</a>
+                <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
+                <a href="/admin" class="glass-btn hbtn" data-admin-only>⚙ Settings</a>
+                <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
+                <a href="/account" class="glass-btn hbtn"><span class="nav-avatar">👤</span> Account</a>
+                <a href="/logout" class="glass-btn hbtn">Log out</a>
             </div>
         </div>
     </div>
-</header>
+</div>
 
 <nav class="settings-tabs" id="settingsTabs">
     <button class="settings-tab active" data-tab="usage"  onclick="switchTab('usage')">Usage</button>
