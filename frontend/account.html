@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Account — PhotoDock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <script src="/theme.js"></script>
+  <style>
+    body { min-height: 100vh; }
+    .site-header {
+      position: sticky; top: 0; z-index: 30;
+      margin: 12px 16px 0; border-radius: 16px; padding: 6px 16px;
+      min-height: 54px; display: flex; align-items: center; justify-content: space-between;
+    }
+    .header-logo { display: flex; align-items: center; gap: 10px; }
+    .header-logo span { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.9); }
+    .hbtn { padding: 6px 14px; border-radius: 10px; font-size: 13px; border: none; cursor: pointer;
+            text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+
+    .wrap { max-width: 560px; margin: 22px auto 80px; padding: 0 16px; position: relative; z-index: 5; }
+    .card { border-radius: 18px; padding: 22px 24px; margin-bottom: 16px; }
+    .card h2 { font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.92); margin-bottom: 16px; }
+    .field { margin-bottom: 14px; }
+    .row-btn { display: flex; justify-content: flex-end; margin-top: 2px; }
+    .submit-btn { padding: 11px 20px; font-size: 14px; border-radius: 10px; }
+    .avatar-row { display: flex; align-items: center; gap: 18px; }
+    .avatar {
+      width: 84px; height: 84px; border-radius: 50%; flex-shrink: 0;
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
+      display: flex; align-items: center; justify-content: center; font-size: 34px;
+      color: rgba(255,255,255,0.4); background-size: cover; background-position: center;
+    }
+    .msg { font-size: 13px; margin-top: 10px; min-height: 16px; }
+    .msg.ok  { color: #4ade80; }
+    .msg.err { color: #f87171; }
+    .hint { font-size: 12px; color: rgba(255,255,255,0.45); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="space-bg" id="bgEl"></div>
+
+  <div class="site-header glass">
+    <div class="header-logo">
+      <img src="/favicon.svg" width="24" height="24" alt="">
+      <span>Account</span>
+    </div>
+    <div class="header-actions">
+      <div class="nav-wrap">
+        <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+        <div class="nav-links" id="navLinks">
+          <a href="/" class="glass-btn hbtn">⌂ Gallery</a>
+          <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
+          <a href="/admin" class="glass-btn hbtn" data-admin-only>⚙ Settings</a>
+          <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
+          <a href="/account" class="glass-btn hbtn"><span class="nav-avatar">👤</span> Account</a>
+          <a href="/logout" class="glass-btn hbtn">Log out</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- Profile photo -->
+    <div class="card glass">
+      <h2>Profile photo</h2>
+      <div class="avatar-row">
+        <div class="avatar" id="avatarBox">&#128100;</div>
+        <div>
+          <input type="file" id="avatarInput" accept="image/*" style="display:none" onchange="uploadAvatar()">
+          <button class="glass-btn hbtn" onclick="document.getElementById('avatarInput').click()">Choose photo</button>
+          <div class="hint">JPG or PNG, up to 8 MB.</div>
+          <div class="msg" id="avatarMsg"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Account details -->
+    <div class="card glass">
+      <h2>Account</h2>
+      <div class="field">
+        <div class="field-label">Username</div>
+        <input class="glass-input" id="username" disabled>
+      </div>
+      <div class="field">
+        <div class="field-label">Email address</div>
+        <input class="glass-input" id="email" type="email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="row-btn"><button class="cyan-btn submit-btn" onclick="saveEmail()">Save email</button></div>
+      <div class="msg" id="emailMsg"></div>
+    </div>
+
+    <!-- Password -->
+    <div class="card glass">
+      <h2>Change password</h2>
+      <div class="field">
+        <div class="field-label">Current password</div>
+        <input class="glass-input" id="curPass" type="password" autocomplete="current-password">
+      </div>
+      <div class="field">
+        <div class="field-label">New password</div>
+        <input class="glass-input" id="newPass" type="password" autocomplete="new-password" placeholder="At least 6 characters">
+      </div>
+      <div class="row-btn"><button class="cyan-btn submit-btn" onclick="changePassword()">Update password</button></div>
+      <div class="msg" id="passMsg"></div>
+    </div>
+
+    <!-- Two-factor authentication -->
+    <div class="card glass">
+      <h2>Two-factor authentication</h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="tfStatus">Loading…</div>
+        <button class="cyan-btn submit-btn" id="tfBtn" style="display:none" onclick="tfToggle()"></button>
+      </div>
+
+      <div id="tfMethods" style="display:none;margin-top:14px">
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:8px;cursor:pointer">
+          <input type="radio" name="tfm" value="totp" checked> Authenticator app (TOTP)
+        </label>
+        <label id="tfEmailOpt" style="display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer">
+          <input type="radio" name="tfm" value="email"> Email code
+        </label>
+      </div>
+
+      <div id="tfTotp" style="display:none;margin-top:14px">
+        <p class="hint">Scan with an authenticator app (Google Authenticator, Authy…), then enter the 6-digit code.</p>
+        <img id="tfQr" alt="QR code" style="width:168px;height:168px;border-radius:10px;background:#fff;padding:6px">
+        <div class="hint">Secret: <code id="tfSecret" style="word-break:break-all;color:rgba(255,255,255,0.8)"></code></div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <input class="glass-input" id="tfCode" inputmode="numeric" placeholder="000000" style="max-width:140px">
+          <button class="cyan-btn submit-btn" onclick="tfActivate('totp')">Activate</button>
+          <button class="glass-btn hbtn" onclick="loadTwofa()">Cancel</button>
+        </div>
+      </div>
+
+      <div id="tfEmail" style="display:none;margin-top:14px">
+        <p class="hint" id="tfEmailMsg">A code was sent to your email. Enter it below.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input class="glass-input" id="tfEmailCode" inputmode="numeric" placeholder="000000" style="max-width:140px">
+          <button class="cyan-btn submit-btn" id="tfEmailBtn">Activate</button>
+          <button class="glass-btn hbtn" onclick="loadTwofa()">Cancel</button>
+        </div>
+      </div>
+
+      <div id="tfDisable" style="display:none;margin-top:14px">
+        <p class="hint">Enter a current code from your authenticator app to turn 2FA off.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input class="glass-input" id="tfDisableCode" inputmode="numeric" placeholder="000000" style="max-width:140px">
+          <button class="cyan-btn submit-btn" onclick="tfDisable()">Turn off</button>
+          <button class="glass-btn hbtn" onclick="loadTwofa()">Cancel</button>
+        </div>
+      </div>
+
+      <div class="msg" id="tfMsg"></div>
+    </div>
+  </div>
+
+  <script>
+    function setAvatar(url) {
+      const box = document.getElementById('avatarBox');
+      box.textContent = '';
+      box.style.backgroundImage = "url('" + url + "')";
+    }
+    function msg(id, text, ok) {
+      const el = document.getElementById(id);
+      el.textContent = text;
+      el.className = 'msg ' + (ok ? 'ok' : 'err');
+    }
+    async function load() {
+      const r = await fetch('/api/me');
+      if (!r.ok) { location.href = '/login'; return; }
+      const me = await r.json();
+      document.getElementById('username').value = me.username || '';
+      document.getElementById('email').value = me.email || '';
+      if (me.avatar) setAvatar(me.avatar);
+    }
+    async function saveEmail() {
+      const email = document.getElementById('email').value.trim();
+      const r = await fetch('/api/user/email', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+      const d = await r.json().catch(() => ({}));
+      msg('emailMsg', r.ok ? 'Email saved.' : (d.error || 'Could not save email'), r.ok);
+    }
+    async function changePassword() {
+      const currentPassword = document.getElementById('curPass').value;
+      const newPassword = document.getElementById('newPass').value;
+      if (!currentPassword) return msg('passMsg', 'Enter your current password first.', false);
+      if (!newPassword) return msg('passMsg', 'Enter a new password.', false);
+      const r = await fetch('/api/user/password', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const d = await r.json().catch(() => ({}));
+      msg('passMsg', r.ok ? 'Password updated.' : (d.error || 'Could not update password'), r.ok);
+      if (r.ok) { document.getElementById('curPass').value = ''; document.getElementById('newPass').value = ''; }
+    }
+    async function uploadAvatar() {
+      const f = document.getElementById('avatarInput').files[0];
+      if (!f) return;
+      const fd = new FormData(); fd.append('avatar', f);
+      msg('avatarMsg', 'Uploading…', true);
+      const r = await fetch('/api/user/avatar', { method: 'POST', body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) { setAvatar(d.avatar); msg('avatarMsg', 'Photo updated.', true); }
+      else msg('avatarMsg', d.error || 'Upload failed', false);
+    }
+
+    // ── Two-factor authentication ───────────────────────────────────────────
+    let tf = { enabled: false, method: 'totp', mail: false, hasEmail: false };
+    function tfHidePanels() {
+      ['tfMethods', 'tfTotp', 'tfEmail', 'tfDisable'].forEach(id => document.getElementById(id).style.display = 'none');
+    }
+    function tfShow(t, ok) { msg('tfMsg', t, ok); }
+    async function loadTwofa() {
+      const r = await fetch('/api/2fa/status');
+      if (!r.ok) return;
+      const d = await r.json();
+      tf = { enabled: !!d.enabled, method: d.method || 'totp', mail: !!d.mailConfigured, hasEmail: !!d.hasEmail };
+      document.getElementById('tfMsg').textContent = '';
+      tfHidePanels();
+      const status = document.getElementById('tfStatus'), btn = document.getElementById('tfBtn');
+      if (tf.enabled) {
+        status.innerHTML = '<b style="color:#4ade80">On</b> &middot; ' + (tf.method === 'email' ? 'Email code at login' : 'Authenticator app');
+        btn.textContent = 'Turn off'; btn.style.display = '';
+      } else {
+        status.innerHTML = '<b style="color:rgba(255,255,255,0.75)">Off</b> &middot; add a second step at login';
+        btn.textContent = 'Enable 2FA'; btn.style.display = '';
+        document.getElementById('tfMethods').style.display = '';
+        document.getElementById('tfEmailOpt').style.display = tf.mail ? '' : 'none';   // email only if a mail server is set up
+      }
+    }
+    async function tfToggle() {
+      document.getElementById('tfBtn').style.display = 'none';
+      document.getElementById('tfMethods').style.display = 'none';
+      if (tf.enabled) {
+        if (tf.method === 'email') {
+          const d = await tfSendCode('disable'); if (!d) return loadTwofa();
+          document.getElementById('tfEmailMsg').textContent = 'A code was sent to ' + d.email + '. Enter it to turn 2FA off.';
+          const eb = document.getElementById('tfEmailBtn'); eb.textContent = 'Turn off'; eb.onclick = tfDisable;
+          tfHidePanels(); document.getElementById('tfEmail').style.display = '';
+        } else {
+          tfHidePanels(); document.getElementById('tfDisable').style.display = '';
+        }
+        return;
+      }
+      const method = document.querySelector('input[name="tfm"]:checked')?.value || 'totp';
+      if (method === 'email') {
+        if (!tf.hasEmail) { tfShow('Save an email address above first.', false); return loadTwofa(); }
+        const d = await tfSendCode('enable'); if (!d) return loadTwofa();
+        document.getElementById('tfEmailMsg').textContent = 'A code was sent to ' + d.email + '. Enter it to activate email 2FA.';
+        const eb = document.getElementById('tfEmailBtn'); eb.textContent = 'Activate'; eb.onclick = tfEmailEnable;
+        tfHidePanels(); document.getElementById('tfEmail').style.display = '';
+      } else {
+        const r = await fetch('/api/2fa/setup'); const d = await r.json();
+        document.getElementById('tfQr').src = d.qrcode;
+        document.getElementById('tfSecret').textContent = d.secret;
+        tfHidePanels(); document.getElementById('tfTotp').style.display = '';
+      }
+    }
+    async function tfSendCode(purpose) {
+      const r = await fetch('/api/2fa/email/send-code', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ purpose }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { tfShow(d.error || 'Could not send the code', false); return null; }
+      return d;
+    }
+    async function tfActivate(method) {
+      const code = document.getElementById('tfCode').value.trim();
+      const r = await fetch('/api/2fa/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, method }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return tfShow(d.error || 'Invalid code', false);
+      await loadTwofa(); tfShow('Two-factor authentication enabled.', true);
+    }
+    async function tfEmailEnable() {
+      const code = document.getElementById('tfEmailCode').value.trim();
+      const r = await fetch('/api/2fa/enable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, method: 'email' }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return tfShow(d.error || 'Invalid code', false);
+      await loadTwofa(); tfShow('Email 2FA enabled.', true);
+    }
+    async function tfDisable() {
+      const code = (document.getElementById('tfDisableCode').value || document.getElementById('tfEmailCode').value).trim();
+      const r = await fetch('/api/2fa/disable', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) return tfShow(d.error || 'Invalid code', false);
+      await loadTwofa(); tfShow('Two-factor authentication disabled.', true);
+    }
+
+    load();
+    loadTwofa();
+  </script>
+</body>
+</html>

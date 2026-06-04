@@ -42,6 +42,20 @@
 
         header h1 { font-size: 18px; font-weight: 600; letter-spacing: 0.01em; }
 
+        /* Header matched to the other pages (dark glass + glass buttons) */
+        .site-header {
+            position: sticky; top: 0; z-index: 30; color: #fff;
+            margin: 12px 16px 0; border-radius: 16px; padding: 6px 16px;
+            min-height: 54px; display: flex; align-items: center; justify-content: space-between;
+        }
+        .header-logo { display: flex; align-items: center; gap: 10px; }
+        .header-logo span { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.92); }
+        .hbtn { padding: 6px 14px; border-radius: 10px; font-size: 13px; border: none; cursor: pointer; }
+        /* Light theme has a light page background, so the glass look would be
+           invisible — give the header a solid accent fill there instead. Dark
+           theme keeps the glass header (matching the other pages). */
+        html:not([data-theme="dark"]) .site-header { background: var(--accent-header); }
+
         .back-btn {
             background: rgba(255,255,255,0.15);
             color: #fff;
@@ -74,6 +88,23 @@
         @media (max-width: 800px) {
             main { grid-template-columns: 1fr; }
             section { grid-column: 1 / -1 !important; }
+        }
+
+        /* ── Mobile / small screens ───────────────────────────────── */
+        @media (max-width: 640px) {
+            main { margin: 18px auto; padding: 0 12px 48px; gap: 16px; }
+            .settings-tabs { padding: 12px 12px 0; gap: 5px; }
+            .settings-tab  { padding: 8px 13px; font-size: 12.5px; }
+            .settings-grid { grid-template-columns: 1fr 1fr; padding: 16px 14px; }
+            .gauge-grid    { padding: 16px 14px; gap: 12px; }
+            .usage-meta    { padding: 0 14px 16px; }
+        }
+        @media (max-width: 420px) {
+            .settings-grid { grid-template-columns: 1fr; }
+        }
+        /* Header nav menu links fill the dropdown on narrow screens */
+        @media (max-width: 820px) {
+            .nav-links .back-btn { width: 100%; text-align: left; }
         }
 
         .drag-handle {
@@ -330,6 +361,23 @@
         }
 
         .btn-save-settings:hover { background: var(--accent-hover); }
+
+        .alert-types-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 11px 28px;
+            margin-top: 4px;
+        }
+        .alert-type-row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            padding: 10px 14px;
+            background: rgba(125,125,125,0.06);
+            border: 1px solid rgba(125,125,125,0.14);
+            border-radius: 8px;
+        }
+        .alert-type-name { display: flex; align-items: center; gap: 11px; font-size: 13.5px; white-space: nowrap; }
+        .alert-type-row a { font-size: 12px; font-weight: 600; color: var(--accent); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+        .alert-type-row a:hover { text-decoration: underline; }
 
         tbody tr { border-bottom: 1px solid #f0f3f0; }
         tbody tr:last-child { border-bottom: none; }
@@ -1042,6 +1090,11 @@
         .settings-tab:hover { background: rgba(6,182,212,0.1); color: #22d3ee; }
         .settings-tab.active { background: rgba(6,182,212,0.16); border-color: rgba(6,182,212,0.45); color: #22d3ee; }
 
+        /* Master fold: one toggle (the "Settings" title) hides/shows everything. */
+        body.settings-folded #settingsTabs,
+        body.settings-folded main { display: none; }
+        body.settings-folded #settingsFoldChevron { transform: rotate(-90deg); }
+
         /* Usage gauges */
         .gauge-grid { display: flex; flex-wrap: wrap; gap: 18px; padding: 22px 24px; }
         .gauge-card {
@@ -1073,15 +1126,26 @@
 </head>
 <body>
 
-<header>
-    <div style="display:flex;align-items:center;gap:10px">
-        <img src="/favicon.svg" width="22" height="22" alt="">
-        <h1>Settings</h1>
+<div class="site-header glass">
+    <div onclick="toggleSettingsFold()" class="header-logo" style="cursor:pointer;user-select:none" title="Show or hide all settings">
+        <img src="/favicon.svg" width="24" height="24" alt="">
+        <span>Settings</span>
+        <span id="settingsFoldChevron" style="font-size:15px;opacity:0.55;transition:transform 0.2s">&#9662;</span>
     </div>
-    <div style="display:flex;align-items:center;gap:8px">
-        <a href="/" class="back-btn">&#8592; Back to Library</a>
+    <div style="display:flex;align-items:center;gap:6px">
+        <div class="nav-wrap">
+            <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+            <div class="nav-links" id="navLinks">
+                <a href="/" class="glass-btn hbtn">⌂ Gallery</a>
+                <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
+                <a href="/admin" class="glass-btn hbtn" data-admin-only>⚙ Settings</a>
+                <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
+                <a href="/account" class="glass-btn hbtn"><span class="nav-avatar">👤</span> Account</a>
+                <a href="/logout" class="glass-btn hbtn">Log out</a>
+            </div>
+        </div>
     </div>
-</header>
+</div>
 
 <nav class="settings-tabs" id="settingsTabs">
     <button class="settings-tab active" data-tab="usage"  onclick="switchTab('usage')">Usage</button>
@@ -1139,106 +1203,6 @@
             <div style="display:flex;gap:6px">
                 <button class="back-btn" style="font-size:12px;padding:4px 12px" onclick="logPage--;renderActivityLog()" id="logPrevBtn">&#8592; Prev</button>
                 <button class="back-btn" style="font-size:12px;padding:4px 12px" onclick="logPage++;renderActivityLog()" id="logNextBtn">Next &#8594;</button>
-            </div>
-        </div>
-        </div></div>
-    </section>
-
-    <!-- My Security -->
-    <section id="sec-security">
-        <div class="section-header"><h2>My Security</h2></div>
-        <div class="section-body"><div class="section-body-inner">
-        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:20px" id="twoFaSection">
-
-            <!-- Email address -->
-            <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px;flex-wrap:wrap;gap:8px">
-                <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px;flex:1">
-                    Email address <span class="help" data-tip="Your email address is used when email 2FA is enabled — a code is sent here at each login. It is also used for future notifications.">?</span>
-                    <small style="font-size:12px;color:#999">Used for email 2FA codes and notifications</small>
-                </label>
-                <div style="display:flex;gap:8px;align-items:center">
-                    <input type="email" id="myEmailInput" class="tz-input" placeholder="you@example.com" style="width:210px">
-                    <button class="btn-add" onclick="saveMyEmail()">Save</button>
-                </div>
-            </div>
-
-            <!-- 2FA status row -->
-            <div style="display:flex;align-items:center;justify-content:space-between;max-width:480px">
-                <label style="font-size:14px;color:#444;display:flex;flex-direction:column;gap:2px">
-                    Two-Factor Authentication <span class="help" data-tip="2FA adds a second step after your password. Even if someone knows your password, they still need the code to log in.">?</span>
-                    <small style="font-size:12px;color:#999" id="twoFaMethodLabel">Use an authenticator app or email for extra login security</small>
-                </label>
-                <span id="twoFaBadge" style="font-size:12px;font-weight:700;padding:3px 12px;border-radius:20px"></span>
-            </div>
-
-            <!-- Method selector (only shown when 2FA is disabled) -->
-            <div id="twoFaMethodRow" style="display:none;max-width:480px">
-                <label style="font-size:13px;color:#555;display:block;margin-bottom:8px">2FA method</label>
-                <div style="display:flex;gap:20px">
-                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-                        <input type="radio" name="twoFaMethod" value="totp" id="methodTotp" checked> Authenticator app <span class="help" data-tip="Generates time-based codes in an app like Google Authenticator or Authy. Works offline — no internet needed on your phone.">?</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:14px">
-                        <input type="radio" name="twoFaMethod" value="email" id="methodEmail"> Email code <span class="help" data-tip="Sends a 6-digit code to your email address at each login. Requires email to be configured in the Email section below.">?</span>
-                    </label>
-                </div>
-            </div>
-
-            <!-- TOTP setup panel -->
-            <div id="twoFaSetupPanel" style="display:none;flex-direction:column;gap:14px;max-width:480px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.), then enter the 6-digit code to confirm.</p>
-                <img id="twoFaQr" src="" alt="QR code" style="width:180px;height:180px;border-radius:8px;border:1px solid #ddd;background:#fff">
-                <div style="font-size:12px;color:#888">Or enter the secret manually: <code id="twoFaSecret" style="font-family:monospace;color:#333;word-break:break-all"></code></div>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaEnableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirm2FAEnable()">
-                    <button class="btn-add" onclick="confirm2FAEnable()">Activate</button>
-                    <button class="btn-cancel" onclick="cancel2FASetup()">Cancel</button>
-                </div>
-            </div>
-
-            <!-- Email 2FA enable panel -->
-            <div id="twoFaEmailEnablePanel" style="display:none;flex-direction:column;gap:14px;max-width:480px;background:#f6f8fa;border:1px solid #e0e0e0;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444" id="emailEnableMsg">A 6-digit code has been sent to your email address. Enter it below to activate email 2FA.</p>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaEmailEnableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirmEmailEnable()">
-                    <button class="btn-add" onclick="confirmEmailEnable()">Activate</button>
-                    <button class="btn-cancel" onclick="cancel2FASetup()">Cancel</button>
-                    <button class="btn-cancel" onclick="resend2FAEmailCode('enable')">Resend code</button>
-                </div>
-            </div>
-
-            <!-- TOTP disable panel -->
-            <div id="twoFaDisablePanel" style="display:none;flex-direction:column;gap:10px;max-width:480px;background:#fff5f5;border:1px solid #fcd;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444">Enter your current authenticator code to disable 2FA.</p>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaDisableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirm2FADisable()">
-                    <button style="background:#c0392b;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600" onclick="confirm2FADisable()">Disable 2FA</button>
-                    <button class="btn-cancel" onclick="cancel2FADisable()">Cancel</button>
-                </div>
-            </div>
-
-            <!-- Email 2FA disable panel -->
-            <div id="twoFaEmailDisablePanel" style="display:none;flex-direction:column;gap:10px;max-width:480px;background:#fff5f5;border:1px solid #fcd;border-radius:10px;padding:18px">
-                <p style="font-size:14px;color:#444" id="emailDisableMsg">A code has been sent to your email address. Enter it below to disable 2FA.</p>
-                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-                    <input type="number" id="twoFaEmailDisableCode" placeholder="000000"
-                        style="width:130px;border:1px solid #ddd;border-radius:6px;padding:8px 10px;font-size:16px;font-family:monospace;letter-spacing:4px;outline:none;-moz-appearance:textfield"
-                        onkeydown="if(event.key==='Enter') confirmEmailDisable()">
-                    <button style="background:#c0392b;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600" onclick="confirmEmailDisable()">Disable 2FA</button>
-                    <button class="btn-cancel" onclick="cancel2FADisable()">Cancel</button>
-                    <button class="btn-cancel" onclick="resend2FAEmailCode('disable')">Resend code</button>
-                </div>
-            </div>
-
-            <!-- Action button -->
-            <div>
-                <button class="btn-add" id="twoFaToggleBtn" onclick="toggle2FA()" style="display:none"></button>
             </div>
         </div>
         </div></div>
@@ -1314,6 +1278,69 @@
                         style="background:#fff;color:var(--accent);border:1px solid var(--accent)">Send test email</button>
                 </div>
                 <p id="emailConfigStatus" style="font-size:13px;min-height:18px"></p>
+            </div>
+        </div>
+
+        <!-- Alerts & delivery -->
+        <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
+            <h3 style="margin:0 0 14px;font-size:15px">Alerts &amp; delivery</h3>
+            <p style="margin:0 0 16px;font-size:13px;color:#666">Device &amp; server health emails (offline, back online, paired, low battery, firmware update, storage almost full) are sent to admin accounts. Links inside those emails use the public dashboard URL below.</p>
+            <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
+                <div class="settings-row" style="grid-column:span 2">
+                    <label for="publicUrl">
+                        Public dashboard URL <span class="help" data-tip="The address admins use to reach this dashboard from outside, e.g. https://photos.example.com. Used for the buttons and links inside alert emails. Leave blank to omit links.">?</span>
+                        <small>Used for links inside alert emails</small>
+                    </label>
+                    <input type="url" id="publicUrl" class="tz-input" placeholder="https://photos.example.com">
+                </div>
+                <div class="settings-row">
+                    <label for="deviceAlerts">
+                        Email alerts <span class="help" data-tip="Master switch for device and server health emails. When off, no offline / back-online / paired / battery / firmware / storage emails are sent.">?</span>
+                        <small>Send device &amp; server health emails</small>
+                    </label>
+                    <label class="toggle">
+                        <input type="checkbox" id="deviceAlerts">
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="settings-row">
+                    <label for="emailTheme">
+                        Email appearance <span class="help" data-tip="Light or dark styling for the HTML alert emails.">?</span>
+                        <small>Light or dark email design</small>
+                    </label>
+                    <select id="emailTheme" class="tz-input">
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                    </select>
+                </div>
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label>
+                        Which alerts <span class="help" data-tip="Choose which events send an email. Turn the master switch above off to silence all of them at once. Use Preview to see exactly what each email looks like.">?</span>
+                        <small>Enable or disable mail per alert — preview each one</small>
+                    </label>
+                    <div id="alertTypes" class="alert-types-list">
+                        <div class="alert-type-row"><span class="alert-type-name"><label class="toggle"><input type="checkbox" data-alert="offline"><span class="toggle-slider"></span></label> Device went offline</span><a href="/api/admin/email/preview/offline" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><span class="alert-type-name"><label class="toggle"><input type="checkbox" data-alert="back_online"><span class="toggle-slider"></span></label> Device back online</span><a href="/api/admin/email/preview/back_online" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><span class="alert-type-name"><label class="toggle"><input type="checkbox" data-alert="paired"><span class="toggle-slider"></span></label> Device paired</span><a href="/api/admin/email/preview/paired" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><span class="alert-type-name"><label class="toggle"><input type="checkbox" data-alert="low_battery"><span class="toggle-slider"></span></label> Low battery</span><a href="/api/admin/email/preview/low_battery" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><span class="alert-type-name"><label class="toggle"><input type="checkbox" data-alert="firmware"><span class="toggle-slider"></span></label> Firmware update available</span><a href="/api/admin/email/preview/firmware" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><span class="alert-type-name"><label class="toggle"><input type="checkbox" data-alert="storage"><span class="toggle-slider"></span></label> Storage almost full</span><a href="/api/admin/email/preview/storage" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                    </div>
+                </div>
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label>
+                        Other emails <span class="help" data-tip="These are sent as part of their flow (when you invite a user, or when someone requests a password reset) and can't be turned off here — but you can preview them.">?</span>
+                        <small>Sent during their flow — preview only</small>
+                    </label>
+                    <div class="alert-types-list">
+                        <div class="alert-type-row"><span class="alert-type-name">User invite</span><a href="/api/admin/email/preview/invite" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><span class="alert-type-name">Password reset</span><a href="/api/admin/email/preview/password_reset" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                    </div>
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
+                <button class="btn-save-settings" onclick="saveAlertSettings()">Save</button>
+                <p id="alertStatus" style="font-size:13px;margin:0;min-height:18px"></p>
             </div>
         </div>
 
@@ -1527,8 +1554,12 @@
                 <input type="text" id="newUsername" placeholder="john">
             </div>
             <div class="field">
-                <label>Password</label>
+                <label>Password <small style="color:#999;font-weight:400">(or invite)</small></label>
                 <input type="password" id="newPassword" placeholder="••••••••">
+            </div>
+            <div class="field">
+                <label>Email <small style="color:#999;font-weight:400">(for invites &amp; alerts)</small></label>
+                <input type="email" id="newEmail" placeholder="john@example.com">
             </div>
             <div class="field" style="max-width:130px">
                 <label>Role</label>
@@ -1538,6 +1569,8 @@
                 </select>
             </div>
             <button class="btn-add" onclick="createUser()">Add User</button>
+            <button class="btn-add" onclick="inviteUser()"
+                style="background:#fff;color:var(--accent);border:1px solid var(--accent)">Send invite</button>
         </div>
         <div style="padding:16px 24px;border-top:1px solid #f0f0f0;display:flex;align-items:center;gap:16px;flex-wrap:wrap">
             <label for="maxLoginAttempts" style="font-size:13px;color:#555;font-weight:500;flex-shrink:0">
@@ -1977,6 +2010,8 @@
                 <td>
                     ${u.blocked
                         ? `<span style="font-size:12px;font-weight:700;color:#c0392b;background:#fdecea;padding:2px 10px;border-radius:20px" title="${u.failedLoginAttempts} failed attempt(s)">Blocked</span>`
+                        : u.pending
+                        ? `<span style="font-size:12px;font-weight:700;color:#b26a00;background:#fff3e0;padding:2px 10px;border-radius:20px" title="Invite sent — waiting for the user to set a password">Pending</span>`
                         : `<span style="font-size:12px;color:#2e7d32">Active</span>`}
                 </td>
                 <td style="font-size:13px;white-space:nowrap">${relTimeAgo(u.lastLogin)}</td>
@@ -1997,20 +2032,43 @@
     async function createUser() {
         const username = document.getElementById('newUsername').value.trim();
         const password = document.getElementById('newPassword').value;
+        const email    = document.getElementById('newEmail').value.trim();
         const role     = document.getElementById('newRole').value;
         if (!username || !password) return showToast('Fill in username and password', 'error');
 
         const res = await fetch('/api/admin/users', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, password, role })
+            body: JSON.stringify({ username, password, email, role })
         });
         const data = await res.json();
         if (!res.ok) return showToast(data.error, 'error');
 
         document.getElementById('newUsername').value = '';
         document.getElementById('newPassword').value = '';
+        document.getElementById('newEmail').value    = '';
         showToast(`User "${username}" created.`);
+        loadUsers();
+    }
+
+    async function inviteUser() {
+        const username = document.getElementById('newUsername').value.trim();
+        const email    = document.getElementById('newEmail').value.trim();
+        const role     = document.getElementById('newRole').value;
+        if (!username || !email) return showToast('Fill in a username and email to send an invite', 'error');
+
+        const res = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, email, role, invite: true })
+        });
+        const data = await res.json();
+        if (!res.ok) return showToast(data.error, 'error');
+
+        document.getElementById('newUsername').value = '';
+        document.getElementById('newPassword').value = '';
+        document.getElementById('newEmail').value    = '';
+        showToast(`Invite sent to ${email}.`);
         loadUsers();
     }
 
@@ -2807,7 +2865,34 @@
             document.getElementById('graphClientId').value  = cfg.graph.clientId || '';
             document.getElementById('graphFrom').value      = cfg.graph.from     || '';
         }
+        document.getElementById('publicUrl').value      = cfg.publicUrl || '';
+        document.getElementById('deviceAlerts').checked = cfg.deviceAlerts !== false;
+        document.getElementById('emailTheme').value     = cfg.emailTheme === 'dark' ? 'dark' : 'light';
+        document.querySelectorAll('#alertTypes input[data-alert]').forEach(cb => {
+            cb.checked = cfg.alertTypes?.[cb.dataset.alert] !== false;
+        });
         updateEmailMethodUI();
+    }
+
+    async function saveAlertSettings() {
+        const st = document.getElementById('alertStatus');
+        st.style.color = '#888'; st.textContent = 'Saving…';
+        // Send the current method only — omitting smtp/graph preserves saved
+        // credentials server-side (the PUT keeps existing values when absent).
+        const alertTypes = {};
+        document.querySelectorAll('#alertTypes input[data-alert]').forEach(cb => { alertTypes[cb.dataset.alert] = cb.checked; });
+        const body = {
+            method:       document.getElementById('emailMethod').value,
+            publicUrl:    document.getElementById('publicUrl').value.trim(),
+            deviceAlerts: document.getElementById('deviceAlerts').checked,
+            emailTheme:   document.getElementById('emailTheme').value,
+            alertTypes
+        };
+        const res = await fetch('/api/admin/email', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        if (res.ok) { st.style.color = '#2e7d32'; st.textContent = 'Saved.'; showToast('Alert settings saved.'); }
+        else        { st.style.color = '#c0392b'; st.textContent = 'Could not save.'; }
     }
 
     function updateEmailMethodUI() {
@@ -3034,8 +3119,14 @@
         });
     }
 
-    loadMyEmail();
-    load2FAStatus();
+    // ── Master settings fold: one toggle (the "Settings" title) hides/shows all ──
+    function toggleSettingsFold() {
+        const folded = document.body.classList.toggle('settings-folded');
+        localStorage.setItem('adminSettingsFolded', folded ? '1' : '0');
+    }
+    window.toggleSettingsFold = toggleSettingsFold;
+    if (localStorage.getItem('adminSettingsFolded') === '1') document.body.classList.add('settings-folded');
+
     loadEmailConfig();
     loadDisplaySettings();
     loadActivityLog();
@@ -3058,7 +3149,7 @@
                     <div style="font-weight:600;margin-bottom:4px">Account created successfully!</div>
                     <div style="color:#a5d8e6;font-size:13px">We recommend setting up multi-factor authentication to protect your account.</div>
                 </div>
-                <button onclick="document.getElementById('sec-security').scrollIntoView({behavior:'smooth'});this.closest('div[style]').remove()" style="background:#06b6d4;color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">Set up MFA</button>
+                <button onclick="location.href='/account'" style="background:#06b6d4;color:#fff;border:none;border-radius:6px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;white-space:nowrap">Set up MFA</button>
                 <button onclick="this.closest('div[style]').remove()" style="background:transparent;color:#888;border:none;cursor:pointer;font-size:18px;line-height:1;padding:0 4px">✕</button>`;
             document.body.appendChild(banner);
         }, 400);
@@ -3068,7 +3159,6 @@
     const GRID_DEFAULTS = {
         'sec-usage':     'full',
         'sec-activity':  'full',
-        'sec-security':  'half',
         'sec-email':     'half',
         'sec-display':   'full',
         'sec-users':     'full',
@@ -3167,7 +3257,6 @@
         'sec-activity':    'logs',
         'sec-users':       'users',
         'sec-roles':       'users',
-        'sec-security':    'server',
         'sec-email':       'server',
         'sec-display':     'server',
         'sec-api-ref':     'server',

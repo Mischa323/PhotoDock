@@ -247,3 +247,42 @@ select.glass-input option {
 .pill-red { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #f87171; }
 .pill-amber { background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.3); color: #fbbf24; }
 .pill-gray { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: rgba(255,255,255,0.6); }
+
+/* ── Mobile / small screens (shared) ───────────────── */
+@media (max-width: 640px) {
+  /* Never scroll sideways on a phone */
+  html, body { overflow-x: hidden; }
+  /* 16px inputs stop iOS Safari from zooming in when a field is focused */
+  .glass-input { font-size: 16px; }
+}
+
+/* ── Header nav menu: inline on desktop, ☰ dropdown on narrow (shared) ── */
+.nav-wrap { position: relative; display: flex; align-items: center; }
+/* !important so a page's own .hbtn/.back-btn display rules can't reveal the
+   hamburger on desktop — it must only appear on narrow screens. */
+.nav-toggle { display: none !important; font-size: 16px; line-height: 1; }
+.nav-links { display: flex; gap: 6px; align-items: center; }
+/* Vertically centre the icon + label inside each nav button (emoji baseline fix) */
+.nav-links .hbtn, .nav-links .back-btn { display: inline-flex; align-items: center; gap: 5px; }
+/* Round profile-photo icon for the Account link (set by theme.js from /api/me) */
+.nav-avatar {
+  width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0;
+  background-size: cover; background-position: center;
+  display: inline-block; vertical-align: middle;
+  font-size: 13px; line-height: 18px; text-align: center; overflow: hidden;
+}
+@media (max-width: 820px) {
+  .nav-toggle { display: inline-flex !important; }
+  .nav-links {
+    display: none;
+    position: absolute; right: 0; top: calc(100% + 8px);
+    flex-direction: column; gap: 4px; min-width: 196px; padding: 6px;
+    background: rgba(18,22,31,0.96);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 12px;
+    box-shadow: 0 14px 36px rgba(0,0,0,0.45); z-index: 200;
+  }
+  .nav-links.open { display: flex; }
+  .nav-links .hbtn { width: 100%; text-align: left; background: transparent; border-color: transparent; }
+  .nav-links .hbtn:hover { background: rgba(255,255,255,0.08); }
+}

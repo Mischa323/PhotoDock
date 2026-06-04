@@ -22,7 +22,7 @@
       margin: 12px 16px 0;
       border-radius: 16px;
       padding: 0 16px;
-      height: 54px;
+      min-height: 54px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -55,6 +55,8 @@
       border: none;
       cursor: pointer;
     }
+
+    /* Header nav menu styles are shared in glass.css */
 
     /* ── Upload dropdown ─────────────────────────────── */
     .upload-wrap { position: relative; }
@@ -665,6 +667,33 @@
       background: #29c76f;
       width: 0%;
     }
+
+    /* ── Mobile / small screens ──────────────────────── */
+    @media (max-width: 640px) {
+      .site-header  { margin: 8px 8px 0; padding: 6px 12px; height: auto; min-height: 50px; }
+      .header-logo span { font-size: 15px; }
+      .header-actions { gap: 5px; }
+      .hbtn { padding: 7px 11px; font-size: 12.5px; }
+
+      .breadcrumb { padding: 14px 14px 2px; gap: 8px; flex-wrap: wrap; }
+      .breadcrumb-title { font-size: 16px; }
+
+      .screens-grid,
+      .albums-grid  { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 12px; padding: 8px 14px 88px; }
+      .photos-section { padding: 8px 14px 88px; }
+      .photos-grid  { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+
+      .screen-card-name { font-size: 15px; }
+      .screen-card-meta { font-size: 11px; }
+      .health-strip { font-size: 9.5px; gap: 5px; }
+    }
+
+    /* Narrow phones: keep screen/album cards two-up instead of one giant card */
+    @media (max-width: 380px) {
+      .screens-grid,
+      .albums-grid { grid-template-columns: 1fr 1fr; }
+      .photos-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); }
+    }
   </style>
 </head>
 <body>
@@ -677,11 +706,18 @@
       <span>PhotoDock</span>
     </div>
     <div class="header-actions">
-      <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
-      <a href="/admin" class="glass-btn hbtn">⚙ Settings</a>
-      <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
+      <div class="nav-wrap">
+        <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+        <div class="nav-links" id="navLinks">
+          <a href="/" class="glass-btn hbtn">⌂ Gallery</a>
+          <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
+          <a href="/admin" class="glass-btn hbtn" data-admin-only>⚙ Settings</a>
+          <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
+          <a href="/account" class="glass-btn hbtn"><span class="nav-avatar">👤</span> Account</a>
+          <a href="/logout" class="glass-btn hbtn">Log out</a>
+        </div>
+      </div>
       <button class="glass-btn hbtn" onclick="openSlideshow()">▶ Slideshow</button>
-      <a href="/logout" class="glass-btn hbtn">Log out</a>
       <div class="upload-wrap">
         <button class="cyan-btn hbtn" id="uploadToggle" onclick="toggleUploadMenu()">↑ Upload ▾</button>
         <div class="glass upload-dropdown" id="uploadDropdown">
@@ -1081,6 +1117,7 @@ function closeUploadMenu() {
   document.getElementById('uploadDropdown').classList.remove('open');
 }
 
+// toggleNavMenu + nav close are shared in theme.js
 document.addEventListener('click', e => {
   if (!e.target.closest('.upload-wrap')) closeUploadMenu();
 });

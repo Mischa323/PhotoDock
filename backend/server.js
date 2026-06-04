@@ -199,6 +199,97 @@ async function sendEmail(to, subject, html) {
     }
 }
 
+// ── Branded email templates (designed HTML, one file per event × light/dark) ──
+const EMAIL_TEMPLATES_DIR = path.join(__dirname, 'email-templates');
+const _emailTplCache = {};
+function loadEmailTemplate(name, theme) {
+    const k = `${name}.${theme}`;
+    if (_emailTplCache[k] === undefined) {
+        try { _emailTplCache[k] = fs.readFileSync(path.join(EMAIL_TEMPLATES_DIR, `${name}.${theme}.html`), 'utf8'); }
+        catch { _emailTplCache[k] = null; }
+    }
+    return _emailTplCache[k];
+}
+function escEmail(s) { return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+// The templates ship with example values; map each event's example literals to
+// the live values so the original designs stay untouched.
+const EMAIL_REPLACERS = {
+    low_battery: v => [['Living Room Frame', v.deviceName], ['width:9%', `width:${v.batteryPct}%`],
+                       ['width:91%', `width:${100 - v.batteryPct}%`], ['>9%<', `>${v.batteryPct}%<`],
+                       ['Good', v.wifiLabel], ['Just now', v.lastSeen]],
+    paired:      v => [['Studio Frame', v.deviceName], ['Just now', v.lastSeen]],
+    offline:     v => { const dur = String(v.lastSeen || '').replace(/\s*ago$/, '');
+                        return [['Kitchen Display', v.deviceName], ['47 minutes ago', v.lastSeen],
+                                ['47 min ago', v.lastSeen], ['in 47 minutes', `in ${dur || v.lastSeen}`]]; },
+    back_online: v => [['Kitchen Display', v.deviceName], ['Just now', v.lastSeen]],
+    storage:     v => [['width:94%', `width:${v.pct}%`], ['width:6%', `width:${100 - v.pct}%`],
+                       ['94% used', `${v.pct}% used`], ['(94%)', `(${v.pct}%)`],
+                       ['4.7 GB', v.used], ['5 GB', v.total]],
+    firmware:    v => [['Hallway Frame', v.deviceName], ['1.17.0', v.newVersion], ['1.16.2', v.currentVersion]],
+    invite:      v => { const r = [['https://photos.home.local/invite/accept', v.acceptUrl],
+                       ['Henderson Family', v.serverName], ['Editor', v.roleLabel],
+                       ['Mischa', v.inviterName]];   // name first, single pass — avoids re-matching
+                       // Then fill the inviter's email, or drop the "(…)" if there isn't one.
+                       r.push(v.inviterEmail ? ['mischa@home.local', v.inviterEmail] : [' (mischa@home.local)', '']);
+                       return r; },
+    password_reset: v => [['https://photos.home.local/reset', v.resetUrl],
+                       ['you@home.local', v.email], ['418 902', v.code],
+                       ['Jun 3, 2026 · 9:42 PM', v.when], ['192.168.1.24', v.ip]],
+};
+function renderEmailTemplate(name, vars) {
+    // Escape only the free-text (user-controlled) fields; keep numeric/structural
+    // values (battery %, bar widths, the >9%< tokens, URL) raw so we don't mangle
+    // the markup.
+    const e = s => (s != null ? escEmail(s) : s);
+    const v = Object.assign({}, vars, {
+        deviceName: e(vars.deviceName), deviceModel: e(vars.deviceModel),
+        wifiLabel: e(vars.wifiLabel), lastSeen: e(vars.lastSeen),
+        inviterName: e(vars.inviterName), inviterEmail: e(vars.inviterEmail),
+        serverName: e(vars.serverName), roleLabel: e(vars.roleLabel),
+        email: e(vars.email), ip: e(vars.ip), when: e(vars.when),
+    });
+    const theme = appData.settings?.emailTheme === 'dark' ? 'dark' : 'light';
+    let html = loadEmailTemplate(name, theme) || loadEmailTemplate(name, 'light');
+    if (!html) return null;
+    for (const [from, to] of (EMAIL_REPLACERS[name] || (() => []))(v)) {
+        if (to == null) continue;
+        html = html.split(from).join(String(to));
+    }
+    // Model + dashboard URL appear in every template — replace robustly.
+    if (v.deviceModel)  html = html.replace(/TRMNL[^<"]*?e-ink/g, v.deviceModel);
+    if (v.dashboardUrl) html = html.split('https://photos.home.local').join(v.dashboardUrl);
+    return html;
+}
+function adminEmails() {
+    return appData.users.filter(u => appData.roles?.[u.role]?.canManage && u.email).map(u => u.email);
+}
+// Alert categories that can each be turned on/off independently (the template
+// name doubles as the toggle key). Default for any unset key is "on".
+const ALERT_TYPES = ['offline', 'back_online', 'paired', 'low_battery', 'firmware', 'storage'];
+// Render a branded template and email it to all admins. No-op if mail isn't set
+// up, device alerts are off, or this specific alert type was disabled.
+// Fire-and-forget (never blocks a request).
+async function sendDeviceAlert(templateName, subject, vars) {
+    if (!appData.settings?.email?.method) return;
+    if (appData.settings?.deviceAlerts === false) return;
+    if (appData.settings?.alertTypes?.[templateName] === false) return;
+    const html = renderEmailTemplate(templateName, vars);
+    if (!html) return;
+    for (const email of adminEmails()) {
+        try { await sendEmail(email, subject, html); } catch { /* skip a bad address */ }
+    }
+}
+
+// The externally-reachable base URL for links in account emails: the configured
+// public dashboard URL when set, else whatever host this request came in on.
+function publicBase(req) {
+    return appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`;
+}
+// A friendly name for the server, shown in the invite email's info card.
+function serverLabel(base) { try { return new URL(base).host; } catch { return 'PhotoDock'; } }
+// Human-readable role label (role keys are lowercase, e.g. "editor" → "Editor").
+function roleLabel(role) { return role ? role.charAt(0).toUpperCase() + role.slice(1) : 'Member'; }
+
 // ── Login rate limiter ─────────────────────────────────────────────────────
 const loginAttempts = new Map();
 
@@ -443,6 +534,10 @@ function requireAuth(req, res, next) {
     if (req.path === '/pair') return next();
     if (req.path === '/api/devices/pair/request') return next();
     if (req.method === 'GET' && req.path.startsWith('/api/devices/pair/')) return next();
+    // Public account flows — invite acceptance & password reset (no session yet).
+    if (req.path === '/forgot' || req.path === '/api/password/forgot' || req.path === '/api/password/reset') return next();
+    if (req.path.startsWith('/reset/') || req.path.startsWith('/api/reset/')) return next();
+    if (req.path.startsWith('/invite/accept') || req.path.startsWith('/api/invite/')) return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -1125,6 +1220,14 @@ app.post('/api/devices/pair/:token/link', express.json(), (req, res) => {
     p.status = 'complete';
     p.apiKeyId = apiKey.id;
     p.screenId = screenId;
+
+    // "Device paired" alert to admins.
+    const screen = (appData.screens || []).find(s => s.id === screenId);
+    sendDeviceAlert('paired', `${screen?.name || 'Your display'} is connected and ready`, {
+        deviceName: screen?.name || 'Your display', deviceModel: p.model || 'Photo display',
+        lastSeen: 'Just now', dashboardUrl: appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`,
+    });
+
     res.json({ ok: true });
 });
 
@@ -1163,7 +1266,7 @@ app.post('/login', async (req, res) => {
         addLog('login_fail', { user: username, ip, detail: 'account blocked' });
         return res.redirect('/login?error=blocked');
     }
-    if (user && (await verifyPassword(password, user.password))) {
+    if (user && user.password && (await verifyPassword(password, user.password))) {
         resetRateLimit(ip);
         user.failedLoginAttempts = 0;
         if (user.twoFactorEnabled) {
@@ -1217,15 +1320,89 @@ app.post('/login', async (req, res) => {
     }
 });
 
-app.post('/logout', (req, res) => {
+// Support both GET (header "Log out" links) and POST.
+function doLogout(req, res) {
     const cookies = parseCookies(req);
     if (cookies[COOKIE_NAME]) deleteToken(cookies[COOKIE_NAME]);
     clearCookie(res, req);
     res.redirect('/login');
-});
+}
+app.get('/logout',  doLogout);
+app.post('/logout', doLogout);
 
 app.get('/screens', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'screens.html')));
 app.get('/admin',   requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'admin.html')));
+app.get('/account', requireAuth, (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'account.html')));
+
+// ── Public account flows — invite acceptance & password reset ──────────────
+app.get('/forgot',               (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'forgot.html')));
+app.get('/reset/:token',         (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'reset.html')));
+app.get('/invite/accept/:token', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'invite.html')));
+
+// Invite — validate a token (for the accept page) and complete account setup.
+app.get('/api/invite/:token', (req, res) => {
+    const u = appData.users.find(u => u.inviteToken === req.params.token);
+    if (!u || !u.pending) return res.status(404).json({ error: 'This invite is no longer valid.' });
+    if (u.inviteExpires && Date.now() > u.inviteExpires) return res.status(410).json({ error: 'This invite has expired.' });
+    res.json({ valid: true, username: u.username, email: u.email || null });
+});
+app.post('/api/invite/accept', express.json(), async (req, res) => {
+    const { token, password } = req.body || {};
+    const u = appData.users.find(u => u.inviteToken === token);
+    if (!u || !u.pending) return res.status(404).json({ error: 'This invite is no longer valid.' });
+    if (u.inviteExpires && Date.now() > u.inviteExpires) return res.status(410).json({ error: 'This invite has expired.' });
+    if (!password || String(password).length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
+    u.password = await hashPassword(password);
+    delete u.pending; delete u.inviteToken; delete u.inviteExpires;
+    u.lastLogin = new Date().toISOString();
+    saveData(appData);
+    addLog('invite_accepted', { user: u.username });
+    const { token: authToken, expiresAt } = createToken(u.id);   // log them straight in
+    setCookie(res, authToken, expiresAt, req);
+    res.json({ ok: true });
+});
+
+// Password reset — request a link (no user enumeration) and complete the reset.
+app.post('/api/password/forgot', express.json(), async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    res.json({ ok: true });   // always succeed — never reveal whether an address exists
+    if (!email || !appData.settings?.email?.method) return;
+    const u = appData.users.find(u => (u.email || '').toLowerCase() === email);
+    if (!u) return;
+    const token = crypto.randomBytes(24).toString('hex');
+    const code  = String(Math.floor(100000 + Math.random() * 900000));
+    u.resetToken = token; u.resetCode = code; u.resetExpires = Date.now() + 30 * 60 * 1000;
+    saveData(appData);
+    const base = publicBase(req);
+    const tz = appData.settings?.timezone || DEFAULT_SETTINGS.timezone;
+    const now = new Date();
+    const when = `${now.toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' })} · `
+               + `${now.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' })}`;
+    const html = renderEmailTemplate('password_reset', {
+        email: u.email, code: `${code.slice(0, 3)} ${code.slice(3)}`, when,
+        ip: req.ip, resetUrl: `${base}/reset/${token}`, dashboardUrl: base,
+    });
+    try { if (html) await sendEmail(u.email, 'Reset your PhotoDock password', html); }
+    catch (e) { console.error('Reset email failed:', e.message); }
+    addLog('password_reset_requested', { user: u.username });
+});
+app.get('/api/reset/:token', (req, res) => {
+    const u = appData.users.find(u => u.resetToken === req.params.token);
+    if (!u || !u.resetExpires || Date.now() > u.resetExpires) return res.status(404).json({ error: 'This reset link is invalid or has expired.' });
+    res.json({ valid: true, username: u.username });
+});
+app.post('/api/password/reset', express.json(), async (req, res) => {
+    const { token, password } = req.body || {};
+    const u = appData.users.find(u => u.resetToken === token);
+    if (!u || !u.resetExpires || Date.now() > u.resetExpires) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+    if (!password || String(password).length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
+    u.password = await hashPassword(password);
+    delete u.resetToken; delete u.resetCode; delete u.resetExpires;
+    u.failedLoginAttempts = 0; u.blocked = false;   // a successful reset clears any lockout
+    saveData(appData);
+    addLog('password_reset', { user: u.username });
+    res.json({ ok: true });
+});
 
 // ── 2FA — login completion (unauthenticated) ───────────────────────────────
 app.get('/2fa',     (_req, res) => res.sendFile(path.join(FRONTEND_DIR, '2fa.html')));
@@ -1261,7 +1438,8 @@ app.post('/api/2fa/complete', express.json(), (req, res) => {
 app.get('/api/2fa/status', (req, res) => {
     if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
     const u = appData.users.find(u => u.id === req.currentUser.id);
-    res.json({ enabled: !!u.twoFactorEnabled, method: u.twoFactorMethod || 'totp', email: maskEmail(u.email) });
+    res.json({ enabled: !!u.twoFactorEnabled, method: u.twoFactorMethod || 'totp', email: maskEmail(u.email),
+               hasEmail: !!u.email, mailConfigured: !!(appData.settings?.email?.method) });
 });
 
 app.get('/api/2fa/setup', async (req, res) => {
@@ -1380,6 +1558,57 @@ app.put('/api/user/email', (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Account: change own password ─────────────────────────────────────────────
+app.put('/api/user/password', express.json(), async (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const { currentPassword, newPassword } = req.body || {};
+    if (!newPassword || String(newPassword).length < 6)
+        return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    const u = appData.users.find(u => u.id === req.currentUser.id);
+    if (!u) return res.status(404).json({ error: 'User not found' });
+    if (!(await verifyPassword(currentPassword || '', u.password)))
+        return res.status(400).json({ error: 'Current password is incorrect' });
+    u.password = await hashPassword(newPassword);
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// ── Account: profile photo (avatar) ───────────────────────────────────────────
+const AVATARS_DIR = path.join(UPLOADS_DIR, 'avatars');
+try { fs.mkdirSync(AVATARS_DIR, { recursive: true }); } catch {}
+const avatarUpload = multer({
+    storage: multer.diskStorage({
+        destination: (_req, _file, cb) => cb(null, AVATARS_DIR),
+        filename: (req, file, cb) => cb(null, req.currentUser.id + (path.extname(file.originalname).toLowerCase() || '.jpg')),
+    }),
+    fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+    limits: { fileSize: 8 * 1024 * 1024 },
+});
+app.post('/api/user/avatar', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    avatarUpload.single('avatar')(req, res, err => {
+        if (err) return res.status(400).json({ error: err.message || 'Upload failed' });
+        if (!req.file) return res.status(400).json({ error: 'Please choose an image' });
+        const u = appData.users.find(u => u.id === req.currentUser.id);
+        if (u.avatar && u.avatar !== req.file.filename) {   // drop the old file if the ext changed
+            try { fs.unlinkSync(path.join(AVATARS_DIR, u.avatar)); } catch {}
+        }
+        u.avatar = req.file.filename;
+        u.avatarVer = (u.avatarVer || 0) + 1;
+        saveData(appData);
+        res.json({ ok: true, avatar: `/api/user/avatar/${u.id}?v=${u.avatarVer}` });
+    });
+});
+app.get('/api/user/avatar/:id', (req, res) => {
+    if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
+    const u = appData.users.find(u => u.id === req.params.id);
+    if (!u || !u.avatar) return res.status(404).end();
+    const p = path.join(AVATARS_DIR, u.avatar);
+    if (!fs.existsSync(p)) return res.status(404).end();
+    res.set('Cache-Control', 'no-cache');
+    res.sendFile(p);
+});
+
 // Admin: reset another user's 2FA
 app.delete('/api/admin/users/:id/2fa', requireAdmin, (req, res) => {
     const u = appData.users.find(u => u.id === req.params.id);
@@ -1394,7 +1623,10 @@ app.delete('/api/admin/users/:id/2fa', requireAdmin, (req, res) => {
 app.get('/api/me', (req, res) => {
     const user = req.currentUser;
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
-    res.json({ id: user.id, username: user.username, role: user.role, permissions: getPermissions(user.role), twoFactorEnabled: !!user.twoFactorEnabled });
+    const u = appData.users.find(x => x.id === user.id) || {};
+    res.json({ id: user.id, username: user.username, role: user.role, permissions: getPermissions(user.role),
+               twoFactorEnabled: !!u.twoFactorEnabled, email: u.email || '',
+               avatar: u.avatar ? `/api/user/avatar/${user.id}?v=${u.avatarVer || 0}` : null });
 });
 
 // ── Admin API — sessions (admin only) ─────────────────────────────────────
@@ -1417,15 +1649,43 @@ app.delete('/api/admin/sessions/:userId', requireAdmin, (req, res) => {
 
 // ── Admin API — users ──────────────────────────────────────────────────────
 app.get('/api/admin/users', requireAdmin, (_req, res) => {
-    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role, email: u.email || null, twoFactorEnabled: !!u.twoFactorEnabled, blocked: !!u.blocked, failedLoginAttempts: u.failedLoginAttempts || 0, lastLogin: u.lastLogin || null })));
+    res.json(appData.users.map(u => ({ id: u.id, username: u.username, role: u.role, email: u.email || null, twoFactorEnabled: !!u.twoFactorEnabled, blocked: !!u.blocked, pending: !!u.pending, failedLoginAttempts: u.failedLoginAttempts || 0, lastLogin: u.lastLogin || null })));
 });
 
 app.post('/api/admin/users', requireAdmin, async (req, res) => {
-    const { username, password, role } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    const { username, password, role, email, invite } = req.body;
+    if (!username) return res.status(400).json({ error: 'Username required' });
     if (!appData.roles?.[role]) return res.status(400).json({ error: 'Unknown role' });
     if (appData.users.some(u => u.username === username)) return res.status(400).json({ error: 'Username already exists' });
-    const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role };
+
+    // Invite flow: create a pending account with no password and email a setup link.
+    if (invite) {
+        const mail = String(email || '').trim();
+        if (!mail) return res.status(400).json({ error: 'An email address is required to send an invite' });
+        if (!appData.settings?.email?.method) return res.status(400).json({ error: 'Configure email first to send invites' });
+        if (appData.users.some(u => (u.email || '').toLowerCase() === mail.toLowerCase()))
+            return res.status(400).json({ error: 'A user with that email already exists' });
+        const token = crypto.randomBytes(24).toString('hex');
+        const user = { id: crypto.randomUUID(), username, role, email: mail, pending: true,
+                       inviteToken: token, inviteExpires: Date.now() + 7 * 86400 * 1000 };
+        appData.users.push(user);
+        saveData(appData);
+        const base = publicBase(req);
+        const inviter = req.currentUser;
+        const html = renderEmailTemplate('invite', {
+            inviterName: inviter?.username || 'An administrator', inviterEmail: inviter?.email || '',
+            serverName: serverLabel(base), roleLabel: roleLabel(role),
+            acceptUrl: `${base}/invite/accept/${token}`, dashboardUrl: base,
+        });
+        try { if (html) await sendEmail(mail, `${inviter?.username || 'PhotoDock'} invited you to a photo display`, html); }
+        catch (e) { console.error('Invite email failed:', e.message); }
+        addLog('user_invited', { by: inviter?.username, target: username, email: mail });
+        return res.json({ id: user.id, username, role, invited: true });
+    }
+
+    if (!password) return res.status(400).json({ error: 'Username and password required' });
+    const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role,
+                   email: String(email || '').trim() || undefined };
     appData.users.push(user);
     saveData(appData);
     res.json({ id: user.id, username: user.username, role: user.role });
@@ -1606,6 +1866,10 @@ app.get('/api/admin/email', requireAdmin, (_req, res) => {
     const cfg = JSON.parse(JSON.stringify(appData.settings?.email || {}));
     if (cfg.smtp?.password)      cfg.smtp.password      = '';
     if (cfg.graph?.clientSecret) cfg.graph.clientSecret = '';
+    cfg.publicUrl    = appData.settings?.publicUrl || '';
+    cfg.deviceAlerts = appData.settings?.deviceAlerts !== false;   // default on
+    cfg.emailTheme   = appData.settings?.emailTheme || 'light';
+    cfg.alertTypes   = Object.fromEntries(ALERT_TYPES.map(t => [t, appData.settings?.alertTypes?.[t] !== false]));
     res.json(cfg);
 });
 
@@ -1637,8 +1901,34 @@ app.put('/api/admin/email', requireAdmin, (req, res) => {
         newCfg.graph = existing.graph || {};
     }
     appData.settings.email = newCfg;
+    if ('publicUrl'    in req.body) appData.settings.publicUrl    = String(req.body.publicUrl || '').trim().replace(/\/+$/, '');
+    if ('deviceAlerts' in req.body) appData.settings.deviceAlerts = !!req.body.deviceAlerts;
+    if ('emailTheme'   in req.body) appData.settings.emailTheme   = req.body.emailTheme === 'dark' ? 'dark' : 'light';
+    if (req.body.alertTypes && typeof req.body.alertTypes === 'object')
+        appData.settings.alertTypes = Object.fromEntries(ALERT_TYPES.map(t => [t, req.body.alertTypes[t] !== false]));
     saveData(appData);
     res.json({ ok: true });
+});
+
+// Render any alert/email template with representative sample data so admins can
+// preview exactly what would be sent (uses the configured light/dark theme).
+app.get('/api/admin/email/preview/:type', requireAdmin, (req, res) => {
+    const type = req.params.type;
+    if (![...ALERT_TYPES, 'invite', 'password_reset'].includes(type)) return res.status(404).send('Unknown template');
+    const base = appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`;
+    const samples = {
+        low_battery:    { deviceName: 'Living Room Frame', deviceModel: 'PhotoPainter E6', batteryPct: 8, wifiLabel: 'Good', lastSeen: 'Just now', dashboardUrl: base },
+        paired:         { deviceName: 'Studio Frame', deviceModel: 'reTerminal E1001', lastSeen: 'Just now', dashboardUrl: base },
+        offline:        { deviceName: 'Kitchen Display', deviceModel: 'PhotoPainter E6', lastSeen: '47 minutes ago', dashboardUrl: base },
+        back_online:    { deviceName: 'Kitchen Display', deviceModel: 'PhotoPainter E6', lastSeen: 'Just now', dashboardUrl: base },
+        firmware:       { deviceName: 'Hallway Frame', deviceModel: 'PhotoPainter E6', newVersion: '2026.06.01', currentVersion: '2026.04.10', dashboardUrl: base },
+        storage:        { pct: 94, used: '4.7 GB', total: '5 GB', dashboardUrl: base },
+        invite:         { inviterName: req.currentUser?.username || 'An administrator', inviterEmail: req.currentUser?.email || '', serverName: serverLabel(base), roleLabel: 'Editor', acceptUrl: `${base}/invite/accept/preview`, dashboardUrl: base },
+        password_reset: { email: req.currentUser?.email || 'you@example.com', code: '418 902', when: 'Jun 3, 2026 · 9:42 PM', ip: req.ip, resetUrl: `${base}/reset/preview`, dashboardUrl: base },
+    };
+    const html = renderEmailTemplate(type, samples[type]);
+    if (!html) return res.status(404).send('Template not found');
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html);
 });
 
 app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
@@ -2163,6 +2453,27 @@ app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
         lastSeen:        new Date().toISOString(),
     };
     saveData(appData);
+
+    // Low-battery alert — emailed once when it drops below 10% (re-arms above 20%).
+    try {
+        const st  = appData.deviceStatus[id];
+        const pct = st.batteryPct;
+        if (pct != null && !st.charging) {
+            if (pct < 10 && !key.lowBattNotified) {
+                key.lowBattNotified = true; saveData(appData);
+                const screen = (appData.screens || []).find(s => s.id === key.screenId);
+                const name = screen?.name || key.name || 'Your display';
+                sendDeviceAlert('low_battery', `${name} is low on battery (${pct}%)`, {
+                    deviceName: name, deviceModel: st.model || 'Photo display',
+                    batteryPct: pct, wifiLabel: rssiToBars(st.wifiRssi).label || 'OK', lastSeen: 'Just now',
+                    dashboardUrl: appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`,
+                });
+            } else if (pct > 20 && key.lowBattNotified) {
+                key.lowBattNotified = false; saveData(appData);   // recovered — re-arm
+            }
+        }
+    } catch {}
+
     res.json({ ok: true });
 });
 
@@ -2876,6 +3187,95 @@ async function runInactivityCheck() {
 setInterval(runInactivityCheck, 60 * 60 * 1000);
 // Also run shortly after startup so the first check doesn't wait an hour
 setTimeout(runInactivityCheck, 30 * 1000);
+
+// ── Device + server health alerts (offline / back-online / firmware / storage) ──
+// Firmware versions are content hashes; map a hash to its changelog title when we
+// can so the email shows something friendlier than a raw hash.
+function fwLabel(model, hash) {
+    if (!hash) return null;
+    try {
+        const rel = (readFirmwareChangelog()[model]?.releases || []).find(r => r.buildHash === hash);
+        if (rel?.title) return rel.title;
+    } catch {}
+    return String(hash).slice(0, 10);
+}
+function relAge(iso) {
+    if (!iso) return 'a while ago';
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 90)    return 'Just now';
+    if (s < 3600)  { const m = Math.round(s / 60);   return `${m} minute${m === 1 ? '' : 's'} ago`; }
+    if (s < 86400) { const h = Math.round(s / 3600); return `${h} hour${h === 1 ? '' : 's'} ago`; }
+    const d = Math.round(s / 86400); return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+function fmtGB(bytes) {
+    if (bytes == null) return '—';
+    const gb = bytes / 1e9;
+    return (gb >= 10 ? Math.round(gb) : gb.toFixed(1)) + ' GB';
+}
+
+async function runHealthMonitor() {
+    if (appData.settings?.deviceAlerts === false) return;
+    if (!appData.settings?.email?.method)         return;
+    const baseUrl = appData.settings?.publicUrl || '';
+    const tz  = appData.settings?.timezone || DEFAULT_SETTINGS.timezone;
+    const now = Date.now();
+
+    // Per-device: offline / back-online + firmware-update-available
+    for (const st of Object.values(appData.deviceStatus || {})) {
+        const key = (appData.apiKeys || []).find(k => k.id === st.apiKeyId);
+        if (!key) continue;
+        const screen = (appData.screens || []).find(s => s.id === (st.screenId || key.screenId));
+        const name   = screen?.name || key.name || 'Your display';
+        const model  = st.model || 'Photo display';
+
+        // Offline detection — skip devices that are intentionally asleep.
+        const asleep = (() => { try { return !!screenSleepInfo(key, tz)?.sleeping; } catch { return false; } })();
+        if (!asleep && st.lastSeen) {
+            const intervalMs = (st.intervalMinutes || key.intervalMinutes || 5) * 60000;
+            const offline = (now - new Date(st.lastSeen).getTime()) > (3 * intervalMs + 90000);
+            if (offline && !key.alertedOffline) {
+                key.alertedOffline = true; saveData(appData);
+                await sendDeviceAlert('offline', `${name} went offline`,
+                    { deviceName: name, deviceModel: model, lastSeen: relAge(st.lastSeen), dashboardUrl: baseUrl });
+            } else if (!offline && key.alertedOffline) {
+                key.alertedOffline = false; saveData(appData);
+                await sendDeviceAlert('back_online', `${name} is back online`,
+                    { deviceName: name, deviceModel: model, lastSeen: 'Just now', dashboardUrl: baseUrl });
+            }
+        }
+
+        // Firmware update available — alert once per newly available build.
+        try {
+            const server = currentFirmwareInfo(st.model)?.version || null;
+            if (server && st.fwVersion && st.fwVersion !== server && key.fwNotifiedVersion !== server) {
+                key.fwNotifiedVersion = server; saveData(appData);
+                await sendDeviceAlert('firmware', `Firmware ${fwLabel(st.model, server)} is available for ${name}`, {
+                    deviceName: name, deviceModel: model,
+                    newVersion: fwLabel(st.model, server), currentVersion: fwLabel(st.model, st.fwVersion),
+                    dashboardUrl: baseUrl,
+                });
+            }
+        } catch {}
+    }
+
+    // Server storage — alert once above 90% (re-arms below 80%).
+    try {
+        const fsx = await fs.promises.statfs(ROOT_DIR);
+        const total = fsx.blocks * fsx.bsize, free = fsx.bavail * fsx.bsize, used = total - free;
+        const pct = Math.round(100 * (1 - free / total));
+        const s = appData.settings || (appData.settings = {});
+        if (pct >= 90 && !s._storageNotified) {
+            s._storageNotified = true; saveData(appData);
+            await sendDeviceAlert('storage', `Your photo server is almost out of storage (${pct}%)`,
+                { pct, used: fmtGB(used), total: fmtGB(total), dashboardUrl: baseUrl });
+        } else if (pct < 80 && s._storageNotified) {
+            s._storageNotified = false; saveData(appData);
+        }
+    } catch {}
+}
+
+setInterval(runHealthMonitor, 5 * 60 * 1000);
+setTimeout(runHealthMonitor, 45 * 1000);
 
 // ── Log retention pruning ──────────────────────────────────────────────────
 function pruneOldLogs() {

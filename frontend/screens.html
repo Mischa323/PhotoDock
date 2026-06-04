@@ -87,9 +87,24 @@
 
     /* Edit modal (dark glass) */
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-    .modal-box { width: 340px; border-radius: 18px; padding: 22px; }
+    .modal-box { width: 340px; max-width: calc(100vw - 24px); border-radius: 18px; padding: 22px; }
     .modal-title { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.92); margin-bottom: 16px; }
     .modal-input { margin-bottom: 16px; }
+    /* CSS-only slider switch (keeps the underlying checkbox + :checked state) */
+    .switch { position: relative; display: inline-block; width: 40px; height: 22px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; position: absolute; margin: 0; }
+    .switch .slider {
+      position: absolute; inset: 0; cursor: pointer;
+      background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 22px; transition: background 0.2s, border-color 0.2s;
+    }
+    .switch .slider:before {
+      content: ''; position: absolute; width: 16px; height: 16px; left: 2px; top: 2px;
+      background: #fff; border-radius: 50%; box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+      transition: transform 0.2s;
+    }
+    .switch input:checked + .slider { background: rgba(6,182,212,0.75); border-color: rgba(6,182,212,0.6); }
+    .switch input:checked + .slider:before { transform: translateX(18px); }
     .modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 18px; }
     .modal-btn { padding: 9px 16px; border-radius: 10px; font-size: 13px; }
 
@@ -196,6 +211,19 @@
     .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px); background: #0f172a; color: #fff; padding: 10px 22px; border-radius: 8px; font-size: 14px; font-weight: 500; box-shadow: 0 4px 16px rgba(0,0,0,0.25); transition: transform .25s; pointer-events: none; z-index: 9999; }
     .toast.show { transform: translateX(-50%) translateY(0); }
     .toast.error { background: #7f1d1d; }
+
+    /* ── Mobile / small screens ──────────────────────── */
+    @media (max-width: 640px) {
+      .cards-grid { padding: 0 12px 80px; grid-template-columns: 1fr; }
+      .wizard-scroll { padding: 16px; }
+      .wizard-steps { margin-bottom: 16px; }
+      .wizard-step-line { margin: 0 6px; }
+      /* The step labels don't fit next to the dots on a phone — show dots only. */
+      .wizard-step-label { display: none; }
+    }
+    @media (max-width: 420px) {
+      .mode-cards { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
@@ -206,10 +234,18 @@
   <span class="title">Screens</span>
   <div class="header-actions">
     <button class="cyan-btn hbtn" onclick="openSetup()">&#65291; Set up a device</button>
-    <a href="/pair" class="glass-btn hbtn" title="Pair a device that's already on your WiFi and showing a QR code">&#128241; Pair a device</a>
     <button class="glass-btn hbtn" onclick="openFwLog()" title="See what changed in the device firmware">&#128221; Firmware log</button>
-    <a href="/" class="glass-btn hbtn">&#8962; Gallery</a>
-    <a href="/admin" class="glass-btn hbtn">&#9881; Settings</a>
+    <div class="nav-wrap">
+      <button class="glass-btn hbtn nav-toggle" onclick="toggleNavMenu()" aria-label="Menu">&#9776;</button>
+      <div class="nav-links" id="navLinks">
+        <a href="/" class="glass-btn hbtn">⌂ Gallery</a>
+        <a href="/screens" class="glass-btn hbtn">🖼 Screens</a>
+        <a href="/admin" class="glass-btn hbtn" data-admin-only>⚙ Settings</a>
+        <a href="/pair" class="glass-btn hbtn">⊞ Pair device</a>
+        <a href="/account" class="glass-btn hbtn"><span class="nav-avatar">👤</span> Account</a>
+        <a href="/logout" class="glass-btn hbtn">Log out</a>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -274,7 +310,7 @@
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Brightens &amp; saturates photos so they pop on e-ink.</div>
     <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Sleep schedule</div>
     <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
-      <input type="checkbox" id="editSleepEnabled" style="width:16px;height:16px;cursor:pointer" onchange="document.getElementById('sleepTimes').style.opacity=this.checked?'1':'0.4'">
+      <span class="switch"><input type="checkbox" id="editSleepEnabled" onchange="document.getElementById('sleepTimes').style.opacity=this.checked?'1':'0.4'"><span class="slider"></span></span>
       Turn the screen off on a schedule
     </label>
     <div id="sleepTimes" style="display:flex;gap:14px;margin-top:10px;opacity:0.4">
@@ -290,13 +326,13 @@
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">During these hours the screen shows a “Sleeping” page and stops refreshing — saving battery. Times use the server timezone.</div>
     <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Firmware</div>
     <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
-      <input type="checkbox" id="editAutoUpdate" style="width:16px;height:16px;cursor:pointer">
+      <span class="switch"><input type="checkbox" id="editAutoUpdate"><span class="slider"></span></span>
       Auto-update firmware when a new version is available
     </label>
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">When off, updates only happen when you click “Update now”.</div>
     <div style="font-size:11.5px;font-weight:600;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:0.06em;margin:16px 0 9px">Diagnostics</div>
     <label style="display:flex;align-items:center;gap:9px;font-size:13px;color:rgba(255,255,255,0.85);cursor:pointer">
-      <input type="checkbox" id="editDebugLogging" style="width:16px;height:16px;cursor:pointer">
+      <span class="switch"><input type="checkbox" id="editDebugLogging"><span class="slider"></span></span>
       Debug logging
     </label>
     <div style="font-size:11px;color:rgba(255,255,255,0.4);margin-top:6px">Keeps the device's WiFi on through each refresh so the full display logs reach the server. Uses more battery — turn off when you're done debugging.</div>
