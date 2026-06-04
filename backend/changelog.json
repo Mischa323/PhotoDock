@@ -1,5 +1,19 @@
 [
   {
+    "version": "2.5.0",
+    "date": "2026-06-04",
+    "changes": [
+      "Email alerts for device & server health: get notified when a display goes offline or comes back, when a device pairs, on low battery, when a firmware update is available, and when server storage is running low",
+      "Choose which alerts email you — each type can be turned on or off individually — and preview every email template right from the dashboard",
+      "New email settings: a public dashboard URL for links inside alerts, a master alerts switch, and a light/dark email theme",
+      "Invite users by email: they get a setup link to choose their own password (shown as 'Pending' until accepted)",
+      "Forgot-password / reset flow from the login page (secure single-use link, no account enumeration)",
+      "Account page where any user can change their email, password and avatar, and manage 2FA — Settings stays admin-only",
+      "Mobile-friendly dashboard with a consistent collapsible navigation menu on every page",
+      "Slider switches across the alert and per-screen settings for a cleaner, more consistent UI"
+    ]
+  },
+  {
     "version": "2.4.1",
     "date": "2026-06-03",
     "changes": [
