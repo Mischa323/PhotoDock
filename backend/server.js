@@ -218,8 +218,14 @@ const EMAIL_REPLACERS = {
                        ['width:91%', `width:${100 - v.batteryPct}%`], ['>9%<', `>${v.batteryPct}%<`],
                        ['Good', v.wifiLabel], ['Just now', v.lastSeen]],
     paired:      v => [['Studio Frame', v.deviceName], ['Just now', v.lastSeen]],
-    offline:     v => [['Kitchen Display', v.deviceName], ['47 minutes ago', v.lastSeen], ['47 min ago', v.lastSeen]],
+    offline:     v => { const dur = String(v.lastSeen || '').replace(/\s*ago$/, '');
+                        return [['Kitchen Display', v.deviceName], ['47 minutes ago', v.lastSeen],
+                                ['47 min ago', v.lastSeen], ['in 47 minutes', `in ${dur || v.lastSeen}`]]; },
     back_online: v => [['Kitchen Display', v.deviceName], ['Just now', v.lastSeen]],
+    storage:     v => [['width:94%', `width:${v.pct}%`], ['width:6%', `width:${100 - v.pct}%`],
+                       ['94% used', `${v.pct}% used`], ['(94%)', `(${v.pct}%)`],
+                       ['4.7 GB', v.used], ['5 GB', v.total]],
+    firmware:    v => [['Hallway Frame', v.deviceName], ['1.17.0', v.newVersion], ['1.16.2', v.currentVersion]],
 };
 function renderEmailTemplate(name, vars) {
     // Escape only the free-text (user-controlled) fields; keep numeric/structural
@@ -1188,7 +1194,7 @@ app.post('/api/devices/pair/:token/link', express.json(), (req, res) => {
     const screen = (appData.screens || []).find(s => s.id === screenId);
     sendDeviceAlert('paired', `${screen?.name || 'Your display'} is connected and ready`, {
         deviceName: screen?.name || 'Your display', deviceModel: p.model || 'Photo display',
-        lastSeen: 'Just now', dashboardUrl: `${req.protocol}://${req.get('host')}`,
+        lastSeen: 'Just now', dashboardUrl: appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`,
     });
 
     res.json({ ok: true });
@@ -1731,6 +1737,9 @@ app.get('/api/admin/email', requireAdmin, (_req, res) => {
     const cfg = JSON.parse(JSON.stringify(appData.settings?.email || {}));
     if (cfg.smtp?.password)      cfg.smtp.password      = '';
     if (cfg.graph?.clientSecret) cfg.graph.clientSecret = '';
+    cfg.publicUrl    = appData.settings?.publicUrl || '';
+    cfg.deviceAlerts = appData.settings?.deviceAlerts !== false;   // default on
+    cfg.emailTheme   = appData.settings?.emailTheme || 'light';
     res.json(cfg);
 });
 
@@ -1762,6 +1771,9 @@ app.put('/api/admin/email', requireAdmin, (req, res) => {
         newCfg.graph = existing.graph || {};
     }
     appData.settings.email = newCfg;
+    if ('publicUrl'    in req.body) appData.settings.publicUrl    = String(req.body.publicUrl || '').trim().replace(/\/+$/, '');
+    if ('deviceAlerts' in req.body) appData.settings.deviceAlerts = !!req.body.deviceAlerts;
+    if ('emailTheme'   in req.body) appData.settings.emailTheme   = req.body.emailTheme === 'dark' ? 'dark' : 'light';
     saveData(appData);
     res.json({ ok: true });
 });
@@ -2301,7 +2313,7 @@ app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
                 sendDeviceAlert('low_battery', `${name} is low on battery (${pct}%)`, {
                     deviceName: name, deviceModel: st.model || 'Photo display',
                     batteryPct: pct, wifiLabel: rssiToBars(st.wifiRssi).label || 'OK', lastSeen: 'Just now',
-                    dashboardUrl: `${req.protocol}://${req.get('host')}`,
+                    dashboardUrl: appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`,
                 });
             } else if (pct > 20 && key.lowBattNotified) {
                 key.lowBattNotified = false; saveData(appData);   // recovered — re-arm
@@ -3022,6 +3034,95 @@ async function runInactivityCheck() {
 setInterval(runInactivityCheck, 60 * 60 * 1000);
 // Also run shortly after startup so the first check doesn't wait an hour
 setTimeout(runInactivityCheck, 30 * 1000);
+
+// ── Device + server health alerts (offline / back-online / firmware / storage) ──
+// Firmware versions are content hashes; map a hash to its changelog title when we
+// can so the email shows something friendlier than a raw hash.
+function fwLabel(model, hash) {
+    if (!hash) return null;
+    try {
+        const rel = (readFirmwareChangelog()[model]?.releases || []).find(r => r.buildHash === hash);
+        if (rel?.title) return rel.title;
+    } catch {}
+    return String(hash).slice(0, 10);
+}
+function relAge(iso) {
+    if (!iso) return 'a while ago';
+    const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+    if (s < 90)    return 'Just now';
+    if (s < 3600)  { const m = Math.round(s / 60);   return `${m} minute${m === 1 ? '' : 's'} ago`; }
+    if (s < 86400) { const h = Math.round(s / 3600); return `${h} hour${h === 1 ? '' : 's'} ago`; }
+    const d = Math.round(s / 86400); return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+function fmtGB(bytes) {
+    if (bytes == null) return '—';
+    const gb = bytes / 1e9;
+    return (gb >= 10 ? Math.round(gb) : gb.toFixed(1)) + ' GB';
+}
+
+async function runHealthMonitor() {
+    if (appData.settings?.deviceAlerts === false) return;
+    if (!appData.settings?.email?.method)         return;
+    const baseUrl = appData.settings?.publicUrl || '';
+    const tz  = appData.settings?.timezone || DEFAULT_SETTINGS.timezone;
+    const now = Date.now();
+
+    // Per-device: offline / back-online + firmware-update-available
+    for (const st of Object.values(appData.deviceStatus || {})) {
+        const key = (appData.apiKeys || []).find(k => k.id === st.apiKeyId);
+        if (!key) continue;
+        const screen = (appData.screens || []).find(s => s.id === (st.screenId || key.screenId));
+        const name   = screen?.name || key.name || 'Your display';
+        const model  = st.model || 'Photo display';
+
+        // Offline detection — skip devices that are intentionally asleep.
+        const asleep = (() => { try { return !!screenSleepInfo(key, tz)?.sleeping; } catch { return false; } })();
+        if (!asleep && st.lastSeen) {
+            const intervalMs = (st.intervalMinutes || key.intervalMinutes || 5) * 60000;
+            const offline = (now - new Date(st.lastSeen).getTime()) > (3 * intervalMs + 90000);
+            if (offline && !key.alertedOffline) {
+                key.alertedOffline = true; saveData(appData);
+                await sendDeviceAlert('offline', `${name} went offline`,
+                    { deviceName: name, deviceModel: model, lastSeen: relAge(st.lastSeen), dashboardUrl: baseUrl });
+            } else if (!offline && key.alertedOffline) {
+                key.alertedOffline = false; saveData(appData);
+                await sendDeviceAlert('back_online', `${name} is back online`,
+                    { deviceName: name, deviceModel: model, lastSeen: 'Just now', dashboardUrl: baseUrl });
+            }
+        }
+
+        // Firmware update available — alert once per newly available build.
+        try {
+            const server = currentFirmwareInfo(st.model)?.version || null;
+            if (server && st.fwVersion && st.fwVersion !== server && key.fwNotifiedVersion !== server) {
+                key.fwNotifiedVersion = server; saveData(appData);
+                await sendDeviceAlert('firmware', `Firmware ${fwLabel(st.model, server)} is available for ${name}`, {
+                    deviceName: name, deviceModel: model,
+                    newVersion: fwLabel(st.model, server), currentVersion: fwLabel(st.model, st.fwVersion),
+                    dashboardUrl: baseUrl,
+                });
+            }
+        } catch {}
+    }
+
+    // Server storage — alert once above 90% (re-arms below 80%).
+    try {
+        const fsx = await fs.promises.statfs(ROOT_DIR);
+        const total = fsx.blocks * fsx.bsize, free = fsx.bavail * fsx.bsize, used = total - free;
+        const pct = Math.round(100 * (1 - free / total));
+        const s = appData.settings || (appData.settings = {});
+        if (pct >= 90 && !s._storageNotified) {
+            s._storageNotified = true; saveData(appData);
+            await sendDeviceAlert('storage', `Your photo server is almost out of storage (${pct}%)`,
+                { pct, used: fmtGB(used), total: fmtGB(total), dashboardUrl: baseUrl });
+        } else if (pct < 80 && s._storageNotified) {
+            s._storageNotified = false; saveData(appData);
+        }
+    } catch {}
+}
+
+setInterval(runHealthMonitor, 5 * 60 * 1000);
+setTimeout(runHealthMonitor, 45 * 1000);
 
 // ── Log retention pruning ──────────────────────────────────────────────────
 function pruneOldLogs() {
