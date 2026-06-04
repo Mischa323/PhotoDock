@@ -263,11 +263,16 @@ function renderEmailTemplate(name, vars) {
 function adminEmails() {
     return appData.users.filter(u => appData.roles?.[u.role]?.canManage && u.email).map(u => u.email);
 }
+// Alert categories that can each be turned on/off independently (the template
+// name doubles as the toggle key). Default for any unset key is "on".
+const ALERT_TYPES = ['offline', 'back_online', 'paired', 'low_battery', 'firmware', 'storage'];
 // Render a branded template and email it to all admins. No-op if mail isn't set
-// up or device alerts are turned off. Fire-and-forget (never blocks a request).
+// up, device alerts are off, or this specific alert type was disabled.
+// Fire-and-forget (never blocks a request).
 async function sendDeviceAlert(templateName, subject, vars) {
     if (!appData.settings?.email?.method) return;
     if (appData.settings?.deviceAlerts === false) return;
+    if (appData.settings?.alertTypes?.[templateName] === false) return;
     const html = renderEmailTemplate(templateName, vars);
     if (!html) return;
     for (const email of adminEmails()) {
@@ -1864,6 +1869,7 @@ app.get('/api/admin/email', requireAdmin, (_req, res) => {
     cfg.publicUrl    = appData.settings?.publicUrl || '';
     cfg.deviceAlerts = appData.settings?.deviceAlerts !== false;   // default on
     cfg.emailTheme   = appData.settings?.emailTheme || 'light';
+    cfg.alertTypes   = Object.fromEntries(ALERT_TYPES.map(t => [t, appData.settings?.alertTypes?.[t] !== false]));
     res.json(cfg);
 });
 
@@ -1898,8 +1904,31 @@ app.put('/api/admin/email', requireAdmin, (req, res) => {
     if ('publicUrl'    in req.body) appData.settings.publicUrl    = String(req.body.publicUrl || '').trim().replace(/\/+$/, '');
     if ('deviceAlerts' in req.body) appData.settings.deviceAlerts = !!req.body.deviceAlerts;
     if ('emailTheme'   in req.body) appData.settings.emailTheme   = req.body.emailTheme === 'dark' ? 'dark' : 'light';
+    if (req.body.alertTypes && typeof req.body.alertTypes === 'object')
+        appData.settings.alertTypes = Object.fromEntries(ALERT_TYPES.map(t => [t, req.body.alertTypes[t] !== false]));
     saveData(appData);
     res.json({ ok: true });
+});
+
+// Render any alert/email template with representative sample data so admins can
+// preview exactly what would be sent (uses the configured light/dark theme).
+app.get('/api/admin/email/preview/:type', requireAdmin, (req, res) => {
+    const type = req.params.type;
+    if (![...ALERT_TYPES, 'invite', 'password_reset'].includes(type)) return res.status(404).send('Unknown template');
+    const base = appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`;
+    const samples = {
+        low_battery:    { deviceName: 'Living Room Frame', deviceModel: 'PhotoPainter E6', batteryPct: 8, wifiLabel: 'Good', lastSeen: 'Just now', dashboardUrl: base },
+        paired:         { deviceName: 'Studio Frame', deviceModel: 'reTerminal E1001', lastSeen: 'Just now', dashboardUrl: base },
+        offline:        { deviceName: 'Kitchen Display', deviceModel: 'PhotoPainter E6', lastSeen: '47 minutes ago', dashboardUrl: base },
+        back_online:    { deviceName: 'Kitchen Display', deviceModel: 'PhotoPainter E6', lastSeen: 'Just now', dashboardUrl: base },
+        firmware:       { deviceName: 'Hallway Frame', deviceModel: 'PhotoPainter E6', newVersion: '2026.06.01', currentVersion: '2026.04.10', dashboardUrl: base },
+        storage:        { pct: 94, used: '4.7 GB', total: '5 GB', dashboardUrl: base },
+        invite:         { inviterName: req.currentUser?.username || 'An administrator', inviterEmail: req.currentUser?.email || '', serverName: serverLabel(base), roleLabel: 'Editor', acceptUrl: `${base}/invite/accept/preview`, dashboardUrl: base },
+        password_reset: { email: req.currentUser?.email || 'you@example.com', code: '418 902', when: 'Jun 3, 2026 · 9:42 PM', ip: req.ip, resetUrl: `${base}/reset/preview`, dashboardUrl: base },
+    };
+    const html = renderEmailTemplate(type, samples[type]);
+    if (!html) return res.status(404).send('Template not found');
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html);
 });
 
 app.post('/api/admin/email/test', requireAdmin, async (req, res) => {

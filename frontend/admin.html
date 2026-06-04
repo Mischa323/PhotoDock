@@ -362,6 +362,11 @@
 
         .btn-save-settings:hover { background: var(--accent-hover); }
 
+        .alert-type-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+        .alert-type-row label { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; margin: 0; }
+        .alert-type-row a { font-size: 12px; color: var(--accent); text-decoration: none; white-space: nowrap; flex-shrink: 0; }
+        .alert-type-row a:hover { text-decoration: underline; }
+
         tbody tr { border-bottom: 1px solid #f0f3f0; }
         tbody tr:last-child { border-bottom: none; }
         tbody tr:hover { background: #f9fbf9; }
@@ -1294,6 +1299,30 @@
                         <option value="light">Light</option>
                         <option value="dark">Dark</option>
                     </select>
+                </div>
+                <div class="settings-row">
+                    <label>
+                        Which alerts <span class="help" data-tip="Choose which events send an email. Turn the master switch above off to silence all of them at once. Use Preview to see exactly what each email looks like.">?</span>
+                        <small>Enable or disable mail per alert — preview each one</small>
+                    </label>
+                    <div id="alertTypes" style="display:flex;flex-direction:column;gap:9px">
+                        <div class="alert-type-row"><label><input type="checkbox" data-alert="offline"> Device went offline</label><a href="/api/admin/email/preview/offline" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><label><input type="checkbox" data-alert="back_online"> Device back online</label><a href="/api/admin/email/preview/back_online" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><label><input type="checkbox" data-alert="paired"> Device paired</label><a href="/api/admin/email/preview/paired" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><label><input type="checkbox" data-alert="low_battery"> Low battery</label><a href="/api/admin/email/preview/low_battery" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><label><input type="checkbox" data-alert="firmware"> Firmware update available</label><a href="/api/admin/email/preview/firmware" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><label><input type="checkbox" data-alert="storage"> Storage almost full</label><a href="/api/admin/email/preview/storage" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                    </div>
+                </div>
+                <div class="settings-row">
+                    <label>
+                        Other emails <span class="help" data-tip="These are sent as part of their flow (when you invite a user, or when someone requests a password reset) and can't be turned off here — but you can preview them.">?</span>
+                        <small>Sent during their flow — preview only</small>
+                    </label>
+                    <div style="display:flex;flex-direction:column;gap:9px">
+                        <div class="alert-type-row"><label style="color:#777">User invite</label><a href="/api/admin/email/preview/invite" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                        <div class="alert-type-row"><label style="color:#777">Password reset</label><a href="/api/admin/email/preview/password_reset" target="_blank" rel="noopener">Preview &#8599;</a></div>
+                    </div>
                 </div>
             </div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
@@ -2826,6 +2855,9 @@
         document.getElementById('publicUrl').value      = cfg.publicUrl || '';
         document.getElementById('deviceAlerts').checked = cfg.deviceAlerts !== false;
         document.getElementById('emailTheme').value     = cfg.emailTheme === 'dark' ? 'dark' : 'light';
+        document.querySelectorAll('#alertTypes input[data-alert]').forEach(cb => {
+            cb.checked = cfg.alertTypes?.[cb.dataset.alert] !== false;
+        });
         updateEmailMethodUI();
     }
 
@@ -2834,11 +2866,14 @@
         st.style.color = '#888'; st.textContent = 'Saving…';
         // Send the current method only — omitting smtp/graph preserves saved
         // credentials server-side (the PUT keeps existing values when absent).
+        const alertTypes = {};
+        document.querySelectorAll('#alertTypes input[data-alert]').forEach(cb => { alertTypes[cb.dataset.alert] = cb.checked; });
         const body = {
             method:       document.getElementById('emailMethod').value,
             publicUrl:    document.getElementById('publicUrl').value.trim(),
             deviceAlerts: document.getElementById('deviceAlerts').checked,
-            emailTheme:   document.getElementById('emailTheme').value
+            emailTheme:   document.getElementById('emailTheme').value,
+            alertTypes
         };
         const res = await fetch('/api/admin/email', {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
