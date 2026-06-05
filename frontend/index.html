@@ -832,8 +832,10 @@ function hexA(hex, a) {
 }
 
 // ── Data loading ──────────────────────────────────────────
+let oneDriveConfigured = false;   // gates the "Import from OneDrive" menu item
 async function init() {
   await loadScreens();
+  try { oneDriveConfigured = !!(await (await fetch('/api/sources/onedrive/status')).json()).configured; } catch {}
   renderBreadcrumb();
   renderContent();
   buildUploadMenu();
@@ -1107,9 +1109,11 @@ function buildUploadMenu() {
     }
     container.innerHTML = html || '<div class="upload-item" style="opacity:0.5;cursor:default">No screens yet</div>';
   }
-  container.innerHTML +=
-    `<div style="height:1px;background:rgba(255,255,255,0.1);margin:6px 0"></div>` +
-    `<button class="upload-item" onclick="importFromOneDrive();closeUploadMenu()">☁ Import from OneDrive</button>`;
+  if (oneDriveConfigured) {
+    container.innerHTML +=
+      `<div style="height:1px;background:rgba(255,255,255,0.1);margin:6px 0"></div>` +
+      `<button class="upload-item" onclick="importFromOneDrive();closeUploadMenu()">☁ Import from OneDrive</button>`;
+  }
 }
 
 // Jump to the OneDrive picker, carrying the current screen/album as the target.

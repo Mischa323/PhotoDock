@@ -541,6 +541,8 @@ function requireAuth(req, res, next) {
     // OAuth callback returns from Microsoft cross-site (no session cookie); it
     // authenticates the user via the one-time `state` instead.
     if (req.path === '/api/sources/onedrive/callback') return next();
+    // Microsoft SSO entry points are used before a session exists.
+    if (req.path === '/api/sso/microsoft/login' || req.path === '/api/sso/microsoft/enabled') return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -2446,7 +2448,8 @@ app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
 // Per-user connection status (is OneDrive configured + has this user linked it?)
 app.get('/api/sources/onedrive/status', (req, res) => {
     const cfg = oneDriveCfg();
-    res.json({ configured: !!(cfg.clientId && cfg.clientSecret), connected: !!req.currentUser?.onedrive?.refreshToken });
+    const od  = req.currentUser?.onedrive;
+    res.json({ configured: !!(cfg.clientId && cfg.clientSecret), connected: !!od, email: od?.msEmail || null });
 });
 
 // Start OAuth — redirect the signed-in user to Microsoft consent.
@@ -2454,7 +2457,9 @@ app.get('/api/sources/onedrive/connect', (req, res) => {
     const cfg = oneDriveCfg();
     if (!cfg.clientId || !cfg.clientSecret) return res.status(400).send('OneDrive is not set up yet. Add the app credentials in Settings.');
     const state = crypto.randomBytes(16).toString('hex');
-    _oneDriveStates.set(state, { userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000 });
+    // Where to send the user after connecting — a local path only (no open redirect).
+    const ret = typeof req.query.return === 'string' && /^\/[^/]/.test(req.query.return) ? req.query.return : '/import/onedrive';
+    _oneDriveStates.set(state, { purpose: 'link', userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret });
     const p = new URLSearchParams({
         client_id: cfg.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(req),
         response_mode: 'query', scope: ONEDRIVE_SCOPE, state,
@@ -2462,31 +2467,82 @@ app.get('/api/sources/onedrive/connect', (req, res) => {
     res.redirect(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/authorize?${p}`);
 });
 
-// OAuth callback — runs without a session cookie (cross-site redirect), so the
-// user is identified via the one-time `state` minted in /connect.
+// OAuth callback — shared by account-linking and Microsoft SSO login. Runs
+// without a session cookie (cross-site redirect), so it trusts the one-time
+// `state` minted by /connect or /api/sso/microsoft/login.
 app.get('/api/sources/onedrive/callback', async (req, res) => {
     const { code, state, error, error_description } = req.query;
-    if (error) return res.status(400).send(`OneDrive connection failed: ${escEmail(error_description || error)}`);
     const st = _oneDriveStates.get(state); _oneDriveStates.delete(state);
-    if (!st || st.exp < Date.now()) return res.status(400).send('This OneDrive sign-in link expired. Please try connecting again.');
-    const user = appData.users.find(u => u.id === st.userId);
-    if (!user) return res.status(400).send('Account not found.');
+    const back = st?.purpose === 'login' ? '/login?error=sso' : `${st?.ret || '/import/onedrive'}?onedrive=error`;
+    if (error) { console.warn('Microsoft OAuth:', error_description || error); return res.redirect(back); }
+    if (!st || st.exp < Date.now()) return res.status(400).send('This Microsoft sign-in link expired. Please try again.');
     const cfg = oneDriveCfg();
+    let tok, me;
     try {
         const body = new URLSearchParams({
             client_id: cfg.clientId, client_secret: cfg.clientSecret, code: String(code || ''),
             redirect_uri: oneDriveRedirectUri(req), grant_type: 'authorization_code',
         });
         const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-        const tok = await r.json();
-        if (!r.ok || !tok.refresh_token) throw new Error(tok.error_description || 'token exchange failed');
-        user.onedrive = { refreshToken: encryptSecret(tok.refresh_token), connectedAt: new Date().toISOString() };
-        saveData(appData);
-        res.redirect('/import/onedrive?connected=1');
+        tok = await r.json();
+        if (!r.ok || !tok.access_token) throw new Error(tok.error_description || 'token exchange failed');
+        const meRes = await fetch(`${GRAPH}/me?$select=id,userPrincipalName,mail,displayName`, { headers: { Authorization: `Bearer ${tok.access_token}` } });
+        me = await meRes.json();
+        if (!meRes.ok || !me.id) throw new Error('could not read Microsoft profile');
     } catch (e) {
-        console.error('OneDrive token exchange:', e.message);
-        res.status(502).send('Could not complete OneDrive sign-in. Check the app credentials and that the redirect URI matches.');
+        console.error('Microsoft OAuth:', e.message);
+        return res.redirect(back);
     }
+    const msEmail = me.userPrincipalName || me.mail || null;
+
+    // ── SSO login: match the Microsoft identity to a linked account ──
+    if (st.purpose === 'login') {
+        const u = appData.users.find(x => x.onedrive?.msId === me.id)
+               || (msEmail && appData.users.find(x => (x.onedrive?.msEmail || '').toLowerCase() === msEmail.toLowerCase()));
+        if (!u)        return res.redirect('/login?error=sso_nolink');
+        if (u.blocked) { addLog('login_fail', { user: u.username, ip: req.ip, detail: 'sso, blocked' }); return res.redirect('/login?error=blocked'); }
+        u.lastLogin = new Date().toISOString();
+        saveData(appData);
+        addLog('login_success', { user: u.username, ip: req.ip, detail: 'microsoft sso' });
+        const { token, expiresAt } = createToken(u.id);
+        setCookie(res, token, expiresAt, req);
+        return res.redirect('/');
+    }
+
+    // ── Account linking: store the refresh token + Microsoft identity ──
+    const user = appData.users.find(u => u.id === st.userId);
+    if (!user) return res.status(400).send('Account not found.');
+    user.onedrive = Object.assign({}, user.onedrive, {
+        connectedAt: new Date().toISOString(), msId: me.id, msEmail,
+    });
+    if (tok.refresh_token) user.onedrive.refreshToken = encryptSecret(tok.refresh_token);
+    saveData(appData);
+    res.redirect(`${st.ret || '/import/onedrive'}?onedrive=connected`);
+});
+
+// Disconnect a user's Microsoft account (removes import access + SSO).
+app.post('/api/sources/onedrive/disconnect', (req, res) => {
+    if (req.currentUser?.onedrive) { delete req.currentUser.onedrive; saveData(appData); }
+    res.json({ ok: true });
+});
+
+// ── Microsoft SSO login ─────────────────────────────────────────────────────
+// Available once the Microsoft app is configured; only logs in users who have
+// linked their Microsoft account (no auto-provisioning).
+app.get('/api/sso/microsoft/enabled', (_req, res) => {
+    const cfg = oneDriveCfg();
+    res.json({ enabled: !!(cfg.clientId && cfg.clientSecret) });
+});
+app.get('/api/sso/microsoft/login', (req, res) => {
+    const cfg = oneDriveCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return res.redirect('/login?error=sso');
+    const state = crypto.randomBytes(16).toString('hex');
+    _oneDriveStates.set(state, { purpose: 'login', exp: Date.now() + 10 * 60 * 1000 });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(req),
+        response_mode: 'query', scope: ONEDRIVE_SCOPE, state, prompt: 'select_account',
+    });
+    res.redirect(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/authorize?${p}`);
 });
 
 // Exchange the stored refresh token for a fresh access token (rotates the RT).

@@ -104,6 +104,20 @@
       </div>
       <button type="submit" class="cyan-btn submit-btn">Sign in</button>
     </form>
+
+    <div id="ssoWrap" style="display:none">
+      <div style="display:flex;align-items:center;gap:10px;margin:18px 0 14px">
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.12)"></div>
+        <span style="font-size:11px;color:rgba(255,255,255,0.35)">or</span>
+        <div style="flex:1;height:1px;background:rgba(255,255,255,0.12)"></div>
+      </div>
+      <a href="/api/sso/microsoft/login" class="glass-btn submit-btn"
+         style="display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;color:#fff">
+        <svg width="17" height="17" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+        Sign in with Microsoft
+      </a>
+    </div>
+
     <p style="text-align:center;margin-top:18px">
       <a href="/forgot" style="font-size:13px;color:rgba(255,255,255,0.5);text-decoration:none">Forgot your password?</a>
     </p>
@@ -121,9 +135,20 @@
     } else if (err === 'email') {
       el.textContent = 'Could not send your login code. The email server may not be configured.';
       el.style.display = 'block';
+    } else if (err === 'sso_nolink') {
+      el.textContent = 'No PhotoDock account is linked to that Microsoft account. Sign in normally, then connect it under Account.';
+      el.style.display = 'block';
+    } else if (err === 'sso') {
+      el.textContent = 'Microsoft sign-in is unavailable right now.';
+      el.style.display = 'block';
     } else if (err) {
       el.style.display = 'block';
     }
+
+    // Show the Microsoft button only when SSO is configured.
+    fetch('/api/sso/microsoft/enabled').then(r => r.json())
+      .then(d => { if (d.enabled) document.getElementById('ssoWrap').style.display = 'block'; })
+      .catch(() => {});
   </script>
 </body>
 </html>

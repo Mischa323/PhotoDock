@@ -156,6 +156,20 @@
 
       <div class="msg" id="tfMsg"></div>
     </div>
+
+    <!-- Microsoft 365 (shown only when an admin has set up the integration) -->
+    <div class="card glass" id="msCard" style="display:none">
+      <h2>Microsoft 365</h2>
+      <p class="hint" style="margin-top:-2px">Connect your Microsoft account to import photos from OneDrive and sign in with Microsoft.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="msStatus">Loading…</div>
+        <div style="display:flex;gap:8px">
+          <a class="cyan-btn submit-btn" id="msConnect" href="/api/sources/onedrive/connect?return=/account" style="display:none;text-decoration:none">Connect</a>
+          <button class="glass-btn hbtn" id="msDisconnect" style="display:none" onclick="msDisconnect()">Disconnect</button>
+        </div>
+      </div>
+      <div class="msg" id="msMsg"></div>
+    </div>
   </div>
 
   <script>
@@ -284,8 +298,33 @@
       await loadTwofa(); tfShow('Two-factor authentication disabled.', true);
     }
 
+    // ── Microsoft 365 ───────────────────────────────────────────────────────
+    function escMs(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+    async function loadMs() {
+      let st;
+      try { st = await (await fetch('/api/sources/onedrive/status')).json(); } catch { return; }
+      if (!st.configured) return;                       // admin hasn't set it up → keep the card hidden
+      document.getElementById('msCard').style.display = '';
+      const statusEl = document.getElementById('msStatus');
+      const connect = document.getElementById('msConnect'), disconnect = document.getElementById('msDisconnect');
+      if (st.connected) {
+        statusEl.innerHTML = 'Connected' + (st.email ? ' as <strong>' + escMs(st.email) + '</strong>' : '');
+        connect.style.display = 'none'; disconnect.style.display = '';
+      } else {
+        statusEl.textContent = 'Not connected';
+        connect.style.display = ''; disconnect.style.display = 'none';
+      }
+    }
+    async function msDisconnect() {
+      await fetch('/api/sources/onedrive/disconnect', { method: 'POST' });
+      msg('msMsg', 'Microsoft account disconnected.', true);
+      loadMs();
+    }
+    if (new URLSearchParams(location.search).get('onedrive') === 'connected') msg('msMsg', 'Microsoft account connected.', true);
+
     load();
     loadTwofa();
+    loadMs();
   </script>
 </body>
 </html>
