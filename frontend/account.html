@@ -157,17 +157,37 @@
       <div class="msg" id="tfMsg"></div>
     </div>
 
-    <!-- Microsoft 365 (shown only when an admin has set up the integration) -->
-    <div class="card glass" id="msCard" style="display:none">
+    <!-- Microsoft 365 -->
+    <div class="card glass" id="msCard">
       <h2>Microsoft 365</h2>
       <p class="hint" style="margin-top:-2px">Connect your Microsoft account to import photos from OneDrive and sign in with Microsoft.</p>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:6px">
         <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="msStatus">Loading…</div>
-        <div style="display:flex;gap:8px">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
           <a class="cyan-btn submit-btn" id="msConnect" href="/api/sources/onedrive/connect?return=/account" style="display:none;text-decoration:none">Connect</a>
+          <button class="glass-btn hbtn" id="msSetupBtn" style="display:none" onclick="msToggleSetup()">Use my own app</button>
           <button class="glass-btn hbtn" id="msDisconnect" style="display:none" onclick="msDisconnect()">Disconnect</button>
         </div>
       </div>
+
+      <!-- Bring-your-own Microsoft app (for users without an admin-set app) -->
+      <div id="msSetup" style="display:none;margin-top:14px;border-top:1px solid rgba(255,255,255,0.1);padding-top:14px">
+        <p class="hint" style="margin-top:0">Register your own free Microsoft app to connect a personal account — no admin needed:</p>
+        <ol class="hint" style="margin:0 0 12px 18px;line-height:1.75">
+          <li>Open the <a href="https://entra.microsoft.com" target="_blank" rel="noopener" style="color:#67e8f9">Entra admin center</a> → <strong>App registrations</strong> → New registration.</li>
+          <li><strong>Supported account types</strong>: include personal Microsoft accounts.</li>
+          <li>Add a <strong>Single-page application</strong> redirect URI:
+            <code id="msRedirect" style="display:block;word-break:break-all;color:rgba(255,255,255,0.85);margin-top:4px"></code></li>
+          <li><strong>API permissions</strong> → Microsoft Graph → Delegated → <code>Files.Read</code>.</li>
+          <li>Copy the <strong>Application (client) ID</strong> below — no client secret needed.</li>
+        </ol>
+        <div class="field-label">Client ID</div>
+        <input class="glass-input" id="msClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="margin-bottom:10px">
+        <div class="field-label">Tenant</div>
+        <input class="glass-input" id="msTenant" placeholder="common" value="common" style="margin-bottom:12px">
+        <button class="cyan-btn submit-btn" onclick="msSaveApp()">Save &amp; connect</button>
+      </div>
+
       <div class="msg" id="msMsg"></div>
     </div>
   </div>
@@ -303,17 +323,40 @@
     async function loadMs() {
       let st;
       try { st = await (await fetch('/api/sources/onedrive/status')).json(); } catch { return; }
-      if (!st.configured) return;                       // admin hasn't set it up → keep the card hidden
-      document.getElementById('msCard').style.display = '';
-      const statusEl = document.getElementById('msStatus');
-      const connect = document.getElementById('msConnect'), disconnect = document.getElementById('msDisconnect');
+      document.getElementById('msRedirect').textContent = st.redirectUri || '';
+      document.getElementById('msClientId').value = st.userClientId || '';
+      document.getElementById('msTenant').value   = st.userTenant || 'common';
+      const statusEl   = document.getElementById('msStatus');
+      const connect    = document.getElementById('msConnect');
+      const setupBtn   = document.getElementById('msSetupBtn');
+      const disconnect = document.getElementById('msDisconnect');
+      connect.style.display = setupBtn.style.display = disconnect.style.display = 'none';
+      document.getElementById('msSetup').style.display = 'none';
+      setupBtn.textContent = st.hasUserApp ? 'Edit my app' : 'Use my own app';
       if (st.connected) {
         statusEl.innerHTML = 'Connected' + (st.email ? ' as <strong>' + escMs(st.email) + '</strong>' : '');
-        connect.style.display = 'none'; disconnect.style.display = '';
-      } else {
+        disconnect.style.display = '';
+        if (st.hasUserApp) setupBtn.style.display = '';
+      } else if (st.configured) {                 // an app is available (global or the user's own)
         statusEl.textContent = 'Not connected';
-        connect.style.display = ''; disconnect.style.display = 'none';
+        connect.style.display = '';
+        if (st.hasUserApp) setupBtn.style.display = '';
+      } else {                                     // nothing set up → user can bring their own app
+        statusEl.textContent = 'Not set up';
+        setupBtn.style.display = '';
       }
+    }
+    function msToggleSetup() {
+      const s = document.getElementById('msSetup');
+      s.style.display = s.style.display === 'none' ? 'block' : 'none';
+    }
+    async function msSaveApp() {
+      const clientId = document.getElementById('msClientId').value.trim();
+      const tenant   = document.getElementById('msTenant').value.trim() || 'common';
+      if (!clientId) { msg('msMsg', 'Enter your Client ID.', false); return; }
+      const r = await fetch('/api/user/onedrive-app', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId, tenant }) });
+      if (!r.ok) { msg('msMsg', 'Could not save your app.', false); return; }
+      location.href = '/api/sources/onedrive/connect?return=/account';   // straight into consent
     }
     async function msDisconnect() {
       await fetch('/api/sources/onedrive/disconnect', { method: 'POST' });

@@ -2433,6 +2433,14 @@ function pkcePair() {
     const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
     return { verifier, challenge };
 }
+// The Microsoft app to use for a given user: their OWN app (PKCE, no secret) if
+// they've registered one, otherwise the global admin-configured app. This lets a
+// user without admin rights connect a personal account by bringing their own app.
+function oneDriveCfgFor(user) {
+    if (user?.onedrive?.clientId)
+        return { clientId: user.onedrive.clientId, clientSecret: '', tenant: user.onedrive.tenant || 'common' };
+    return oneDriveCfg();
+}
 
 // Admin — store the Azure app credentials (client secret encrypted at rest).
 app.get('/api/admin/onedrive', requireAdmin, (req, res) => {
@@ -2457,15 +2465,24 @@ app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
 
 // Per-user connection status (is OneDrive configured + has this user linked it?)
 app.get('/api/sources/onedrive/status', (req, res) => {
-    const cfg = oneDriveCfg();
-    const od  = req.currentUser?.onedrive;
-    res.json({ configured: !!cfg.clientId, connected: !!od, email: od?.msEmail || null });
+    const g  = oneDriveCfg();
+    const od = req.currentUser?.onedrive;
+    res.json({
+        configured: !!(od?.clientId || g.clientId),   // can this user connect at all?
+        globalConfigured: !!g.clientId,
+        hasUserApp:   !!od?.clientId,
+        userClientId: od?.clientId || '',
+        userTenant:   od?.tenant   || 'common',
+        connected:    !!od?.refreshToken,
+        email:        od?.msEmail  || null,
+        redirectUri:  `${publicBase(req)}/api/sources/onedrive/callback`,
+    });
 });
 
 // Start OAuth — redirect the signed-in user to Microsoft consent.
 app.get('/api/sources/onedrive/connect', (req, res) => {
-    const cfg = oneDriveCfg();
-    if (!cfg.clientId) return res.status(400).send('OneDrive is not set up yet. Add the Client ID in Settings.');
+    const cfg = oneDriveCfgFor(req.currentUser);
+    if (!cfg.clientId) return res.status(400).send('OneDrive is not set up yet. Add a Microsoft app Client ID in Settings or on your Account page.');
     const state = crypto.randomBytes(16).toString('hex');
     const { verifier, challenge } = pkcePair();
     // Where to send the user after connecting — a local path only (no open redirect).
@@ -2488,7 +2505,9 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
     const back = st?.purpose === 'login' ? '/login?error=sso' : `${st?.ret || '/import/onedrive'}?onedrive=error`;
     if (error) { console.warn('Microsoft OAuth:', error_description || error); return res.redirect(back); }
     if (!st || st.exp < Date.now()) return res.status(400).send('This Microsoft sign-in link expired. Please try again.');
-    const cfg = oneDriveCfg();
+    // Linking uses the user's own app (if any); SSO login uses the global app.
+    const linkUser = st.purpose === 'link' ? appData.users.find(u => u.id === st.userId) : null;
+    const cfg = linkUser ? oneDriveCfgFor(linkUser) : oneDriveCfg();
     let tok, me;
     try {
         const body = new URLSearchParams({
@@ -2524,7 +2543,7 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
     }
 
     // ── Account linking: store the refresh token + Microsoft identity ──
-    const user = appData.users.find(u => u.id === st.userId);
+    const user = linkUser;
     if (!user) return res.status(400).send('Account not found.');
     user.onedrive = Object.assign({}, user.onedrive, {
         connectedAt: new Date().toISOString(), msId: me.id, msEmail,
@@ -2534,9 +2553,31 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
     res.redirect(`${st.ret || '/import/onedrive'}?onedrive=connected`);
 });
 
-// Disconnect a user's Microsoft account (removes import access + SSO).
+// Disconnect a user's Microsoft account (removes import access + SSO). Keeps
+// any personal app registration so they can reconnect without re-entering it.
 app.post('/api/sources/onedrive/disconnect', (req, res) => {
-    if (req.currentUser?.onedrive) { delete req.currentUser.onedrive; saveData(appData); }
+    const od = req.currentUser?.onedrive;
+    if (od) {
+        delete od.refreshToken; delete od.msId; delete od.msEmail; delete od.connectedAt;
+        if (!od.clientId) delete req.currentUser.onedrive;
+        saveData(appData);
+    }
+    res.json({ ok: true });
+});
+
+// Register a user's OWN Microsoft app (Client ID + tenant; PKCE, no secret) so
+// they can connect a personal account without an admin-configured global app.
+app.put('/api/user/onedrive-app', (req, res) => {
+    const clientId = String(req.body?.clientId || '').trim();
+    const tenant   = String(req.body?.tenant   || 'common').trim() || 'common';
+    const u  = req.currentUser;
+    const od = u.onedrive || (u.onedrive = {});
+    if (clientId) { od.clientId = clientId; od.tenant = tenant; }
+    else          { delete od.clientId; delete od.tenant; }
+    // Changing the app invalidates any existing connection.
+    delete od.refreshToken; delete od.msId; delete od.msEmail; delete od.connectedAt;
+    if (!od.clientId) delete u.onedrive;
+    saveData(appData);
     res.json({ ok: true });
 });
 
@@ -2565,7 +2606,7 @@ app.get('/api/sso/microsoft/login', (req, res) => {
 async function oneDriveAccessToken(user) {
     const rt = decryptSecret(user?.onedrive?.refreshToken);
     if (!rt) return null;
-    const cfg = oneDriveCfg();
+    const cfg = oneDriveCfgFor(user);
     if (!cfg.clientId) return null;
     try {
         const body = new URLSearchParams({
