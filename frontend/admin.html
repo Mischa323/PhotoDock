@@ -1291,7 +1291,7 @@
                         Public dashboard URL <span class="help" data-tip="The address admins use to reach this dashboard from outside, e.g. https://photos.example.com. Used for the buttons and links inside alert emails. Leave blank to omit links.">?</span>
                         <small>Used for links inside alert emails</small>
                     </label>
-                    <input type="url" id="publicUrl" class="tz-input" placeholder="https://photos.example.com">
+                    <input type="url" id="publicUrl" class="tz-input" placeholder="https://photos.example.com" oninput="onBaseInput('publicUrl')">
                 </div>
                 <div class="settings-row">
                     <label for="deviceAlerts">
@@ -1389,7 +1389,7 @@
                 <div class="settings-row" style="grid-column:1 / -1">
                     <label for="odBaseUrl">Public base URL <span class="help" data-tip="The address users reach this dashboard at from outside — just the domain, e.g. https://photos.example.com. Must be HTTPS. The redirect URI below is built from it (and it's also used for links in alert emails).">?</span>
                         <small>Just your dashboard domain — e.g. https://photos.example.com</small></label>
-                    <input type="text" id="odBaseUrl" class="tz-input" placeholder="https://photos.example.com" oninput="updateOdRedirect()">
+                    <input type="text" id="odBaseUrl" class="tz-input" placeholder="https://photos.example.com" oninput="onBaseInput('odBaseUrl')">
                 </div>
                 <div class="settings-row" style="grid-column:1 / -1">
                     <label>Redirect URI <span class="help" data-tip="Auto-built from the base URL above. Copy this exact value into your app registration (Authentication → Single-page application → Redirect URIs).">?</span>
@@ -2625,7 +2625,7 @@
 
     // ── API Reference URLs ─────────────────────────────────────────────────
     function initApiDocs() {
-        const base = window.location.origin;
+        const base = effectiveBase();
         document.getElementById('urlCurrent').textContent   = `${base}/api/slideshow/current`;
         document.getElementById('urlAll').textContent       = `${base}/api/slideshow/all`;
         document.getElementById('urlImage').textContent     = `${base}/api/slideshow/image`;
@@ -2925,7 +2925,7 @@
         document.querySelectorAll('#alertTypes input[data-alert]').forEach(cb => { alertTypes[cb.dataset.alert] = cb.checked; });
         const body = {
             method:       document.getElementById('emailMethod').value,
-            publicUrl:    document.getElementById('publicUrl').value.trim(),
+            publicUrl:    normalizeBase(document.getElementById('publicUrl').value),
             deviceAlerts: document.getElementById('deviceAlerts').checked,
             emailTheme:   document.getElementById('emailTheme').value,
             alertTypes
@@ -2955,11 +2955,29 @@
         document.getElementById('odRedirect').value = base ? base + OD_CALLBACK_PATH : '';
     }
 
+    let publicBaseUrl = '';   // canonical public base URL ('' → fall back to the current origin)
+    function effectiveBase() { return publicBaseUrl || window.location.origin; }
+    // One domain drives everything: typing it updates the OneDrive redirect URI,
+    // the device/API server URLs, and the value saved for alert-email links. The
+    // two editors (Alerts + OneDrive) mirror each other so a Save never reverts.
+    function onBaseInput(srcId) {
+        const v = document.getElementById(srcId).value;
+        publicBaseUrl = normalizeBase(v);
+        const otherId = srcId === 'odBaseUrl' ? 'publicUrl' : 'odBaseUrl';
+        const other = document.getElementById(otherId);
+        if (other && other.value !== v) other.value = v;   // mirror without disturbing the typed field
+        updateOdRedirect();
+        initApiDocs();
+    }
+
     async function loadOneDrive() {
         try {
             const cfg = await (await fetch('/api/admin/onedrive')).json();
             document.getElementById('odBaseUrl').value    = cfg.publicUrl || '';
+            publicBaseUrl = normalizeBase(cfg.publicUrl || '');
+            const pu = document.getElementById('publicUrl'); if (pu) pu.value = cfg.publicUrl || '';
             updateOdRedirect();
+            initApiDocs();   // reflect the saved domain in the device/API URLs
             document.getElementById('odClientId').value   = cfg.clientId || '';
             document.getElementById('odTenant').value     = cfg.tenant || 'common';
             document.getElementById('odClientSecret').placeholder = cfg.hasSecret ? 'unchanged — a secret is saved' : '';

@@ -617,7 +617,7 @@ app.post('/api/devices/pair/request', express.json(), (req, res) => {
         apiKeyId:    null,
         screenId:    null,
     });
-    const pairUrl = `${req.protocol}://${req.get('host')}/pair?token=${token}`;
+    const pairUrl = `${publicBase(req)}/pair?token=${token}`;
     res.json({ token, code, pairUrl });
 });
 
