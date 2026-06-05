@@ -1387,8 +1387,13 @@
                 For personal Outlook/Hotmail logins, set <strong>Supported account types</strong> to include personal Microsoft accounts and use the <code>common</code> or <code>consumers</code> tenant. Then each user connects their own account from their Account page.</p>
             <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
                 <div class="settings-row" style="grid-column:1 / -1">
-                    <label>Redirect URI <span class="help" data-tip="Add this exact URI to your app registration under Authentication → Web → Redirect URIs. It is built from your Public dashboard URL.">?</span>
-                        <small id="odRedirectHint">Add this exact URI to your app registration (Authentication → Web)</small></label>
+                    <label for="odBaseUrl">Public base URL <span class="help" data-tip="The address users reach this dashboard at from outside — just the domain, e.g. https://photos.example.com. Must be HTTPS. The redirect URI below is built from it (and it's also used for links in alert emails).">?</span>
+                        <small>Just your dashboard domain — e.g. https://photos.example.com</small></label>
+                    <input type="text" id="odBaseUrl" class="tz-input" placeholder="https://photos.example.com" oninput="updateOdRedirect()">
+                </div>
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label>Redirect URI <span class="help" data-tip="Auto-built from the base URL above. Copy this exact value into your app registration (Authentication → Single-page application → Redirect URIs).">?</span>
+                        <small>Copy this into your app registration (Authentication → Single-page application)</small></label>
                     <input type="text" id="odRedirect" class="tz-input" readonly onclick="this.select()"
                         placeholder="https://your-dashboard.example.com/api/sources/onedrive/callback">
                 </div>
@@ -2939,15 +2944,22 @@
         document.getElementById('emailSaveRow').style.display = method ? 'flex' : 'none';
     }
 
+    const OD_CALLBACK_PATH = '/api/sources/onedrive/callback';
+    function normalizeBase(s) {
+        s = (s || '').trim().replace(/\/+$/, '');
+        if (s && !/^https?:\/\//i.test(s)) s = 'https://' + s;   // assume https if no scheme typed
+        return s;
+    }
+    function updateOdRedirect() {
+        const base = normalizeBase(document.getElementById('odBaseUrl').value);
+        document.getElementById('odRedirect').value = base ? base + OD_CALLBACK_PATH : '';
+    }
+
     async function loadOneDrive() {
         try {
             const cfg = await (await fetch('/api/admin/onedrive')).json();
-            document.getElementById('odRedirect').value   = cfg.redirectUri || '';
-            const hint = document.getElementById('odRedirectHint');
-            hint.textContent = cfg.publicUrlSet
-                ? 'Add this exact URI to your app registration (Authentication → Web)'
-                : '⚠ Set your Public dashboard URL above first — the redirect URI is built from it.';
-            hint.style.color = cfg.publicUrlSet ? '' : '#c0392b';
+            document.getElementById('odBaseUrl').value    = cfg.publicUrl || '';
+            updateOdRedirect();
             document.getElementById('odClientId').value   = cfg.clientId || '';
             document.getElementById('odTenant').value     = cfg.tenant || 'common';
             document.getElementById('odClientSecret').placeholder = cfg.hasSecret ? 'unchanged — a secret is saved' : '';
@@ -2980,6 +2992,7 @@
             clientId:     document.getElementById('odClientId').value.trim(),
             tenant:       document.getElementById('odTenant').value.trim() || 'common',
             clientSecret: document.getElementById('odClientSecret').value,
+            publicUrl:    normalizeBase(document.getElementById('odBaseUrl').value),
         };
         const res = await fetch('/api/admin/onedrive', {
             method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)

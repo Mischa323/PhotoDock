@@ -2447,7 +2447,7 @@ app.get('/api/admin/onedrive', requireAdmin, (req, res) => {
     const c   = appData.settings?.onedrive || {};
     const pub = (appData.settings?.publicUrl || '').replace(/\/+$/, '');
     res.json({ clientId: c.clientId || '', tenant: c.tenant || 'common', hasSecret: !!c.clientSecret,
-               redirectUri: pub ? `${pub}/api/sources/onedrive/callback` : '', publicUrlSet: !!pub });
+               publicUrl: pub, redirectUri: pub ? `${pub}/api/sources/onedrive/callback` : '', publicUrlSet: !!pub });
 });
 app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
     if (!appData.settings) appData.settings = {};
@@ -2459,6 +2459,8 @@ app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
         // saved secret; a blank secret keeps the existing one.
         clientSecret: req.body.clearSecret ? '' : (req.body.clientSecret ? encryptSecret(String(req.body.clientSecret)) : (ex.clientSecret || '')),
     };
+    // The public base URL is shared with email links; let it be set from here too.
+    if ('publicUrl' in req.body) appData.settings.publicUrl = String(req.body.publicUrl || '').trim().replace(/\/+$/, '');
     saveData(appData);
     res.json({ ok: true });
 });
