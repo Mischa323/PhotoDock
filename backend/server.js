@@ -2424,6 +2424,14 @@ function oneDriveCfg() {
     return { clientId: c.clientId || '', clientSecret: decryptSecret(c.clientSecret), tenant: c.tenant || 'common' };
 }
 function oneDriveRedirectUri(req) { return `${publicBase(req)}/api/sources/onedrive/callback`; }
+// A Single-page-application registration (PKCE, no secret) only redeems tokens
+// on a *cross-origin* request — i.e. one carrying an Origin header matching the
+// redirect's origin. We send that header on the secret-less path so the
+// server-side token exchange is accepted (AADSTS9002327 otherwise).
+function oneDriveOrigin(req) {
+    const base = req ? publicBase(req) : (appData.settings?.publicUrl || '');
+    try { return new URL(base).origin; } catch { return base; }
+}
 function oneDriveTokenUrl(tenant) { return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`; }
 const ONEDRIVE_SCOPE = 'Files.Read offline_access User.Read';
 // PKCE — lets a public app work with no client secret. The verifier is kept in
@@ -2518,7 +2526,9 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
         });
         if (st.verifier)      body.set('code_verifier', st.verifier);   // PKCE
         if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);   // optional confidential app
-        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        if (!cfg.clientSecret) headers.Origin = oneDriveOrigin(req);     // SPA apps need a cross-origin token request
+        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers, body });
         tok = await r.json();
         if (!r.ok || !tok.access_token) throw new Error(tok.error_description || 'token exchange failed');
         const meRes = await fetch(`${GRAPH}/me?$select=id,userPrincipalName,mail,displayName`, { headers: { Authorization: `Bearer ${tok.access_token}` } });
@@ -2616,7 +2626,9 @@ async function oneDriveAccessToken(user) {
             grant_type: 'refresh_token', scope: ONEDRIVE_SCOPE,
         });
         if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);
-        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        if (!cfg.clientSecret) headers.Origin = oneDriveOrigin(null);
+        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers, body });
         const tok = await r.json();
         if (!r.ok || !tok.access_token) { console.error('OneDrive refresh failed:', tok.error_description || r.status); return null; }
         if (tok.refresh_token) { user.onedrive.refreshToken = encryptSecret(tok.refresh_token); saveData(appData); }
