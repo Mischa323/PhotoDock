@@ -538,6 +538,9 @@ function requireAuth(req, res, next) {
     if (req.path === '/forgot' || req.path === '/api/password/forgot' || req.path === '/api/password/reset') return next();
     if (req.path.startsWith('/reset/') || req.path.startsWith('/api/reset/')) return next();
     if (req.path.startsWith('/invite/accept') || req.path.startsWith('/api/invite/')) return next();
+    // OAuth callback returns from Microsoft cross-site (no session cookie); it
+    // authenticates the user via the one-time `state` instead.
+    if (req.path === '/api/sources/onedrive/callback') return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -2383,6 +2386,181 @@ app.post('/api/upload', requireUpload, (req, res) => {
     res.json({ uploaded: processed.map(f => ({ filename: f.filename, url: `/uploads/${f.filename}` })) });
     }); // end upload.array callback
 });
+
+// ── Shared image ingest ─────────────────────────────────────────────────────
+// Save a raw image buffer into the library exactly like an upload would:
+// HEIC→JPEG, a unique sanitised filename, and an imageMetadata entry. Used by
+// the cloud-import flows. Caller batches saveData(). Returns the stored name.
+async function ingestImageBuffer(buffer, originalName, meta = {}) {
+    const rawExt = (path.extname(originalName || '') || '.jpg').toLowerCase();
+    const base   = (path.basename(originalName || 'photo', rawExt).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)) || 'photo';
+    const stamp  = () => `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    let outName, outBuf = buffer;
+    if (HEIC_EXTS.has(rawExt)) {
+        try { outBuf = await heicConvert({ buffer, format: 'JPEG', quality: 0.92 }); outName = `${base}-${stamp()}.jpg`; }
+        catch (e) { console.error('HEIC convert failed for', originalName, ':', e.message); outName = `${base}-${stamp()}${rawExt}`; }
+    } else {
+        outName = `${base}-${stamp()}${rawExt}`;
+    }
+    fs.writeFileSync(path.join(UPLOADS_DIR, outName), outBuf);
+    if (!appData.imageMetadata) appData.imageMetadata = {};
+    appData.imageMetadata[outName] = {
+        uploadedBy: meta.uploadedBy || null,
+        uploadedAt: new Date().toISOString(),
+        screenId:   meta.screenId || null,
+        albumId:    meta.albumId  || null,
+        source:     meta.source   || null,
+    };
+    return outName;
+}
+
+// ── Cloud photo sources: OneDrive (Microsoft Graph, delegated OAuth) ─────────
+const GRAPH = 'https://graph.microsoft.com/v1.0';
+const _oneDriveStates = new Map();   // oauth state -> { userId, exp }
+function oneDriveCfg() {
+    const c = appData.settings?.onedrive || {};
+    return { clientId: c.clientId || '', clientSecret: decryptSecret(c.clientSecret), tenant: c.tenant || 'common' };
+}
+function oneDriveRedirectUri(req) { return `${publicBase(req)}/api/sources/onedrive/callback`; }
+function oneDriveTokenUrl(tenant) { return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`; }
+const ONEDRIVE_SCOPE = 'Files.Read offline_access User.Read';
+
+// Admin — store the Azure app credentials (client secret encrypted at rest).
+app.get('/api/admin/onedrive', requireAdmin, (req, res) => {
+    const c = appData.settings?.onedrive || {};
+    res.json({ clientId: c.clientId || '', tenant: c.tenant || 'common', hasSecret: !!c.clientSecret,
+               redirectUri: oneDriveRedirectUri(req) });
+});
+app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
+    if (!appData.settings) appData.settings = {};
+    const ex = appData.settings.onedrive || {};
+    appData.settings.onedrive = {
+        clientId:     String(req.body.clientId || '').trim(),
+        tenant:       String(req.body.tenant || 'common').trim() || 'common',
+        clientSecret: req.body.clientSecret ? encryptSecret(String(req.body.clientSecret)) : (ex.clientSecret || ''),
+    };
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// Per-user connection status (is OneDrive configured + has this user linked it?)
+app.get('/api/sources/onedrive/status', (req, res) => {
+    const cfg = oneDriveCfg();
+    res.json({ configured: !!(cfg.clientId && cfg.clientSecret), connected: !!req.currentUser?.onedrive?.refreshToken });
+});
+
+// Start OAuth — redirect the signed-in user to Microsoft consent.
+app.get('/api/sources/onedrive/connect', (req, res) => {
+    const cfg = oneDriveCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return res.status(400).send('OneDrive is not set up yet. Add the app credentials in Settings.');
+    const state = crypto.randomBytes(16).toString('hex');
+    _oneDriveStates.set(state, { userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000 });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(req),
+        response_mode: 'query', scope: ONEDRIVE_SCOPE, state,
+    });
+    res.redirect(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/authorize?${p}`);
+});
+
+// OAuth callback — runs without a session cookie (cross-site redirect), so the
+// user is identified via the one-time `state` minted in /connect.
+app.get('/api/sources/onedrive/callback', async (req, res) => {
+    const { code, state, error, error_description } = req.query;
+    if (error) return res.status(400).send(`OneDrive connection failed: ${escEmail(error_description || error)}`);
+    const st = _oneDriveStates.get(state); _oneDriveStates.delete(state);
+    if (!st || st.exp < Date.now()) return res.status(400).send('This OneDrive sign-in link expired. Please try connecting again.');
+    const user = appData.users.find(u => u.id === st.userId);
+    if (!user) return res.status(400).send('Account not found.');
+    const cfg = oneDriveCfg();
+    try {
+        const body = new URLSearchParams({
+            client_id: cfg.clientId, client_secret: cfg.clientSecret, code: String(code || ''),
+            redirect_uri: oneDriveRedirectUri(req), grant_type: 'authorization_code',
+        });
+        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const tok = await r.json();
+        if (!r.ok || !tok.refresh_token) throw new Error(tok.error_description || 'token exchange failed');
+        user.onedrive = { refreshToken: encryptSecret(tok.refresh_token), connectedAt: new Date().toISOString() };
+        saveData(appData);
+        res.redirect('/import/onedrive?connected=1');
+    } catch (e) {
+        console.error('OneDrive token exchange:', e.message);
+        res.status(502).send('Could not complete OneDrive sign-in. Check the app credentials and that the redirect URI matches.');
+    }
+});
+
+// Exchange the stored refresh token for a fresh access token (rotates the RT).
+async function oneDriveAccessToken(user) {
+    const rt = decryptSecret(user?.onedrive?.refreshToken);
+    if (!rt) return null;
+    const cfg = oneDriveCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return null;
+    try {
+        const body = new URLSearchParams({
+            client_id: cfg.clientId, client_secret: cfg.clientSecret, refresh_token: rt,
+            grant_type: 'refresh_token', scope: ONEDRIVE_SCOPE,
+        });
+        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const tok = await r.json();
+        if (!r.ok || !tok.access_token) { console.error('OneDrive refresh failed:', tok.error_description || r.status); return null; }
+        if (tok.refresh_token) { user.onedrive.refreshToken = encryptSecret(tok.refresh_token); saveData(appData); }
+        return tok.access_token;
+    } catch (e) { console.error('OneDrive refresh error:', e.message); return null; }
+}
+
+// Browse a OneDrive folder — returns subfolders + image files with thumbnails.
+app.get('/api/sources/onedrive/browse', async (req, res) => {
+    const at = await oneDriveAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const folderId = req.query.folderId ? String(req.query.folderId) : null;
+    const base = folderId ? `${GRAPH}/me/drive/items/${encodeURIComponent(folderId)}/children`
+                          : `${GRAPH}/me/drive/root/children`;
+    const url = `${base}?$top=200&$select=id,name,folder,file,size&$expand=thumbnails($select=medium)`;
+    try {
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${at}` } });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error?.message || 'browse failed');
+        const items = (data.value || [])
+            .filter(it => it.folder || (it.file && IMAGE_EXTS.test(it.name)))
+            .map(it => ({ id: it.id, name: it.name, isFolder: !!it.folder, size: it.size || 0,
+                          thumb: it.thumbnails?.[0]?.medium?.url || null }))
+            .sort((a, b) => (Number(b.isFolder) - Number(a.isFolder)) || a.name.localeCompare(b.name));
+        res.json({ items });
+    } catch (e) {
+        console.error('OneDrive browse:', e.message);
+        res.status(502).json({ error: 'Could not list OneDrive items.' });
+    }
+});
+
+// Import the selected OneDrive items into the library.
+app.post('/api/sources/onedrive/import', requireUpload, async (req, res) => {
+    const at = await oneDriveAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const itemIds = Array.isArray(req.body.itemIds) ? req.body.itemIds.slice(0, 100) : [];
+    if (!itemIds.length) return res.status(400).json({ error: 'No photos selected' });
+    const screenId = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId)) return res.status(403).json({ error: 'You do not have access to that screen' });
+    const albumId = req.body.albumId && (appData.albums || []).find(a => a.id === req.body.albumId) ? req.body.albumId : null;
+    const imported = [], failed = [];
+    for (const id of itemIds) {
+        try {
+            const metaRes = await fetch(`${GRAPH}/me/drive/items/${encodeURIComponent(id)}?$select=name`, { headers: { Authorization: `Bearer ${at}` } });
+            const meta = await metaRes.json();
+            const name = meta.name || `onedrive-${String(id).slice(-8)}.jpg`;
+            const dl = await fetch(`${GRAPH}/me/drive/items/${encodeURIComponent(id)}/content`, { headers: { Authorization: `Bearer ${at}` } });
+            if (!dl.ok) throw new Error(`download ${dl.status}`);
+            const buf = Buffer.from(await dl.arrayBuffer());
+            const fn = await ingestImageBuffer(buf, name, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'onedrive' });
+            imported.push(fn);
+        } catch (e) { console.error('OneDrive import item', id, e.message); failed.push(id); }
+    }
+    saveData(appData);
+    addLog('import_onedrive', { user: req.currentUser.username, ip: req.ip, detail: `${imported.length} photo(s)` });
+    res.json({ imported: imported.length, failed: failed.length, files: imported });
+});
+
+// OneDrive picker page
+app.get('/import/onedrive', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-onedrive.html')));
 
 app.delete('/api/images/:filename', requireDelete, (req, res) => {
     const filename = path.basename(req.params.filename);

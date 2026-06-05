@@ -1107,6 +1107,18 @@ function buildUploadMenu() {
     }
     container.innerHTML = html || '<div class="upload-item" style="opacity:0.5;cursor:default">No screens yet</div>';
   }
+  container.innerHTML +=
+    `<div style="height:1px;background:rgba(255,255,255,0.1);margin:6px 0"></div>` +
+    `<button class="upload-item" onclick="importFromOneDrive();closeUploadMenu()">☁ Import from OneDrive</button>`;
+}
+
+// Jump to the OneDrive picker, carrying the current screen/album as the target.
+function importFromOneDrive() {
+  const p = new URLSearchParams();
+  if (curView === 'photos' && curAlbum && curScreen) { p.set('screenId', curScreen.id); p.set('albumId', curAlbum.id); }
+  else if (curView === 'albums' && curScreen)        { p.set('screenId', curScreen.id); }
+  const qs = p.toString();
+  location.href = '/import/onedrive' + (qs ? '?' + qs : '');
 }
 
 function toggleUploadMenu() {
