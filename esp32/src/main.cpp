@@ -528,14 +528,32 @@ static void epd_send_const(uint8_t val, size_t n) {
     digitalWrite(EPD_DC, HIGH);
     while (n) { size_t c = min(n, sizeof(tmp)); digitalWrite(EPD_CS, LOW); SPI.writeBytes(tmp, c); digitalWrite(EPD_CS, HIGH); n -= c; }
 }
+// UC8179 only latches its status onto the BUSY line after a Get-Status (0x71)
+// command, so poke 0x71 before each read (BUSY low = busy). This matches the
+// Waveshare/Inkycal reference and makes "refresh finished" detection reliable,
+// so we never power off mid-refresh (which leaves a ghosted/partial image).
+static void epd_busy_71(uint32_t timeout_ms = 35000) {
+    uint32_t start = millis();
+    epd_cmd(0x71);
+    while (!digitalRead(EPD_BUSY)) {
+        if (millis() - start > timeout_ms) {
+            logf("epd_busy_71: TIMEOUT after %u ms (BUSY never went high)\n", timeout_ms);
+            return;
+        }
+        epd_cmd(0x71);
+        delay(5);
+    }
+    delay(20);   // small settle after the panel reports idle (Waveshare ref)
+}
 // UC8179 (GDEW075T7) 7.5" monochrome init — LUT from the panel's OTP.
 static void epd_init() {
     logf("epd_init: BUSY=%d\n", digitalRead(EPD_BUSY));
     epd_reset();
     epd_busy_wait(8000);
     logf("epd_init: after reset, BUSY=%d\n", digitalRead(EPD_BUSY));
+    epd_cmd(0x06); epd_dat(0x17); epd_dat(0x17); epd_dat(0x28); epd_dat(0x17);   // booster soft-start (Waveshare ref)
     epd_cmd(0x01); epd_dat(0x07); epd_dat(0x07); epd_dat(0x3F); epd_dat(0x3F);  // power setting
-    epd_cmd(0x04); epd_busy_wait(8000);                                          // power on
+    epd_cmd(0x04); epd_busy_71(8000);                                            // power on
     epd_cmd(0x00); epd_dat(0x1F);                                                // panel: B/W, LUT from OTP
     epd_cmd(0x61); epd_dat(0x03); epd_dat(0x20); epd_dat(0x01); epd_dat(0xE0);   // resolution 800x480
     epd_cmd(0x15); epd_dat(0x00);
@@ -559,11 +577,11 @@ static void epd_display(uint8_t *buf) {
     }
     logln("epd_display: refresh (0x12)");
     epd_cmd(0x12); delay(100);                           // display refresh
-    epd_busy_wait(35000);
+    epd_busy_71(35000);
     logln("epd_display: done");
 }
 static void epd_sleep_mode() {
-    epd_cmd(0x02); epd_busy_wait(8000);   // power off
+    epd_cmd(0x02); epd_busy_71(8000);     // power off
     epd_cmd(0x07); epd_dat(0xA5);         // deep sleep
 }
 #endif // PANEL_E6 / PANEL_UC8179
