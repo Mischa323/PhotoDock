@@ -1383,7 +1383,8 @@
             <h3 style="margin:0 0 14px;font-size:15px">OneDrive import</h3>
             <p style="margin:0 0 16px;font-size:13px;color:#666">Let users import photos straight from OneDrive. Register an app in the
                 <a href="https://entra.microsoft.com" target="_blank" rel="noopener" style="color:var(--accent)">Microsoft Entra admin center</a>
-                (App registrations), add the redirect URI below, grant the delegated <code>Files.Read</code> permission, and create a client secret.</p>
+                (App registrations), add the redirect URI below, grant the delegated <code>Files.Read</code> permission, and create a client secret.
+                For personal Outlook/Hotmail logins, set <strong>Supported account types</strong> to include personal Microsoft accounts and use the <code>common</code> or <code>consumers</code> tenant below.</p>
             <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
                 <div class="settings-row" style="grid-column:1 / -1">
                     <label>Redirect URI <span class="help" data-tip="Add this exact URI to your app registration under Authentication → Web → Redirect URIs. It is built from your Public dashboard URL.">?</span>
