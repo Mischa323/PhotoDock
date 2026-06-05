@@ -761,6 +761,18 @@
   </div>
 </div>
 
+<!-- Add photos: choose a source -->
+<div class="modal-backdrop" id="addChoiceModal" style="display:none" onclick="if(event.target===this)closeAddChoice()">
+  <div class="glass modal-box" style="width:340px">
+    <div class="modal-title">Add photos</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+      <button class="glass-btn hbtn" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();pickFiles()">📷&nbsp;&nbsp;Upload from this device</button>
+      <button class="cyan-btn hbtn" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();importFromOneDrive()">☁&nbsp;&nbsp;Import from OneDrive</button>
+    </div>
+    <div class="modal-footer"><button class="glass-btn modal-btn" onclick="closeAddChoice()">Cancel</button></div>
+  </div>
+</div>
+
 <!-- Slideshow overlay -->
 <div id="ssOverlay" class="ss-overlay" style="display:none">
   <div id="ssSlides"></div>
@@ -1076,7 +1088,7 @@ function renderPhotosView() {
     </div>`;
   }
 
-  photosHtml += `<button class="photo-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="pickFiles()">
+  photosHtml += `<button class="photo-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="addPhotos()">
     <span style="font-size:30px;font-weight:300;line-height:1">+</span>
     <span>Add photos</span>
   </button>`;
@@ -1084,7 +1096,7 @@ function renderPhotosView() {
   content.innerHTML = `<div class="photos-section">
     <div class="photos-topbar">
       <span class="photos-hint">${hint}</span>
-      <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="pickFiles()">↑ Upload photos</button>
+      <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="addPhotos()">↑ Upload photos</button>
     </div>
     <div class="photos-grid" id="photosGrid"
       ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"
@@ -1124,6 +1136,14 @@ function importFromOneDrive() {
   const qs = p.toString();
   location.href = '/import/onedrive' + (qs ? '?' + qs : '');
 }
+
+// "Add photos" → let the user choose a source. Only prompts when OneDrive is
+// available; otherwise it goes straight to the device file picker.
+function addPhotos() {
+  if (!oneDriveConfigured) { pickFiles(); return; }
+  document.getElementById('addChoiceModal').style.display = 'flex';
+}
+function closeAddChoice() { document.getElementById('addChoiceModal').style.display = 'none'; }
 
 function toggleUploadMenu() {
   document.getElementById('uploadDropdown').classList.toggle('open');
