@@ -2542,9 +2542,16 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
 
     // ── SSO login: match the Microsoft identity to a linked account ──
     if (st.purpose === 'login') {
+        // Personal-account /me.id can be app-specific, so also match on the
+        // Microsoft email — against the stored one and the user's PhotoDock email.
+        const emails = [me.mail, me.userPrincipalName].filter(Boolean).map(s => String(s).toLowerCase());
         const u = appData.users.find(x => x.onedrive?.msId === me.id)
-               || (msEmail && appData.users.find(x => (x.onedrive?.msEmail || '').toLowerCase() === msEmail.toLowerCase()));
-        if (!u)        return res.redirect('/login?error=sso_nolink');
+               || appData.users.find(x => x.onedrive && emails.includes((x.onedrive.msEmail || '').toLowerCase()))
+               || appData.users.find(x => x.onedrive?.refreshToken && emails.includes((x.email || '').toLowerCase()));
+        if (!u) {
+            console.warn('SSO: no linked PhotoDock account for Microsoft id=%s emails=%j', me.id, emails);
+            return res.redirect('/login?error=sso_nolink');
+        }
         if (u.blocked) { addLog('login_fail', { user: u.username, ip: req.ip, detail: 'sso, blocked' }); return res.redirect('/login?error=blocked'); }
         u.lastLogin = new Date().toISOString();
         saveData(appData);
