@@ -1381,10 +1381,16 @@
         <!-- OneDrive import (cloud photos) -->
         <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
             <h3 style="margin:0 0 14px;font-size:15px">OneDrive import</h3>
-            <p style="margin:0 0 16px;font-size:13px;color:#666">Let users import photos from OneDrive and sign in with Microsoft. Register an app in the
-                <a href="https://entra.microsoft.com" target="_blank" rel="noopener" style="color:var(--accent)">Microsoft Entra admin center</a>
-                (App registrations) and grant the delegated <code>Files.Read</code> permission. <strong>No client secret is needed</strong> — the app uses PKCE; add the redirect URI below under the <strong>Single-page application</strong> platform.
-                For personal Outlook/Hotmail logins, set <strong>Supported account types</strong> to include personal Microsoft accounts and use the <code>common</code> or <code>consumers</code> tenant. Then each user connects their own account from their Account page.</p>
+            <p style="margin:0 0 10px;font-size:13px;color:#666">Let users import photos from OneDrive and sign in with Microsoft. Set this up once and everyone can connect their own account.</p>
+            <ol style="margin:0 0 14px 18px;font-size:13px;color:#555;line-height:1.85">
+                <li>Enter your <strong>Public base URL</strong> below and <strong>Save</strong> — the <strong>Redirect URI</strong> field fills itself in.</li>
+                <li>Open the <a href="https://entra.microsoft.com" target="_blank" rel="noopener" style="color:var(--accent)">Microsoft Entra admin center</a> → <strong>App registrations → New registration</strong>.</li>
+                <li><strong>Supported account types:</strong> choose one that <strong>includes personal Microsoft accounts</strong> (so Outlook/Hotmail logins work).</li>
+                <li><strong>Redirect URI:</strong> platform <strong>Single-page application</strong>, then paste the <strong>Redirect URI</strong> shown below.</li>
+                <li><strong>API permissions → Microsoft Graph → Delegated → <code>Files.Read</code></strong> → Add.</li>
+                <li>Copy the <strong>Application (client) ID</strong> into the field below. <strong>No client secret needed</strong> (PKCE). Set the tenant to <code>common</code> (personal + work) or <code>consumers</code> (personal only), then <strong>Save</strong>.</li>
+            </ol>
+            <p style="margin:0 0 16px;font-size:12.5px;color:#888">Each user then connects from their <strong>Account</strong> page (no admin rights needed). A non-admin can even register their own app there. If your tenant rejects the secret-less SPA flow when signing in, add a <strong>Web</strong> platform redirect + a client secret below and PhotoDock will use that instead.</p>
             <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
                 <div class="settings-row" style="grid-column:1 / -1">
                     <label for="odBaseUrl">Public base URL <span class="help" data-tip="The address users reach this dashboard at from outside — just the domain, e.g. https://photos.example.com. Must be HTTPS. The redirect URI below is built from it (and it's also used for links in alert emails).">?</span>
