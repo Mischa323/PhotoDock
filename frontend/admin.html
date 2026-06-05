@@ -1386,9 +1386,10 @@
                 (App registrations), add the redirect URI below, grant the delegated <code>Files.Read</code> permission, and create a client secret.</p>
             <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
                 <div class="settings-row" style="grid-column:1 / -1">
-                    <label>Redirect URI <span class="help" data-tip="Add this exact URI to your app registration under Authentication → Web → Redirect URIs.">?</span>
-                        <small>Add this to your app registration (Authentication → Web)</small></label>
-                    <input type="text" id="odRedirect" class="tz-input" readonly onclick="this.select()">
+                    <label>Redirect URI <span class="help" data-tip="Add this exact URI to your app registration under Authentication → Web → Redirect URIs. It is built from your Public dashboard URL.">?</span>
+                        <small id="odRedirectHint">Add this exact URI to your app registration (Authentication → Web)</small></label>
+                    <input type="text" id="odRedirect" class="tz-input" readonly onclick="this.select()"
+                        placeholder="https://your-dashboard.example.com/api/sources/onedrive/callback">
                 </div>
                 <div class="settings-row" style="grid-column:span 2">
                     <label for="odClientId">Client ID <span class="help" data-tip="The Application (client) ID from your app registration's Overview page.">?</span>
@@ -2940,6 +2941,11 @@
         try {
             const cfg = await (await fetch('/api/admin/onedrive')).json();
             document.getElementById('odRedirect').value   = cfg.redirectUri || '';
+            const hint = document.getElementById('odRedirectHint');
+            hint.textContent = cfg.publicUrlSet
+                ? 'Add this exact URI to your app registration (Authentication → Web)'
+                : '⚠ Set your Public dashboard URL above first — the redirect URI is built from it.';
+            hint.style.color = cfg.publicUrlSet ? '' : '#c0392b';
             document.getElementById('odClientId').value   = cfg.clientId || '';
             document.getElementById('odTenant').value     = cfg.tenant || 'common';
             document.getElementById('odClientSecret').placeholder = cfg.hasSecret ? 'unchanged' : '';

@@ -2429,9 +2429,10 @@ const ONEDRIVE_SCOPE = 'Files.Read offline_access User.Read';
 
 // Admin — store the Azure app credentials (client secret encrypted at rest).
 app.get('/api/admin/onedrive', requireAdmin, (req, res) => {
-    const c = appData.settings?.onedrive || {};
+    const c   = appData.settings?.onedrive || {};
+    const pub = (appData.settings?.publicUrl || '').replace(/\/+$/, '');
     res.json({ clientId: c.clientId || '', tenant: c.tenant || 'common', hasSecret: !!c.clientSecret,
-               redirectUri: oneDriveRedirectUri(req) });
+               redirectUri: pub ? `${pub}/api/sources/onedrive/callback` : '', publicUrlSet: !!pub });
 });
 app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
     if (!appData.settings) appData.settings = {};
