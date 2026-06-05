@@ -2426,6 +2426,13 @@ function oneDriveCfg() {
 function oneDriveRedirectUri(req) { return `${publicBase(req)}/api/sources/onedrive/callback`; }
 function oneDriveTokenUrl(tenant) { return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`; }
 const ONEDRIVE_SCOPE = 'Files.Read offline_access User.Read';
+// PKCE — lets a public app work with no client secret. The verifier is kept in
+// the one-time state and proves possession of the auth code at token exchange.
+function pkcePair() {
+    const verifier  = crypto.randomBytes(32).toString('base64url');
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+    return { verifier, challenge };
+}
 
 // Admin — store the Azure app credentials (client secret encrypted at rest).
 app.get('/api/admin/onedrive', requireAdmin, (req, res) => {
@@ -2440,7 +2447,9 @@ app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
     appData.settings.onedrive = {
         clientId:     String(req.body.clientId || '').trim(),
         tenant:       String(req.body.tenant || 'common').trim() || 'common',
-        clientSecret: req.body.clientSecret ? encryptSecret(String(req.body.clientSecret)) : (ex.clientSecret || ''),
+        // Secret is OPTIONAL (PKCE works without one). clearSecret removes a
+        // saved secret; a blank secret keeps the existing one.
+        clientSecret: req.body.clearSecret ? '' : (req.body.clientSecret ? encryptSecret(String(req.body.clientSecret)) : (ex.clientSecret || '')),
     };
     saveData(appData);
     res.json({ ok: true });
@@ -2450,20 +2459,22 @@ app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
 app.get('/api/sources/onedrive/status', (req, res) => {
     const cfg = oneDriveCfg();
     const od  = req.currentUser?.onedrive;
-    res.json({ configured: !!(cfg.clientId && cfg.clientSecret), connected: !!od, email: od?.msEmail || null });
+    res.json({ configured: !!cfg.clientId, connected: !!od, email: od?.msEmail || null });
 });
 
 // Start OAuth — redirect the signed-in user to Microsoft consent.
 app.get('/api/sources/onedrive/connect', (req, res) => {
     const cfg = oneDriveCfg();
-    if (!cfg.clientId || !cfg.clientSecret) return res.status(400).send('OneDrive is not set up yet. Add the app credentials in Settings.');
+    if (!cfg.clientId) return res.status(400).send('OneDrive is not set up yet. Add the Client ID in Settings.');
     const state = crypto.randomBytes(16).toString('hex');
+    const { verifier, challenge } = pkcePair();
     // Where to send the user after connecting — a local path only (no open redirect).
     const ret = typeof req.query.return === 'string' && /^\/[^/]/.test(req.query.return) ? req.query.return : '/import/onedrive';
-    _oneDriveStates.set(state, { purpose: 'link', userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret });
+    _oneDriveStates.set(state, { purpose: 'link', userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret, verifier });
     const p = new URLSearchParams({
         client_id: cfg.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(req),
         response_mode: 'query', scope: ONEDRIVE_SCOPE, state,
+        code_challenge: challenge, code_challenge_method: 'S256',
     });
     res.redirect(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/authorize?${p}`);
 });
@@ -2481,9 +2492,11 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
     let tok, me;
     try {
         const body = new URLSearchParams({
-            client_id: cfg.clientId, client_secret: cfg.clientSecret, code: String(code || ''),
+            client_id: cfg.clientId, code: String(code || ''),
             redirect_uri: oneDriveRedirectUri(req), grant_type: 'authorization_code',
         });
+        if (st.verifier)      body.set('code_verifier', st.verifier);   // PKCE
+        if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);   // optional confidential app
         const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
         tok = await r.json();
         if (!r.ok || !tok.access_token) throw new Error(tok.error_description || 'token exchange failed');
@@ -2532,16 +2545,18 @@ app.post('/api/sources/onedrive/disconnect', (req, res) => {
 // linked their Microsoft account (no auto-provisioning).
 app.get('/api/sso/microsoft/enabled', (_req, res) => {
     const cfg = oneDriveCfg();
-    res.json({ enabled: !!(cfg.clientId && cfg.clientSecret) });
+    res.json({ enabled: !!cfg.clientId });
 });
 app.get('/api/sso/microsoft/login', (req, res) => {
     const cfg = oneDriveCfg();
-    if (!cfg.clientId || !cfg.clientSecret) return res.redirect('/login?error=sso');
+    if (!cfg.clientId) return res.redirect('/login?error=sso');
     const state = crypto.randomBytes(16).toString('hex');
-    _oneDriveStates.set(state, { purpose: 'login', exp: Date.now() + 10 * 60 * 1000 });
+    const { verifier, challenge } = pkcePair();
+    _oneDriveStates.set(state, { purpose: 'login', exp: Date.now() + 10 * 60 * 1000, verifier });
     const p = new URLSearchParams({
         client_id: cfg.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(req),
         response_mode: 'query', scope: ONEDRIVE_SCOPE, state, prompt: 'select_account',
+        code_challenge: challenge, code_challenge_method: 'S256',
     });
     res.redirect(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/authorize?${p}`);
 });
@@ -2551,12 +2566,13 @@ async function oneDriveAccessToken(user) {
     const rt = decryptSecret(user?.onedrive?.refreshToken);
     if (!rt) return null;
     const cfg = oneDriveCfg();
-    if (!cfg.clientId || !cfg.clientSecret) return null;
+    if (!cfg.clientId) return null;
     try {
         const body = new URLSearchParams({
-            client_id: cfg.clientId, client_secret: cfg.clientSecret, refresh_token: rt,
+            client_id: cfg.clientId, refresh_token: rt,
             grant_type: 'refresh_token', scope: ONEDRIVE_SCOPE,
         });
+        if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);
         const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
         const tok = await r.json();
         if (!r.ok || !tok.access_token) { console.error('OneDrive refresh failed:', tok.error_description || r.status); return null; }

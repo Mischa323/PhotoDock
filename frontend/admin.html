@@ -1381,10 +1381,10 @@
         <!-- OneDrive import (cloud photos) -->
         <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
             <h3 style="margin:0 0 14px;font-size:15px">OneDrive import</h3>
-            <p style="margin:0 0 16px;font-size:13px;color:#666">Let users import photos straight from OneDrive. Register an app in the
+            <p style="margin:0 0 16px;font-size:13px;color:#666">Let users import photos from OneDrive and sign in with Microsoft. Register an app in the
                 <a href="https://entra.microsoft.com" target="_blank" rel="noopener" style="color:var(--accent)">Microsoft Entra admin center</a>
-                (App registrations), add the redirect URI below, grant the delegated <code>Files.Read</code> permission, and create a client secret.
-                For personal Outlook/Hotmail logins, set <strong>Supported account types</strong> to include personal Microsoft accounts and use the <code>common</code> or <code>consumers</code> tenant below.</p>
+                (App registrations) and grant the delegated <code>Files.Read</code> permission. <strong>No client secret is needed</strong> — the app uses PKCE; add the redirect URI below under the <strong>Single-page application</strong> platform.
+                For personal Outlook/Hotmail logins, set <strong>Supported account types</strong> to include personal Microsoft accounts and use the <code>common</code> or <code>consumers</code> tenant. Then each user connects their own account from their Account page.</p>
             <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
                 <div class="settings-row" style="grid-column:1 / -1">
                     <label>Redirect URI <span class="help" data-tip="Add this exact URI to your app registration under Authentication → Web → Redirect URIs. It is built from your Public dashboard URL.">?</span>
@@ -1403,9 +1403,10 @@
                     <input type="text" id="odTenant" class="tz-input" placeholder="common">
                 </div>
                 <div class="settings-row" style="grid-column:1 / -1">
-                    <label for="odClientSecret">Client secret <span class="help" data-tip="The secret VALUE (not the secret ID) from Certificates &amp; secrets. Leave blank to keep the saved one.">?</span>
-                        <small>The secret value — leave blank to keep the saved one</small></label>
-                    <input type="password" id="odClientSecret" class="tz-input" autocomplete="new-password" placeholder="unchanged">
+                    <label for="odClientSecret">Client secret <span style="color:#999;font-weight:400">(optional)</span> <span class="help" data-tip="Optional. Leave blank to use PKCE (a public app — no secret). Only provide one if you registered the app as a confidential Web app instead. Blank keeps any saved secret.">?</span>
+                        <small id="odSecretHint">Leave blank to use PKCE (no secret needed)</small></label>
+                    <input type="password" id="odClientSecret" class="tz-input" autocomplete="new-password" placeholder="">
+                    <button type="button" id="odClearSecret" class="btn-save-settings" style="display:none;margin-top:8px;align-self:flex-start;background:#fff;color:#c0392b;border:1px solid #c0392b" onclick="clearOneDriveSecret()">Remove saved secret (use PKCE)</button>
                 </div>
             </div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
@@ -2949,8 +2950,27 @@
             hint.style.color = cfg.publicUrlSet ? '' : '#c0392b';
             document.getElementById('odClientId').value   = cfg.clientId || '';
             document.getElementById('odTenant').value     = cfg.tenant || 'common';
-            document.getElementById('odClientSecret').placeholder = cfg.hasSecret ? 'unchanged' : '';
+            document.getElementById('odClientSecret').placeholder = cfg.hasSecret ? 'unchanged — a secret is saved' : '';
+            document.getElementById('odSecretHint').textContent = cfg.hasSecret
+                ? 'A secret is saved (confidential app). Remove it to use PKCE.'
+                : 'Leave blank to use PKCE (no secret needed)';
+            document.getElementById('odClearSecret').style.display = cfg.hasSecret ? '' : 'none';
         } catch {}
+    }
+
+    async function clearOneDriveSecret() {
+        const st = document.getElementById('odStatus');
+        st.style.color = '#888'; st.textContent = 'Removing…';
+        const res = await fetch('/api/admin/onedrive', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                clientId: document.getElementById('odClientId').value.trim(),
+                tenant:   document.getElementById('odTenant').value.trim() || 'common',
+                clearSecret: true
+            })
+        });
+        if (res.ok) { st.style.color = '#2e7d32'; st.textContent = 'Secret removed — using PKCE.'; showToast('Client secret removed.'); loadOneDrive(); }
+        else        { st.style.color = '#c0392b'; st.textContent = 'Could not remove the secret.'; }
     }
 
     async function saveOneDrive() {
