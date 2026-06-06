@@ -152,7 +152,7 @@
       let data;
       try { data = await (await fetch('/api/sources/synology/browse?folderId=' + encodeURIComponent(folderId))).json(); }
       catch { el.innerHTML = '<div class="center" style="grid-column:1/-1">Could not load folder.</div>'; return; }
-      if (data.error === 'not_connected') return init();
+      if (data.error === 'not_connected') return renderConnect();   // creds invalid/expired → re-enter, no loop
       const items = data.items || [];
       if (!items.length) { el.innerHTML = '<div class="center" style="grid-column:1/-1">This folder is empty.</div>'; return; }
       el.innerHTML = items.map(it => it.isFolder

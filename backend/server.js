@@ -2897,20 +2897,28 @@ function synoDispatcher() {
     return _synoAgent || undefined;
 }
 async function synoFetch(url, opts = {}) { return fetch(url, { dispatcher: synoDispatcher(), ...opts }); }
-// Log in to the NAS with the user's stored credentials → { base, sid }.
-async function synologyLogin(user) {
-    const s = user?.synology;
-    if (!s?.url || !s.account) return null;
-    const base = String(s.url).replace(/\/+$/, '');
+// Low-level NAS login. With 2FA we ask for a device token (enable_device_token):
+// the OTP is needed once; the returned `did` is then reused to skip 2FA on every
+// later login. Returns { ok, base, sid, did } / { ok:false, error }.
+async function synologyAuth({ url, account, passwd, otp, deviceId }) {
+    const base = String(url || '').replace(/\/+$/, '');
     const body = new URLSearchParams({ api: 'SYNO.API.Auth', version: '7', method: 'login',
-        account: s.account, passwd: decryptSecret(s.passwd), session: 'Photo', format: 'sid' });
-    if (s.otp) body.set('otp_code', s.otp);
+        account, passwd, session: 'Photo', format: 'sid', enable_device_token: 'yes', device_name: 'PhotoDock' });
+    if (deviceId) body.set('device_id', deviceId);   // remembered device → no OTP prompt
+    else if (otp) body.set('otp_code', otp);
     try {
         const r = await synoFetch(`${base}/webapi/entry.cgi`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
         const j = await r.json();
-        if (!j.success || !j.data?.sid) { console.error('Synology login failed:', JSON.stringify(j.error || {})); return null; }
-        return { base, sid: j.data.sid };
-    } catch (e) { console.error('Synology login error:', e.message); return null; }
+        if (!j.success || !j.data?.sid) { console.error('Synology login failed:', JSON.stringify(j.error || {})); return { ok: false, error: j.error }; }
+        return { ok: true, base, sid: j.data.sid, did: j.data.did || j.data.device_id || null };
+    } catch (e) { console.error('Synology login error:', e.message); return { ok: false }; }
+}
+// Log in a stored user (uses their saved device token; no OTP) → { base, sid }.
+async function synologyLogin(user) {
+    const s = user?.synology;
+    if (!s?.url || !s.account) return null;
+    const a = await synologyAuth({ url: s.url, account: s.account, passwd: decryptSecret(s.passwd), deviceId: s.deviceId });
+    return a.ok ? { base: a.base, sid: a.sid } : null;
 }
 function synoUrl(base, sid, params) { return `${base}/webapi/entry.cgi?${new URLSearchParams({ ...params, _sid: sid })}`; }
 
@@ -2926,10 +2934,15 @@ app.post('/api/sources/synology/connect', async (req, res) => {
     const passwd  = String(req.body?.passwd || '');
     const otp     = String(req.body?.otp || '').trim();
     if (!/^https?:\/\//i.test(url) || !account || !passwd) return res.status(400).json({ error: 'NAS URL (http/https), account and password are required.' });
-    const probe = { synology: { url, account, passwd: encryptSecret(passwd), otp: otp || undefined } };
-    const login = await synologyLogin(probe);
-    if (!login) return res.status(401).json({ error: 'Could not log in to the NAS. Check the URL, account, password (and 2FA code if enabled).' });
-    req.currentUser.synology = { url, account, passwd: encryptSecret(passwd) };
+    const a = await synologyAuth({ url, account, passwd, otp: otp || undefined });
+    if (!a.ok) {
+        const needOtp = a.error?.code === 403 || a.error?.errors?.types?.some?.(t => t.type === 'otp');
+        return res.status(401).json({ error: needOtp
+            ? 'This account uses 2-step verification. Enter the current 6-digit code from your authenticator app and connect again.'
+            : 'Could not log in to the NAS. Check the URL, account and password.' });
+    }
+    // Store the device token (if any) so future logins skip the OTP prompt.
+    req.currentUser.synology = { url, account, passwd: encryptSecret(passwd), deviceId: a.did || undefined };
     saveData(appData);
     res.json({ ok: true });
 });
