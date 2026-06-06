@@ -2952,24 +2952,29 @@ app.post('/api/sources/synology/disconnect', (req, res) => {
     res.json({ ok: true });
 });
 
-// Browse: subfolders + photos in a Synology Photos folder (personal space).
+// The Synology Photos API namespace per space: personal vs the shared "team" space.
+function synoApiNs(space) { return space === 'shared' ? 'SYNO.FotoTeam' : 'SYNO.Foto'; }
+
+// Browse: subfolders + photos in a Synology Photos folder (personal or shared).
 app.get('/api/sources/synology/browse', async (req, res) => {
     const login = await synologyLogin(req.currentUser);
     if (!login) return res.status(401).json({ error: 'not_connected' });
     const { base, sid } = login;
+    const space = req.query.space === 'shared' ? 'shared' : 'personal';
+    const ns = synoApiNs(space);
     const folderId = req.query.folderId ? String(req.query.folderId) : '0';
     try {
-        const fr = await synoFetch(synoUrl(base, sid, { api: 'SYNO.Foto.Browse.Folder', version: '1', method: 'list', id: folderId, offset: '0', limit: '1000' }));
+        const fr = await synoFetch(synoUrl(base, sid, { api: `${ns}.Browse.Folder`, version: '1', method: 'list', id: folderId, offset: '0', limit: '1000' }));
         const fj = await fr.json();
-        const ir = await synoFetch(synoUrl(base, sid, { api: 'SYNO.Foto.Browse.Item', version: '1', method: 'list', folder_id: folderId, offset: '0', limit: '5000', additional: '["thumbnail"]' }));
+        const ir = await synoFetch(synoUrl(base, sid, { api: `${ns}.Browse.Item`, version: '1', method: 'list', folder_id: folderId, offset: '0', limit: '5000', additional: '["thumbnail"]' }));
         const ij = await ir.json();
         const folders = (fj.data?.list || []).map(f => ({ id: String(f.id), name: f.name?.split('/').pop() || f.name || 'Folder', isFolder: true }));
         const items = (ij.data?.list || []).map(it => {
             const t = it.additional?.thumbnail;
-            const thumb = t ? synoUrl(base, sid, { api: 'SYNO.Foto.Thumbnail', version: '2', method: 'get', id: String(t.unit_id || it.id), cache_key: t.cache_key || '', type: 'unit', size: 'sm' }) : null;
+            const thumb = t ? synoUrl(base, sid, { api: `${ns}.Thumbnail`, version: '2', method: 'get', id: String(t.unit_id || it.id), cache_key: t.cache_key || '', type: 'unit', size: 'sm' }) : null;
             return { id: String(it.id), name: it.filename || ('photo-' + it.id), isFolder: false, thumb };
         });
-        res.json({ items: [...folders, ...items] });
+        res.json({ items: [...folders, ...items], space });
     } catch (e) {
         console.error('Synology browse:', e.message);
         res.status(502).json({ error: 'Could not list Synology Photos.' });
@@ -2986,10 +2991,11 @@ app.post('/api/sources/synology/import', requireUpload, async (req, res) => {
     const screenId = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
     if (screenId && !userCanAccessScreen(req.currentUser, screenId)) return res.status(403).json({ error: 'You do not have access to that screen' });
     const albumId = req.body.albumId && (appData.albums || []).find(a => a.id === req.body.albumId) ? req.body.albumId : null;
+    const ns = synoApiNs(req.body.space === 'shared' ? 'shared' : 'personal');
     const imported = [], failed = [];
     for (const it of items) {
         try {
-            const dl = await synoFetch(synoUrl(base, sid, { api: 'SYNO.Foto.Download', version: '2', method: 'download', unit_id: `[${parseInt(it.id) || 0}]` }));
+            const dl = await synoFetch(synoUrl(base, sid, { api: `${ns}.Download`, version: '2', method: 'download', unit_id: `[${parseInt(it.id) || 0}]` }));
             if (!dl.ok) throw new Error(`download ${dl.status}`);
             const buf = Buffer.from(await dl.arrayBuffer());
             const fn = await ingestImageBuffer(buf, it.name || `synology-${it.id}.jpg`, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'synology' });

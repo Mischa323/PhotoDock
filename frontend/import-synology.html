@@ -55,7 +55,7 @@
     const preScreen = q.get('screenId') || '';
     const preAlbum  = q.get('albumId')  || '';
     const panel = document.getElementById('panel');
-    let screens = [], selected = new Map(), stack = [{ id: '0', name: 'Synology Photos' }];
+    let screens = [], selected = new Map(), space = 'personal', stack = [{ id: '0', name: 'Personal Space' }];
 
     const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
@@ -106,6 +106,11 @@
     function renderBrowser() {
       panel.innerHTML = `
         <div class="targets">
+          <div><div class="field-label">Space</div>
+            <select class="glass-input" id="spaceSel" onchange="onSpaceChange()" style="min-width:130px">
+              <option value="personal">Personal</option>
+              <option value="shared">Shared</option>
+            </select></div>
           <div><div class="field-label">Screen</div>
             <select class="glass-input" id="screenSel" onchange="onScreenChange()"></select></div>
           <div><div class="field-label">Album (optional)</div>
@@ -126,6 +131,13 @@
     }
 
     async function synDisconnect() { await fetch('/api/sources/synology/disconnect', { method: 'POST' }); selected.clear(); init(); }
+
+    function onSpaceChange() {
+      space = document.getElementById('spaceSel').value;
+      selected.clear();
+      stack = [{ id: '0', name: space === 'shared' ? 'Shared Space' : 'Personal Space' }];
+      browse('0');
+    }
 
     async function onScreenChange() {
       const sid = document.getElementById('screenSel').value;
@@ -150,7 +162,7 @@
       el.innerHTML = '<div class="center" style="grid-column:1/-1">Loading…</div>';
       renderCrumbs();
       let data;
-      try { data = await (await fetch('/api/sources/synology/browse?folderId=' + encodeURIComponent(folderId))).json(); }
+      try { data = await (await fetch('/api/sources/synology/browse?folderId=' + encodeURIComponent(folderId) + '&space=' + space)).json(); }
       catch { el.innerHTML = '<div class="center" style="grid-column:1/-1">Could not load folder.</div>'; return; }
       if (data.error === 'not_connected') return renderConnect();   // creds invalid/expired → re-enter, no loop
       const items = data.items || [];
@@ -184,7 +196,7 @@
         const items = [...selected.entries()].map(([id, name]) => ({ id, name }));
         const res = await fetch('/api/sources/synology/import', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ items, screenId, albumId: albumId || null })
+          body: JSON.stringify({ items, screenId, albumId: albumId || null, space })
         });
         const data = await res.json();
         if (!res.ok) { msg.style.color = '#fca5a5'; msg.textContent = data.error || 'Import failed.'; btn.disabled = false; return; }
