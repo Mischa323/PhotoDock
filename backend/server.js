@@ -2917,7 +2917,7 @@ async function synologyAuth({ url, account, passwd, otp, deviceId }) {
 async function synologyLogin(user) {
     const s = user?.synology;
     if (!s?.url || !s.account) return null;
-    const a = await synologyAuth({ url: s.url, account: s.account, passwd: decryptSecret(s.passwd), deviceId: s.deviceId });
+    const a = await synologyAuth({ url: s.url, account: s.account, passwd: decryptSecret(s.passwd), deviceId: decryptSecret(s.deviceId) || undefined });
     return a.ok ? { base: a.base, sid: a.sid } : null;
 }
 function synoUrl(base, sid, params) { return `${base}/webapi/entry.cgi?${new URLSearchParams({ ...params, _sid: sid })}`; }
@@ -2942,7 +2942,7 @@ app.post('/api/sources/synology/connect', async (req, res) => {
             : 'Could not log in to the NAS. Check the URL, account and password.' });
     }
     // Store the device token (if any) so future logins skip the OTP prompt.
-    req.currentUser.synology = { url, account, passwd: encryptSecret(passwd), deviceId: a.did || undefined };
+    req.currentUser.synology = { url, account, passwd: encryptSecret(passwd), deviceId: a.did ? encryptSecret(a.did) : undefined };
     saveData(appData);
     res.json({ ok: true });
 });
