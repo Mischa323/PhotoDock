@@ -761,6 +761,20 @@
   </div>
 </div>
 
+<!-- Add photos: choose a source -->
+<div class="modal-backdrop" id="addChoiceModal" style="display:none" onclick="if(event.target===this)closeAddChoice()">
+  <div class="glass modal-box" style="width:340px">
+    <div class="modal-title">Add photos</div>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
+      <button class="glass-btn hbtn" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();pickFiles()">📷&nbsp;&nbsp;Upload from this device</button>
+      <button class="cyan-btn hbtn" id="addChoiceOneDrive" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();importFromOneDrive()">☁&nbsp;&nbsp;Import from OneDrive</button>
+      <button class="cyan-btn hbtn" id="addChoiceGoogle" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();importFromGoogle()">🟦&nbsp;&nbsp;Import from Google Drive</button>
+      <button class="cyan-btn hbtn" id="addChoiceSynology" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();importFromSynology()">🗄&nbsp;&nbsp;Import from Synology Photos</button>
+    </div>
+    <div class="modal-footer"><button class="glass-btn modal-btn" onclick="closeAddChoice()">Cancel</button></div>
+  </div>
+</div>
+
 <!-- Slideshow overlay -->
 <div id="ssOverlay" class="ss-overlay" style="display:none">
   <div id="ssSlides"></div>
@@ -832,8 +846,12 @@ function hexA(hex, a) {
 }
 
 // ── Data loading ──────────────────────────────────────────
+let oneDriveConfigured = false, googleConfigured = false, synologyConnected = false;   // gate the cloud-import options
 async function init() {
   await loadScreens();
+  try { oneDriveConfigured = !!(await (await fetch('/api/sources/onedrive/status')).json()).configured; } catch {}
+  try { googleConfigured   = !!(await (await fetch('/api/sources/google/status')).json()).configured; } catch {}
+  try { synologyConnected  = !!(await (await fetch('/api/sources/synology/status')).json()).connected; } catch {}
   renderBreadcrumb();
   renderContent();
   buildUploadMenu();
@@ -1074,7 +1092,7 @@ function renderPhotosView() {
     </div>`;
   }
 
-  photosHtml += `<button class="photo-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="pickFiles()">
+  photosHtml += `<button class="photo-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="addPhotos()">
     <span style="font-size:30px;font-weight:300;line-height:1">+</span>
     <span>Add photos</span>
   </button>`;
@@ -1082,7 +1100,7 @@ function renderPhotosView() {
   content.innerHTML = `<div class="photos-section">
     <div class="photos-topbar">
       <span class="photos-hint">${hint}</span>
-      <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="pickFiles()">↑ Upload photos</button>
+      <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="addPhotos()">↑ Upload photos</button>
     </div>
     <div class="photos-grid" id="photosGrid"
       ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"
@@ -1107,7 +1125,43 @@ function buildUploadMenu() {
     }
     container.innerHTML = html || '<div class="upload-item" style="opacity:0.5;cursor:default">No screens yet</div>';
   }
+  if (oneDriveConfigured || googleConfigured || synologyConnected) {
+    container.innerHTML += `<div style="height:1px;background:rgba(255,255,255,0.1);margin:6px 0"></div>`;
+    if (oneDriveConfigured) container.innerHTML += `<button class="upload-item" onclick="importFromOneDrive();closeUploadMenu()">☁ Import from OneDrive</button>`;
+    if (googleConfigured)   container.innerHTML += `<button class="upload-item" onclick="importFromGoogle();closeUploadMenu()">🟦 Import from Google Drive</button>`;
+    if (synologyConnected)  container.innerHTML += `<button class="upload-item" onclick="importFromSynology();closeUploadMenu()">🗄 Import from Synology Photos</button>`;
+  }
 }
+
+// Jump to the OneDrive picker, carrying the current screen/album as the target.
+function importFromOneDrive() {
+  const p = new URLSearchParams();
+  if (curView === 'photos' && curAlbum && curScreen) { p.set('screenId', curScreen.id); p.set('albumId', curAlbum.id); }
+  else if (curView === 'albums' && curScreen)        { p.set('screenId', curScreen.id); }
+  const qs = p.toString();
+  location.href = '/import/onedrive' + (qs ? '?' + qs : '');
+}
+
+// "Add photos" → let the user choose a source. Only prompts when a cloud source
+// is available; otherwise it goes straight to the device file picker.
+function addPhotos() {
+  if (!oneDriveConfigured && !googleConfigured && !synologyConnected) { pickFiles(); return; }
+  document.getElementById('addChoiceOneDrive').style.display = oneDriveConfigured ? '' : 'none';
+  document.getElementById('addChoiceGoogle').style.display   = googleConfigured ? '' : 'none';
+  document.getElementById('addChoiceSynology').style.display = synologyConnected ? '' : 'none';
+  document.getElementById('addChoiceModal').style.display = 'flex';
+}
+function closeAddChoice() { document.getElementById('addChoiceModal').style.display = 'none'; }
+
+function cloudTarget(path) {
+  const p = new URLSearchParams();
+  if (curView === 'photos' && curAlbum && curScreen) { p.set('screenId', curScreen.id); p.set('albumId', curAlbum.id); }
+  else if (curView === 'albums' && curScreen)        { p.set('screenId', curScreen.id); }
+  const qs = p.toString();
+  location.href = path + (qs ? '?' + qs : '');
+}
+function importFromGoogle()   { cloudTarget('/import/google'); }
+function importFromSynology() { cloudTarget('/import/synology'); }
 
 function toggleUploadMenu() {
   document.getElementById('uploadDropdown').classList.toggle('open');

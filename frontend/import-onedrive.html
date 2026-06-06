@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <title>Import from OneDrive — PhotoDock</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/glass.css">
+  <style>
+    body { min-height: 100vh; }
+    .wrap { position: relative; z-index: 2; max-width: 1100px; margin: 0 auto; padding: 22px 20px 60px; }
+    .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+    .topbar h1 { font-size: 19px; font-weight: 700; letter-spacing: -0.01em; }
+    .topbar .spacer { flex: 1; }
+    .panel { border-radius: 16px; padding: 18px 20px; }
+    .center { text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.7); }
+    .targets { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+    .field-label { margin-bottom: 6px; }
+    select.glass-input { min-width: 180px; width: auto; }
+    .crumbs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 13px; color: rgba(255,255,255,0.6); margin-bottom: 14px; }
+    .crumbs a { color: #67e8f9; text-decoration: none; cursor: pointer; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .cell { position: relative; border-radius: 12px; overflow: hidden; cursor: pointer; aspect-ratio: 1; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); }
+    .cell img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cell.folder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 10px; }
+    .cell.folder .fi { font-size: 40px; }
+    .cell .name { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 8px; font-size: 11.5px; background: linear-gradient(transparent, rgba(0,0,0,0.78)); color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .cell.folder .name { position: static; background: none; padding: 0; }
+    .cell.sel { outline: 3px solid #06b6d4; outline-offset: -3px; }
+    .cell .check { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%; background: #06b6d4; color: #fff; font-size: 13px; line-height: 22px; text-align: center; display: none; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+    .cell.sel .check { display: block; }
+    .bar { position: sticky; bottom: 0; margin-top: 18px; display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-radius: 14px; }
+    .msg { font-size: 13px; min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="space-bg"></div>
+  <div class="wrap">
+    <div class="topbar">
+      <h1>☁ Import from OneDrive</h1>
+      <div class="spacer"></div>
+      <a href="/" class="glass-btn hbtn" style="padding:8px 14px;border-radius:10px;text-decoration:none">← Back to gallery</a>
+    </div>
+
+    <div class="panel glass" id="panel">
+      <div class="center">Loading…</div>
+    </div>
+  </div>
+
+  <input type="file" id="dummy" style="display:none">
+  <script src="/theme.js"></script>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const preScreen = q.get('screenId') || '';
+    const preAlbum  = q.get('albumId')  || '';
+    const panel = document.getElementById('panel');
+    let screens = [], selected = new Map(), stack = [{ id: null, name: 'OneDrive' }];
+
+    const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    async function init() {
+      let st;
+      try { st = await (await fetch('/api/sources/onedrive/status')).json(); }
+      catch { panel.innerHTML = '<div class="center">Could not reach the server.</div>'; return; }
+      if (!st.configured) {
+        panel.innerHTML = `<div class="center">OneDrive isn't set up yet.<br><br>
+          An administrator needs to add the OneDrive app credentials in
+          <a href="/admin" style="color:#67e8f9">Settings → Email &amp; integrations</a>.</div>`;
+        return;
+      }
+      if (!st.connected) {
+        panel.innerHTML = `<div class="center">
+          <p style="margin-bottom:18px">Connect your Microsoft account to import photos from OneDrive.</p>
+          <a class="cyan-btn hbtn" style="padding:11px 22px;border-radius:12px;text-decoration:none"
+             href="/api/sources/onedrive/connect">Connect OneDrive</a></div>`;
+        return;
+      }
+      screens = await (await fetch('/api/screens')).json().catch(() => []);
+      renderBrowser();
+      browse(null);
+    }
+
+    function renderBrowser() {
+      panel.innerHTML = `
+        <div class="targets">
+          <div><div class="field-label">Screen</div>
+            <select class="glass-input" id="screenSel" onchange="onScreenChange()"></select></div>
+          <div><div class="field-label">Album (optional)</div>
+            <select class="glass-input" id="albumSel"><option value="">— none —</option></select></div>
+        </div>
+        <div class="crumbs" id="crumbs"></div>
+        <div id="items" class="grid"></div>
+        <div class="bar glass-dark">
+          <button class="cyan-btn hbtn" id="importBtn" style="padding:10px 18px;border-radius:11px" onclick="doImport()" disabled>Import</button>
+          <span class="msg" id="msg"></span>
+        </div>`;
+      const ss = document.getElementById('screenSel');
+      ss.innerHTML = '<option value="">— choose a screen —</option>' +
+        screens.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+      if (preScreen && screens.some(s => s.id === preScreen)) { ss.value = preScreen; onScreenChange(); }
+    }
+
+    async function onScreenChange() {
+      const sid = document.getElementById('screenSel').value;
+      const as = document.getElementById('albumSel');
+      as.innerHTML = '<option value="">— none —</option>';
+      if (!sid) return;
+      try {
+        const albums = await (await fetch('/api/screens/' + sid + '/albums')).json();
+        as.innerHTML += albums.map(a => `<option value="${a.id}">${esc(a.name)}</option>`).join('');
+        if (preAlbum && albums.some(a => a.id === preAlbum)) as.value = preAlbum;
+      } catch {}
+    }
+
+    function renderCrumbs() {
+      document.getElementById('crumbs').innerHTML = stack.map((f, i) =>
+        i === stack.length - 1
+          ? `<span>${esc(f.name)}</span>`
+          : `<a onclick="goTo(${i})">${esc(f.name)}</a><span>›</span>`).join(' ');
+    }
+
+    function goTo(i) { stack = stack.slice(0, i + 1); browse(stack[i].id); }
+
+    async function browse(folderId) {
+      const el = document.getElementById('items');
+      el.innerHTML = '<div class="center" style="grid-column:1/-1">Loading…</div>';
+      renderCrumbs();
+      let data;
+      try { data = await (await fetch('/api/sources/onedrive/browse' + (folderId ? '?folderId=' + encodeURIComponent(folderId) : ''))).json(); }
+      catch { el.innerHTML = '<div class="center" style="grid-column:1/-1">Could not load folder.</div>'; return; }
+      if (data.error === 'not_connected') return init();
+      const items = data.items || [];
+      if (!items.length) { el.innerHTML = '<div class="center" style="grid-column:1/-1">This folder is empty.</div>'; return; }
+      el.innerHTML = items.map(it => it.isFolder
+        ? `<div class="cell folder" onclick='openFolder(${JSON.stringify(it.id)}, ${JSON.stringify(it.name)})'>
+             <div class="fi">📁</div><div class="name">${esc(it.name)}</div></div>`
+        : `<div class="cell ${selected.has(it.id) ? 'sel' : ''}" data-id="${esc(it.id)}" onclick='toggle(${JSON.stringify(it.id)}, ${JSON.stringify(it.name)})'>
+             ${it.thumb ? `<img loading="lazy" src="${esc(it.thumb)}" alt="">` : `<div class="cell folder"><div class="fi">🖼</div></div>`}
+             <div class="check">✓</div><div class="name">${esc(it.name)}</div></div>`).join('');
+    }
+
+    function openFolder(id, name) { stack.push({ id, name }); browse(id); }
+
+    function toggle(id, name) {
+      if (selected.has(id)) selected.delete(id); else selected.set(id, name);
+      const cell = document.querySelector(`.cell[data-id="${CSS.escape(id)}"]`);
+      if (cell) cell.classList.toggle('sel', selected.has(id));
+      const btn = document.getElementById('importBtn');
+      btn.disabled = selected.size === 0;
+      btn.textContent = selected.size ? `Import ${selected.size} photo${selected.size === 1 ? '' : 's'}` : 'Import';
+    }
+
+    async function doImport() {
+      const screenId = document.getElementById('screenSel').value;
+      const albumId  = document.getElementById('albumSel').value;
+      const msg = document.getElementById('msg'), btn = document.getElementById('importBtn');
+      if (!screenId) { msg.style.color = '#fca5a5'; msg.textContent = 'Pick a screen to import into.'; return; }
+      btn.disabled = true; msg.style.color = 'rgba(255,255,255,0.7)';
+      msg.textContent = `Importing ${selected.size}…`;
+      try {
+        const res = await fetch('/api/sources/onedrive/import', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ itemIds: [...selected.keys()], screenId, albumId: albumId || null })
+        });
+        const data = await res.json();
+        if (!res.ok) { msg.style.color = '#fca5a5'; msg.textContent = data.error || 'Import failed.'; btn.disabled = false; return; }
+        msg.style.color = '#86efac';
+        msg.textContent = `Imported ${data.imported} photo${data.imported === 1 ? '' : 's'}${data.failed ? `, ${data.failed} failed` : ''}. ` ;
+        selected.clear();
+        document.querySelectorAll('.cell.sel').forEach(c => c.classList.remove('sel'));
+        btn.textContent = 'Import'; btn.disabled = true;
+      } catch { msg.style.color = '#fca5a5'; msg.textContent = 'Network error.'; btn.disabled = false; }
+    }
+
+    init();
+  </script>
+</body>
+</html>

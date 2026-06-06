@@ -1291,7 +1291,7 @@
                         Public dashboard URL <span class="help" data-tip="The address admins use to reach this dashboard from outside, e.g. https://photos.example.com. Used for the buttons and links inside alert emails. Leave blank to omit links.">?</span>
                         <small>Used for links inside alert emails</small>
                     </label>
-                    <input type="url" id="publicUrl" class="tz-input" placeholder="https://photos.example.com">
+                    <input type="url" id="publicUrl" class="tz-input" placeholder="https://photos.example.com" oninput="onBaseInput('publicUrl')">
                 </div>
                 <div class="settings-row">
                     <label for="deviceAlerts">
@@ -1375,6 +1375,94 @@
             <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
                 <button class="btn-save-settings" onclick="saveInactivitySettings()">Save</button>
                 <p id="inactivityStatus" style="font-size:13px;margin:0;min-height:18px"></p>
+            </div>
+        </div>
+        </div></div>
+    </section>
+
+    <!-- Cloud photo sources -->
+    <section id="sec-integrations">
+        <div class="section-header"><h2>Cloud photo sources</h2></div>
+        <div class="section-body"><div class="section-body-inner">
+
+        <!-- OneDrive import (cloud photos) -->
+        <div style="padding:20px 24px 24px">
+            <h3 style="margin:0 0 14px;font-size:15px">OneDrive import</h3>
+            <p style="margin:0 0 10px;font-size:13px;color:#666">Let users import photos from OneDrive and sign in with Microsoft. Set this up once and everyone can connect their own account.</p>
+            <ol style="margin:0 0 14px 18px;font-size:13px;color:#555;line-height:1.85">
+                <li>Enter your <strong>Public base URL</strong> below and <strong>Save</strong> — the <strong>Redirect URI</strong> field fills itself in.</li>
+                <li>Open the <a href="https://entra.microsoft.com" target="_blank" rel="noopener" style="color:var(--accent)">Microsoft Entra admin center</a> → <strong>App registrations → New registration</strong>.</li>
+                <li><strong>Supported account types:</strong> choose one that <strong>includes personal Microsoft accounts</strong> (so Outlook/Hotmail logins work).</li>
+                <li><strong>Redirect URI:</strong> platform <strong>Single-page application</strong>, then paste the <strong>Redirect URI</strong> shown below.</li>
+                <li><strong>API permissions → Microsoft Graph → Delegated → <code>Files.Read</code></strong> → Add.</li>
+                <li>Copy the <strong>Application (client) ID</strong> into the field below. <strong>No client secret needed</strong> (PKCE). Set the tenant to <code>common</code> (personal + work) or <code>consumers</code> (personal only), then <strong>Save</strong>.</li>
+            </ol>
+            <p style="margin:0 0 16px;font-size:12.5px;color:#888">Each user then connects from their <strong>Account</strong> page (no admin rights needed). A non-admin can even register their own app there. If your tenant rejects the secret-less SPA flow when signing in, add a <strong>Web</strong> platform redirect + a client secret below and PhotoDock will use that instead.</p>
+            <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label for="odBaseUrl">Public base URL <span class="help" data-tip="The address users reach this dashboard at from outside — just the domain, e.g. https://photos.example.com. Must be HTTPS. The redirect URI below is built from it (and it's also used for links in alert emails).">?</span>
+                        <small>Just your dashboard domain — e.g. https://photos.example.com</small></label>
+                    <input type="text" id="odBaseUrl" class="tz-input" placeholder="https://photos.example.com" oninput="onBaseInput('odBaseUrl')">
+                </div>
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label>Redirect URI <span class="help" data-tip="Auto-built from the base URL above. Copy this exact value into your app registration (Authentication → Single-page application → Redirect URIs).">?</span>
+                        <small>Copy this into your app registration (Authentication → Single-page application)</small></label>
+                    <input type="text" id="odRedirect" class="tz-input" readonly onclick="this.select()"
+                        placeholder="https://your-dashboard.example.com/api/sources/onedrive/callback">
+                </div>
+                <div class="settings-row" style="grid-column:span 2">
+                    <label for="odClientId">Client ID <span class="help" data-tip="The Application (client) ID from your app registration's Overview page.">?</span>
+                        <small>Application (client) ID</small></label>
+                    <input type="text" id="odClientId" class="tz-input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                </div>
+                <div class="settings-row" style="grid-column:span 2">
+                    <label for="odTenant">Tenant <span class="help" data-tip="Use 'common' for personal + work accounts, 'consumers' for personal only, or your directory (tenant) ID for a single organisation.">?</span>
+                        <small>common · consumers · or a tenant ID</small></label>
+                    <input type="text" id="odTenant" class="tz-input" placeholder="common">
+                </div>
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label for="odClientSecret">Client secret <span style="color:#999;font-weight:400">(optional)</span> <span class="help" data-tip="Optional. Leave blank to use PKCE (a public app — no secret). Only provide one if you registered the app as a confidential Web app instead. Blank keeps any saved secret.">?</span>
+                        <small id="odSecretHint">Leave blank to use PKCE (no secret needed)</small></label>
+                    <input type="password" id="odClientSecret" class="tz-input" autocomplete="new-password" placeholder="">
+                    <button type="button" id="odClearSecret" class="btn-save-settings" style="display:none;margin-top:8px;align-self:flex-start;background:#fff;color:#c0392b;border:1px solid #c0392b" onclick="clearOneDriveSecret()">Remove saved secret (use PKCE)</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
+                <button class="btn-save-settings" onclick="saveOneDrive()">Save</button>
+                <p id="odStatus" style="font-size:13px;margin:0;min-height:18px"></p>
+            </div>
+        </div>
+
+        <!-- Google Drive import -->
+        <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
+            <h3 style="margin:0 0 10px;font-size:15px">Google Drive import</h3>
+            <p style="margin:0 0 10px;font-size:13px;color:#666">Let users import photos from Google Drive. Uses the same <strong>Public base URL</strong> as above.</p>
+            <ol style="margin:0 0 14px 18px;font-size:13px;color:#555;line-height:1.85">
+                <li>In the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener" style="color:var(--accent)">Google Cloud Console</a> enable the <strong>Google Drive API</strong>.</li>
+                <li>Configure the <strong>OAuth consent screen</strong> (External; while unverified, add your users as <strong>Test users</strong>).</li>
+                <li><strong>Credentials → Create credentials → OAuth client ID → Web application</strong>; add the <strong>Redirect URI</strong> below as an <em>Authorized redirect URI</em>.</li>
+                <li>Copy the <strong>Client ID</strong> and <strong>Client secret</strong> into the fields below, then <strong>Save</strong>.</li>
+            </ol>
+            <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label>Redirect URI <span class="help" data-tip="Built from the Public base URL above. Add it as an Authorized redirect URI on your OAuth client.">?</span>
+                        <small>Add this as an Authorized redirect URI on your OAuth client</small></label>
+                    <input type="text" id="gdRedirect" class="tz-input" readonly onclick="this.select()" placeholder="https://your-dashboard.example.com/api/sources/google/callback">
+                </div>
+                <div class="settings-row" style="grid-column:span 2">
+                    <label for="gdClientId">Client ID <span class="help" data-tip="The OAuth 2.0 Client ID from Google Cloud Console.">?</span>
+                        <small>OAuth 2.0 Client ID</small></label>
+                    <input type="text" id="gdClientId" class="tz-input" placeholder="xxxxxxxx.apps.googleusercontent.com">
+                </div>
+                <div class="settings-row" style="grid-column:span 2">
+                    <label for="gdClientSecret">Client secret <span class="help" data-tip="The OAuth client secret (required for Google). Leave blank to keep the saved one.">?</span>
+                        <small id="gdSecretHint">Required — leave blank to keep the saved one</small></label>
+                    <input type="password" id="gdClientSecret" class="tz-input" autocomplete="new-password" placeholder="">
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
+                <button class="btn-save-settings" onclick="saveGoogle()">Save</button>
+                <p id="gdStatus" style="font-size:13px;margin:0;min-height:18px"></p>
             </div>
         </div>
         </div></div>
@@ -2583,7 +2671,7 @@
 
     // ── API Reference URLs ─────────────────────────────────────────────────
     function initApiDocs() {
-        const base = window.location.origin;
+        const base = effectiveBase();
         document.getElementById('urlCurrent').textContent   = `${base}/api/slideshow/current`;
         document.getElementById('urlAll').textContent       = `${base}/api/slideshow/all`;
         document.getElementById('urlImage').textContent     = `${base}/api/slideshow/image`;
@@ -2883,7 +2971,7 @@
         document.querySelectorAll('#alertTypes input[data-alert]').forEach(cb => { alertTypes[cb.dataset.alert] = cb.checked; });
         const body = {
             method:       document.getElementById('emailMethod').value,
-            publicUrl:    document.getElementById('publicUrl').value.trim(),
+            publicUrl:    normalizeBase(document.getElementById('publicUrl').value),
             deviceAlerts: document.getElementById('deviceAlerts').checked,
             emailTheme:   document.getElementById('emailTheme').value,
             alertTypes
@@ -2900,6 +2988,110 @@
         document.getElementById('smtpFields').style.display  = method === 'smtp'  ? 'flex' : 'none';
         document.getElementById('graphFields').style.display = method === 'graph' ? 'flex' : 'none';
         document.getElementById('emailSaveRow').style.display = method ? 'flex' : 'none';
+    }
+
+    const OD_CALLBACK_PATH = '/api/sources/onedrive/callback';
+    function normalizeBase(s) {
+        s = (s || '').trim().replace(/\/+$/, '');
+        if (s && !/^https?:\/\//i.test(s)) s = 'https://' + s;   // assume https if no scheme typed
+        return s;
+    }
+    const GD_CALLBACK_PATH = '/api/sources/google/callback';
+    function updateOdRedirect() {
+        const base = normalizeBase(document.getElementById('odBaseUrl').value);
+        document.getElementById('odRedirect').value = base ? base + OD_CALLBACK_PATH : '';
+        const gd = document.getElementById('gdRedirect');
+        if (gd) gd.value = base ? base + GD_CALLBACK_PATH : '';
+    }
+
+    let publicBaseUrl = '';   // canonical public base URL ('' → fall back to the current origin)
+    function effectiveBase() { return publicBaseUrl || window.location.origin; }
+    // One domain drives everything: typing it updates the OneDrive redirect URI,
+    // the device/API server URLs, and the value saved for alert-email links. The
+    // two editors (Alerts + OneDrive) mirror each other so a Save never reverts.
+    function onBaseInput(srcId) {
+        const v = document.getElementById(srcId).value;
+        publicBaseUrl = normalizeBase(v);
+        const otherId = srcId === 'odBaseUrl' ? 'publicUrl' : 'odBaseUrl';
+        const other = document.getElementById(otherId);
+        if (other && other.value !== v) other.value = v;   // mirror without disturbing the typed field
+        updateOdRedirect();
+        initApiDocs();
+    }
+
+    async function loadOneDrive() {
+        try {
+            const cfg = await (await fetch('/api/admin/onedrive')).json();
+            document.getElementById('odBaseUrl').value    = cfg.publicUrl || '';
+            publicBaseUrl = normalizeBase(cfg.publicUrl || '');
+            const pu = document.getElementById('publicUrl'); if (pu) pu.value = cfg.publicUrl || '';
+            updateOdRedirect();
+            initApiDocs();   // reflect the saved domain in the device/API URLs
+            document.getElementById('odClientId').value   = cfg.clientId || '';
+            document.getElementById('odTenant').value     = cfg.tenant || 'common';
+            document.getElementById('odClientSecret').placeholder = cfg.hasSecret ? 'unchanged — a secret is saved' : '';
+            document.getElementById('odSecretHint').textContent = cfg.hasSecret
+                ? 'A secret is saved (confidential app). Remove it to use PKCE.'
+                : 'Leave blank to use PKCE (no secret needed)';
+            document.getElementById('odClearSecret').style.display = cfg.hasSecret ? '' : 'none';
+        } catch {}
+    }
+
+    async function loadGoogle() {
+        try {
+            const cfg = await (await fetch('/api/admin/google')).json();
+            updateOdRedirect();   // (re)build the Google redirect from the shared base URL
+            document.getElementById('gdClientId').value = cfg.clientId || '';
+            document.getElementById('gdClientSecret').placeholder = cfg.hasSecret ? 'unchanged — a secret is saved' : '';
+        } catch {}
+    }
+
+    async function saveGoogle() {
+        const st = document.getElementById('gdStatus');
+        st.style.color = '#888'; st.textContent = 'Saving…';
+        const body = {
+            clientId:     document.getElementById('gdClientId').value.trim(),
+            clientSecret: document.getElementById('gdClientSecret').value,
+            publicUrl:    normalizeBase(document.getElementById('odBaseUrl').value),
+        };
+        const res = await fetch('/api/admin/google', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        if (res.ok) { st.style.color = '#2e7d32'; st.textContent = 'Saved.'; showToast('Google Drive settings saved.');
+                      document.getElementById('gdClientSecret').value = ''; loadGoogle(); }
+        else        { st.style.color = '#c0392b'; st.textContent = 'Could not save.'; }
+    }
+
+    async function clearOneDriveSecret() {
+        const st = document.getElementById('odStatus');
+        st.style.color = '#888'; st.textContent = 'Removing…';
+        const res = await fetch('/api/admin/onedrive', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                clientId: document.getElementById('odClientId').value.trim(),
+                tenant:   document.getElementById('odTenant').value.trim() || 'common',
+                clearSecret: true
+            })
+        });
+        if (res.ok) { st.style.color = '#2e7d32'; st.textContent = 'Secret removed — using PKCE.'; showToast('Client secret removed.'); loadOneDrive(); }
+        else        { st.style.color = '#c0392b'; st.textContent = 'Could not remove the secret.'; }
+    }
+
+    async function saveOneDrive() {
+        const st = document.getElementById('odStatus');
+        st.style.color = '#888'; st.textContent = 'Saving…';
+        const body = {
+            clientId:     document.getElementById('odClientId').value.trim(),
+            tenant:       document.getElementById('odTenant').value.trim() || 'common',
+            clientSecret: document.getElementById('odClientSecret').value,
+            publicUrl:    normalizeBase(document.getElementById('odBaseUrl').value),
+        };
+        const res = await fetch('/api/admin/onedrive', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        if (res.ok) { st.style.color = '#2e7d32'; st.textContent = 'Saved.'; showToast('OneDrive settings saved.');
+                      document.getElementById('odClientSecret').value = ''; loadOneDrive(); }
+        else        { st.style.color = '#c0392b'; st.textContent = 'Could not save.'; }
     }
 
     async function saveEmailConfig() {
@@ -3128,6 +3320,8 @@
     if (localStorage.getItem('adminSettingsFolded') === '1') document.body.classList.add('settings-folded');
 
     loadEmailConfig();
+    loadOneDrive();
+    loadGoogle();
     loadDisplaySettings();
     loadActivityLog();
     loadRoles().then(() => loadUsers());
@@ -3160,6 +3354,7 @@
         'sec-usage':     'full',
         'sec-activity':  'full',
         'sec-email':     'half',
+        'sec-integrations': 'half',
         'sec-display':   'full',
         'sec-users':     'full',
         'sec-roles':     'half',
@@ -3258,6 +3453,7 @@
         'sec-users':       'users',
         'sec-roles':       'users',
         'sec-email':       'server',
+        'sec-integrations':'server',
         'sec-display':     'server',
         'sec-api-ref':     'server',
         'sec-device-setup':'logs',

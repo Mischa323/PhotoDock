@@ -432,14 +432,18 @@ function deleteToken(token) {
 
 function setCookie(res, token, expiresAt, req = null) {
     const secure = req?.secure || req?.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    // Lax (not Strict) so the session cookie is honoured on the top-level
+    // redirect back from an external OAuth provider (Microsoft SSO). Strict
+    // withholds the cookie on the request that follows a cross-site navigation,
+    // which left SSO users un-authenticated after the callback redirect.
     res.setHeader('Set-Cookie',
-        `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Expires=${new Date(expiresAt).toUTCString()}${secure}`
+        `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Expires=${new Date(expiresAt).toUTCString()}${secure}`
     );
 }
 
 function clearCookie(res, req = null) {
     const secure = req?.secure || req?.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
-    res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
+    res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
 }
 
 // ── Multer ─────────────────────────────────────────────────────────────────
@@ -538,6 +542,13 @@ function requireAuth(req, res, next) {
     if (req.path === '/forgot' || req.path === '/api/password/forgot' || req.path === '/api/password/reset') return next();
     if (req.path.startsWith('/reset/') || req.path.startsWith('/api/reset/')) return next();
     if (req.path.startsWith('/invite/accept') || req.path.startsWith('/api/invite/')) return next();
+    // OAuth callback returns from Microsoft cross-site (no session cookie); it
+    // authenticates the user via the one-time `state` instead.
+    if (req.path === '/api/sources/onedrive/callback') return next();
+    if (req.path === '/api/sources/google/callback') return next();
+    // SSO entry points are used before a session exists.
+    if (req.path === '/api/sso/microsoft/login' || req.path === '/api/sso/microsoft/enabled') return next();
+    if (req.path === '/api/sso/google/login'    || req.path === '/api/sso/google/enabled')    return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -612,7 +623,7 @@ app.post('/api/devices/pair/request', express.json(), (req, res) => {
         apiKeyId:    null,
         screenId:    null,
     });
-    const pairUrl = `${req.protocol}://${req.get('host')}/pair?token=${token}`;
+    const pairUrl = `${publicBase(req)}/pair?token=${token}`;
     res.json({ token, code, pairUrl });
 });
 
@@ -2383,6 +2394,633 @@ app.post('/api/upload', requireUpload, (req, res) => {
     res.json({ uploaded: processed.map(f => ({ filename: f.filename, url: `/uploads/${f.filename}` })) });
     }); // end upload.array callback
 });
+
+// ── Shared image ingest ─────────────────────────────────────────────────────
+// Save a raw image buffer into the library exactly like an upload would:
+// HEIC→JPEG, a unique sanitised filename, and an imageMetadata entry. Used by
+// the cloud-import flows. Caller batches saveData(). Returns the stored name.
+async function ingestImageBuffer(buffer, originalName, meta = {}) {
+    const rawExt = (path.extname(originalName || '') || '.jpg').toLowerCase();
+    const base   = (path.basename(originalName || 'photo', rawExt).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)) || 'photo';
+    const stamp  = () => `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
+    let outName, outBuf = buffer;
+    if (HEIC_EXTS.has(rawExt)) {
+        try { outBuf = await heicConvert({ buffer, format: 'JPEG', quality: 0.92 }); outName = `${base}-${stamp()}.jpg`; }
+        catch (e) { console.error('HEIC convert failed for', originalName, ':', e.message); outName = `${base}-${stamp()}${rawExt}`; }
+    } else {
+        outName = `${base}-${stamp()}${rawExt}`;
+    }
+    fs.writeFileSync(path.join(UPLOADS_DIR, outName), outBuf);
+    if (!appData.imageMetadata) appData.imageMetadata = {};
+    appData.imageMetadata[outName] = {
+        uploadedBy: meta.uploadedBy || null,
+        uploadedAt: new Date().toISOString(),
+        screenId:   meta.screenId || null,
+        albumId:    meta.albumId  || null,
+        source:     meta.source   || null,
+    };
+    return outName;
+}
+
+// ── Cloud photo sources: OneDrive (Microsoft Graph, delegated OAuth) ─────────
+const GRAPH = 'https://graph.microsoft.com/v1.0';
+const _oneDriveStates = new Map();   // oauth state -> { userId, exp }
+function oneDriveCfg() {
+    const c = appData.settings?.onedrive || {};
+    return { clientId: c.clientId || '', clientSecret: decryptSecret(c.clientSecret), tenant: c.tenant || 'common' };
+}
+function oneDriveRedirectUri(req) { return `${publicBase(req)}/api/sources/onedrive/callback`; }
+// A Single-page-application registration (PKCE, no secret) only redeems tokens
+// on a *cross-origin* request — i.e. one carrying an Origin header matching the
+// redirect's origin. We send that header on the secret-less path so the
+// server-side token exchange is accepted (AADSTS9002327 otherwise).
+function oneDriveOrigin(req) {
+    const base = req ? publicBase(req) : (appData.settings?.publicUrl || '');
+    try { return new URL(base).origin; } catch { return base; }
+}
+function oneDriveTokenUrl(tenant) { return `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`; }
+const ONEDRIVE_SCOPE = 'Files.Read offline_access User.Read';
+// PKCE — lets a public app work with no client secret. The verifier is kept in
+// the one-time state and proves possession of the auth code at token exchange.
+function pkcePair() {
+    const verifier  = crypto.randomBytes(32).toString('base64url');
+    const challenge = crypto.createHash('sha256').update(verifier).digest('base64url');
+    return { verifier, challenge };
+}
+// The Microsoft app to use for a given user: their OWN app (PKCE, no secret) if
+// they've registered one, otherwise the global admin-configured app. This lets a
+// user without admin rights connect a personal account by bringing their own app.
+function oneDriveCfgFor(user) {
+    if (user?.onedrive?.clientId)
+        return { clientId: user.onedrive.clientId, clientSecret: '', tenant: user.onedrive.tenant || 'common' };
+    return oneDriveCfg();
+}
+
+// Admin — store the Azure app credentials (client secret encrypted at rest).
+app.get('/api/admin/onedrive', requireAdmin, (req, res) => {
+    const c   = appData.settings?.onedrive || {};
+    const pub = (appData.settings?.publicUrl || '').replace(/\/+$/, '');
+    res.json({ clientId: c.clientId || '', tenant: c.tenant || 'common', hasSecret: !!c.clientSecret,
+               publicUrl: pub, redirectUri: pub ? `${pub}/api/sources/onedrive/callback` : '', publicUrlSet: !!pub });
+});
+app.put('/api/admin/onedrive', requireAdmin, (req, res) => {
+    if (!appData.settings) appData.settings = {};
+    const ex = appData.settings.onedrive || {};
+    appData.settings.onedrive = {
+        clientId:     String(req.body.clientId || '').trim(),
+        tenant:       String(req.body.tenant || 'common').trim() || 'common',
+        // Secret is OPTIONAL (PKCE works without one). clearSecret removes a
+        // saved secret; a blank secret keeps the existing one.
+        clientSecret: req.body.clearSecret ? '' : (req.body.clientSecret ? encryptSecret(String(req.body.clientSecret)) : (ex.clientSecret || '')),
+    };
+    // The public base URL is shared with email links; let it be set from here too.
+    if ('publicUrl' in req.body) appData.settings.publicUrl = String(req.body.publicUrl || '').trim().replace(/\/+$/, '');
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// Per-user connection status (is OneDrive configured + has this user linked it?)
+app.get('/api/sources/onedrive/status', (req, res) => {
+    const g  = oneDriveCfg();
+    const od = req.currentUser?.onedrive;
+    res.json({
+        configured: !!(od?.clientId || g.clientId),   // can this user connect at all?
+        globalConfigured: !!g.clientId,
+        hasUserApp:   !!od?.clientId,
+        userClientId: od?.clientId || '',
+        userTenant:   od?.tenant   || 'common',
+        connected:    !!od?.refreshToken,
+        email:        od?.msEmail  || null,
+        redirectUri:  `${publicBase(req)}/api/sources/onedrive/callback`,
+    });
+});
+
+// Start OAuth — redirect the signed-in user to Microsoft consent.
+app.get('/api/sources/onedrive/connect', (req, res) => {
+    const cfg = oneDriveCfgFor(req.currentUser);
+    if (!cfg.clientId) return res.status(400).send('OneDrive is not set up yet. Add a Microsoft app Client ID in Settings or on your Account page.');
+    const state = crypto.randomBytes(16).toString('hex');
+    const { verifier, challenge } = pkcePair();
+    // Where to send the user after connecting — a local path only (no open redirect).
+    const ret = typeof req.query.return === 'string' && /^\/[^/]/.test(req.query.return) ? req.query.return : '/import/onedrive';
+    _oneDriveStates.set(state, { purpose: 'link', userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret, verifier });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(req),
+        response_mode: 'query', scope: ONEDRIVE_SCOPE, state,
+        code_challenge: challenge, code_challenge_method: 'S256',
+    });
+    res.redirect(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/authorize?${p}`);
+});
+
+// OAuth callback — shared by account-linking and Microsoft SSO login. Runs
+// without a session cookie (cross-site redirect), so it trusts the one-time
+// `state` minted by /connect or /api/sso/microsoft/login.
+app.get('/api/sources/onedrive/callback', async (req, res) => {
+    const { code, state, error, error_description } = req.query;
+    const st = _oneDriveStates.get(state); _oneDriveStates.delete(state);
+    const back = st?.purpose === 'login' ? '/login?error=sso' : `${st?.ret || '/import/onedrive'}?onedrive=error`;
+    if (error) { console.warn('Microsoft OAuth:', error_description || error); return res.redirect(back); }
+    if (!st || st.exp < Date.now()) return res.status(400).send('This Microsoft sign-in link expired. Please try again.');
+    // Linking uses the user's own app (if any); SSO login uses the global app.
+    const linkUser = st.purpose === 'link' ? appData.users.find(u => u.id === st.userId) : null;
+    const cfg = linkUser ? oneDriveCfgFor(linkUser) : oneDriveCfg();
+    let tok, me;
+    try {
+        const body = new URLSearchParams({
+            client_id: cfg.clientId, code: String(code || ''),
+            redirect_uri: oneDriveRedirectUri(req), grant_type: 'authorization_code',
+        });
+        if (st.verifier)      body.set('code_verifier', st.verifier);   // PKCE
+        if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);   // optional confidential app
+        const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        if (!cfg.clientSecret) headers.Origin = oneDriveOrigin(req);     // SPA apps need a cross-origin token request
+        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers, body });
+        tok = await r.json();
+        if (!r.ok || !tok.access_token) throw new Error(tok.error_description || 'token exchange failed');
+        const meRes = await fetch(`${GRAPH}/me?$select=id,userPrincipalName,mail,displayName`, { headers: { Authorization: `Bearer ${tok.access_token}` } });
+        me = await meRes.json();
+        if (!meRes.ok || !me.id) throw new Error('could not read Microsoft profile');
+    } catch (e) {
+        console.error('Microsoft OAuth:', e.message);
+        return res.redirect(back);
+    }
+    const msEmail = me.userPrincipalName || me.mail || null;
+
+    // ── SSO login: match the Microsoft identity to a linked account ──
+    if (st.purpose === 'login') {
+        // Personal-account /me.id can be app-specific, so also match on the
+        // Microsoft email — against the stored one and the user's PhotoDock email.
+        const emails = [me.mail, me.userPrincipalName].filter(Boolean).map(s => String(s).toLowerCase());
+        const u = appData.users.find(x => x.onedrive?.msId === me.id)
+               || appData.users.find(x => x.onedrive && emails.includes((x.onedrive.msEmail || '').toLowerCase()))
+               || appData.users.find(x => x.onedrive?.refreshToken && emails.includes((x.email || '').toLowerCase()));
+        if (!u) {
+            console.warn('SSO: no linked PhotoDock account for Microsoft id=%s emails=%j', me.id, emails);
+            return res.redirect('/login?error=sso_nolink');
+        }
+        if (u.blocked) { addLog('login_fail', { user: u.username, ip: req.ip, detail: 'sso, blocked' }); return res.redirect('/login?error=blocked'); }
+        u.lastLogin = new Date().toISOString();
+        saveData(appData);
+        addLog('login_success', { user: u.username, ip: req.ip, detail: 'microsoft sso' });
+        const { token, expiresAt } = createToken(u.id);
+        setCookie(res, token, expiresAt, req);
+        return res.redirect('/');
+    }
+
+    // ── Account linking: store the refresh token + Microsoft identity ──
+    const user = linkUser;
+    if (!user) return res.status(400).send('Account not found.');
+    user.onedrive = Object.assign({}, user.onedrive, {
+        connectedAt: new Date().toISOString(), msId: me.id, msEmail,
+    });
+    if (tok.refresh_token) user.onedrive.refreshToken = encryptSecret(tok.refresh_token);
+    saveData(appData);
+    res.redirect(`${st.ret || '/import/onedrive'}?onedrive=connected`);
+});
+
+// Disconnect a user's Microsoft account (removes import access + SSO). Keeps
+// any personal app registration so they can reconnect without re-entering it.
+app.post('/api/sources/onedrive/disconnect', (req, res) => {
+    const od = req.currentUser?.onedrive;
+    if (od) {
+        delete od.refreshToken; delete od.msId; delete od.msEmail; delete od.connectedAt;
+        if (!od.clientId) delete req.currentUser.onedrive;
+        saveData(appData);
+    }
+    res.json({ ok: true });
+});
+
+// Register a user's OWN Microsoft app (Client ID + tenant; PKCE, no secret) so
+// they can connect a personal account without an admin-configured global app.
+app.put('/api/user/onedrive-app', (req, res) => {
+    const clientId = String(req.body?.clientId || '').trim();
+    const tenant   = String(req.body?.tenant   || 'common').trim() || 'common';
+    const u  = req.currentUser;
+    const od = u.onedrive || (u.onedrive = {});
+    if (clientId) { od.clientId = clientId; od.tenant = tenant; }
+    else          { delete od.clientId; delete od.tenant; }
+    // Changing the app invalidates any existing connection.
+    delete od.refreshToken; delete od.msId; delete od.msEmail; delete od.connectedAt;
+    if (!od.clientId) delete u.onedrive;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// ── Microsoft SSO login ─────────────────────────────────────────────────────
+// Available once the Microsoft app is configured; only logs in users who have
+// linked their Microsoft account (no auto-provisioning).
+app.get('/api/sso/microsoft/enabled', (_req, res) => {
+    const cfg = oneDriveCfg();
+    res.json({ enabled: !!cfg.clientId });
+});
+app.get('/api/sso/microsoft/login', (req, res) => {
+    const cfg = oneDriveCfg();
+    if (!cfg.clientId) return res.redirect('/login?error=sso');
+    const state = crypto.randomBytes(16).toString('hex');
+    const { verifier, challenge } = pkcePair();
+    _oneDriveStates.set(state, { purpose: 'login', exp: Date.now() + 10 * 60 * 1000, verifier });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, response_type: 'code', redirect_uri: oneDriveRedirectUri(req),
+        response_mode: 'query', scope: ONEDRIVE_SCOPE, state, prompt: 'select_account',
+        code_challenge: challenge, code_challenge_method: 'S256',
+    });
+    res.redirect(`https://login.microsoftonline.com/${encodeURIComponent(cfg.tenant)}/oauth2/v2.0/authorize?${p}`);
+});
+
+// Exchange the stored refresh token for a fresh access token (rotates the RT).
+async function oneDriveAccessToken(user) {
+    const rt = decryptSecret(user?.onedrive?.refreshToken);
+    if (!rt) return null;
+    const cfg = oneDriveCfgFor(user);
+    if (!cfg.clientId) return null;
+    try {
+        const body = new URLSearchParams({
+            client_id: cfg.clientId, refresh_token: rt,
+            grant_type: 'refresh_token', scope: ONEDRIVE_SCOPE,
+        });
+        if (cfg.clientSecret) body.set('client_secret', cfg.clientSecret);
+        const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        if (!cfg.clientSecret) headers.Origin = oneDriveOrigin(null);
+        const r = await fetch(oneDriveTokenUrl(cfg.tenant), { method: 'POST', headers, body });
+        const tok = await r.json();
+        if (!r.ok || !tok.access_token) { console.error('OneDrive refresh failed:', tok.error_description || r.status); return null; }
+        if (tok.refresh_token) { user.onedrive.refreshToken = encryptSecret(tok.refresh_token); saveData(appData); }
+        return tok.access_token;
+    } catch (e) { console.error('OneDrive refresh error:', e.message); return null; }
+}
+
+// Browse a OneDrive folder — returns subfolders + image files with thumbnails.
+app.get('/api/sources/onedrive/browse', async (req, res) => {
+    const at = await oneDriveAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const folderId = req.query.folderId ? String(req.query.folderId) : null;
+    const base = folderId ? `${GRAPH}/me/drive/items/${encodeURIComponent(folderId)}/children`
+                          : `${GRAPH}/me/drive/root/children`;
+    const url = `${base}?$top=200&$select=id,name,folder,file,size&$expand=thumbnails($select=medium)`;
+    try {
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${at}` } });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error?.message || 'browse failed');
+        const items = (data.value || [])
+            .filter(it => it.folder || (it.file && IMAGE_EXTS.test(it.name)))
+            .map(it => ({ id: it.id, name: it.name, isFolder: !!it.folder, size: it.size || 0,
+                          thumb: it.thumbnails?.[0]?.medium?.url || null }))
+            .sort((a, b) => (Number(b.isFolder) - Number(a.isFolder)) || a.name.localeCompare(b.name));
+        res.json({ items });
+    } catch (e) {
+        console.error('OneDrive browse:', e.message);
+        res.status(502).json({ error: 'Could not list OneDrive items.' });
+    }
+});
+
+// Import the selected OneDrive items into the library.
+app.post('/api/sources/onedrive/import', requireUpload, async (req, res) => {
+    const at = await oneDriveAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const itemIds = Array.isArray(req.body.itemIds) ? req.body.itemIds.slice(0, 100) : [];
+    if (!itemIds.length) return res.status(400).json({ error: 'No photos selected' });
+    const screenId = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId)) return res.status(403).json({ error: 'You do not have access to that screen' });
+    const albumId = req.body.albumId && (appData.albums || []).find(a => a.id === req.body.albumId) ? req.body.albumId : null;
+    const imported = [], failed = [];
+    for (const id of itemIds) {
+        try {
+            const metaRes = await fetch(`${GRAPH}/me/drive/items/${encodeURIComponent(id)}?$select=name`, { headers: { Authorization: `Bearer ${at}` } });
+            const meta = await metaRes.json();
+            const name = meta.name || `onedrive-${String(id).slice(-8)}.jpg`;
+            const dl = await fetch(`${GRAPH}/me/drive/items/${encodeURIComponent(id)}/content`, { headers: { Authorization: `Bearer ${at}` } });
+            if (!dl.ok) throw new Error(`download ${dl.status}`);
+            const buf = Buffer.from(await dl.arrayBuffer());
+            const fn = await ingestImageBuffer(buf, name, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'onedrive' });
+            imported.push(fn);
+        } catch (e) { console.error('OneDrive import item', id, e.message); failed.push(id); }
+    }
+    saveData(appData);
+    addLog('import_onedrive', { user: req.currentUser.username, ip: req.ip, detail: `${imported.length} photo(s)` });
+    res.json({ imported: imported.length, failed: failed.length, files: imported });
+});
+
+// OneDrive picker page
+app.get('/import/onedrive', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-onedrive.html')));
+
+// ── Cloud photo sources: Google Drive (OAuth 2.0) ───────────────────────────
+const GDRIVE_API   = 'https://www.googleapis.com/drive/v3';
+const GDRIVE_SCOPE = 'openid email https://www.googleapis.com/auth/drive.readonly';
+const _googleStates = new Map();   // oauth state -> { userId, exp, ret, verifier }
+function googleCfg() {
+    const c = appData.settings?.google || {};
+    return { clientId: c.clientId || '', clientSecret: decryptSecret(c.clientSecret) };
+}
+function googleRedirectUri(req) { return `${publicBase(req)}/api/sources/google/callback`; }
+
+app.get('/api/admin/google', requireAdmin, (req, res) => {
+    const c   = appData.settings?.google || {};
+    const pub = (appData.settings?.publicUrl || '').replace(/\/+$/, '');
+    res.json({ clientId: c.clientId || '', hasSecret: !!c.clientSecret,
+               publicUrl: pub, redirectUri: pub ? `${pub}/api/sources/google/callback` : '' });
+});
+app.put('/api/admin/google', requireAdmin, (req, res) => {
+    if (!appData.settings) appData.settings = {};
+    const ex = appData.settings.google || {};
+    appData.settings.google = {
+        clientId:     String(req.body.clientId || '').trim(),
+        clientSecret: req.body.clearSecret ? '' : (req.body.clientSecret ? encryptSecret(String(req.body.clientSecret)) : (ex.clientSecret || '')),
+    };
+    if ('publicUrl' in req.body) appData.settings.publicUrl = String(req.body.publicUrl || '').trim().replace(/\/+$/, '');
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+app.get('/api/sources/google/status', (req, res) => {
+    const cfg = googleCfg();
+    const g   = req.currentUser?.google;
+    res.json({ configured: !!(cfg.clientId && cfg.clientSecret), connected: !!g?.refreshToken, email: g?.email || null,
+               redirectUri: `${publicBase(req)}/api/sources/google/callback` });
+});
+
+app.get('/api/sources/google/connect', (req, res) => {
+    const cfg = googleCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return res.status(400).send('Google Drive is not set up yet. Add the credentials in Settings.');
+    const state = crypto.randomBytes(16).toString('hex');
+    const { verifier, challenge } = pkcePair();
+    const ret = typeof req.query.return === 'string' && /^\/[^/]/.test(req.query.return) ? req.query.return : '/import/google';
+    _googleStates.set(state, { purpose: 'link', userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret, verifier });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, redirect_uri: googleRedirectUri(req), response_type: 'code',
+        scope: GDRIVE_SCOPE, access_type: 'offline', prompt: 'consent', state,
+        code_challenge: challenge, code_challenge_method: 'S256',
+    });
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
+});
+
+// Shared by Drive linking and "Sign in with Google".
+app.get('/api/sources/google/callback', async (req, res) => {
+    const { code, state, error } = req.query;
+    const st = _googleStates.get(state); _googleStates.delete(state);
+    const back = st?.purpose === 'login' ? '/login?error=sso' : `${st?.ret || '/import/google'}?google=error`;
+    if (error) { console.warn('Google OAuth:', error); return res.redirect(back); }
+    if (!st || st.exp < Date.now()) return res.status(400).send('This Google sign-in link expired. Please try again.');
+    const cfg = googleCfg();
+    let tok, info;
+    try {
+        const body = new URLSearchParams({
+            client_id: cfg.clientId, client_secret: cfg.clientSecret, code: String(code || ''),
+            redirect_uri: googleRedirectUri(req), grant_type: 'authorization_code',
+        });
+        if (st.verifier) body.set('code_verifier', st.verifier);
+        const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        tok = await r.json();
+        if (!r.ok || !tok.access_token) throw new Error(tok.error_description || tok.error || 'token exchange failed');
+        const ui = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tok.access_token}` } });
+        info = await ui.json();
+    } catch (e) { console.error('Google OAuth:', e.message); return res.redirect(back); }
+    const email = info?.email || null, sub = info?.sub || null;
+
+    // ── Sign in with Google: match to a linked account ──
+    if (st.purpose === 'login') {
+        const lc = (email || '').toLowerCase();
+        const u = (sub && appData.users.find(x => x.google?.googleId === sub))
+               || (lc && appData.users.find(x => (x.google?.email || '').toLowerCase() === lc))
+               || (lc && appData.users.find(x => x.google?.refreshToken && (x.email || '').toLowerCase() === lc));
+        if (!u) { console.warn('SSO(Google): no linked account for sub=%s email=%s', sub, email); return res.redirect('/login?error=sso_nolink'); }
+        if (u.blocked) { addLog('login_fail', { user: u.username, ip: req.ip, detail: 'google sso, blocked' }); return res.redirect('/login?error=blocked'); }
+        u.lastLogin = new Date().toISOString(); saveData(appData);
+        addLog('login_success', { user: u.username, ip: req.ip, detail: 'google sso' });
+        const { token, expiresAt } = createToken(u.id); setCookie(res, token, expiresAt, req);
+        return res.redirect('/');
+    }
+
+    // ── Drive linking ──
+    const user = appData.users.find(u => u.id === st.userId);
+    if (!user) return res.status(400).send('Account not found.');
+    user.google = Object.assign({}, user.google, { connectedAt: new Date().toISOString(), email, googleId: sub });
+    if (tok.refresh_token) user.google.refreshToken = encryptSecret(tok.refresh_token);
+    saveData(appData);
+    res.redirect(`${st.ret || '/import/google'}?google=connected`);
+});
+
+// ── Sign in with Google ─────────────────────────────────────────────────────
+app.get('/api/sso/google/enabled', (_req, res) => { const cfg = googleCfg(); res.json({ enabled: !!(cfg.clientId && cfg.clientSecret) }); });
+app.get('/api/sso/google/login', (req, res) => {
+    const cfg = googleCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return res.redirect('/login?error=sso');
+    const state = crypto.randomBytes(16).toString('hex');
+    const { verifier, challenge } = pkcePair();
+    _googleStates.set(state, { purpose: 'login', exp: Date.now() + 10 * 60 * 1000, verifier });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, redirect_uri: googleRedirectUri(req), response_type: 'code',
+        scope: 'openid email profile', prompt: 'select_account', state,
+        code_challenge: challenge, code_challenge_method: 'S256',
+    });
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
+});
+
+async function googleAccessToken(user) {
+    const rt = decryptSecret(user?.google?.refreshToken);
+    if (!rt) return null;
+    const cfg = googleCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return null;
+    try {
+        const body = new URLSearchParams({ client_id: cfg.clientId, client_secret: cfg.clientSecret, refresh_token: rt, grant_type: 'refresh_token' });
+        const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const tok = await r.json();
+        if (!r.ok || !tok.access_token) { console.error('Google refresh failed:', tok.error_description || r.status); return null; }
+        return tok.access_token;
+    } catch (e) { console.error('Google refresh error:', e.message); return null; }
+}
+
+app.post('/api/sources/google/disconnect', (req, res) => {
+    if (req.currentUser?.google) { delete req.currentUser.google; saveData(appData); }
+    res.json({ ok: true });
+});
+
+// Browse a Drive folder — subfolders + image files with thumbnails.
+app.get('/api/sources/google/browse', async (req, res) => {
+    const at = await googleAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const folderId = req.query.folderId ? String(req.query.folderId) : 'root';
+    const q = `'${folderId.replace(/'/g, "\\'")}' in parents and trashed=false and (mimeType='application/vnd.google-apps.folder' or mimeType contains 'image/')`;
+    const p = new URLSearchParams({ q, pageSize: '200', orderBy: 'folder,name',
+        fields: 'files(id,name,mimeType,thumbnailLink)' });
+    try {
+        const r = await fetch(`${GDRIVE_API}/files?${p}`, { headers: { Authorization: `Bearer ${at}` } });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error?.message || 'browse failed');
+        const items = (data.files || []).map(f => ({
+            id: f.id, name: f.name, isFolder: f.mimeType === 'application/vnd.google-apps.folder',
+            thumb: f.thumbnailLink || null,
+        }));
+        res.json({ items });
+    } catch (e) {
+        console.error('Google browse:', e.message);
+        res.status(502).json({ error: 'Could not list Google Drive items.' });
+    }
+});
+
+// Import selected Drive files into the library.
+app.post('/api/sources/google/import', requireUpload, async (req, res) => {
+    const at = await googleAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const itemIds = Array.isArray(req.body.itemIds) ? req.body.itemIds.slice(0, 100) : [];
+    if (!itemIds.length) return res.status(400).json({ error: 'No photos selected' });
+    const screenId = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId)) return res.status(403).json({ error: 'You do not have access to that screen' });
+    const albumId = req.body.albumId && (appData.albums || []).find(a => a.id === req.body.albumId) ? req.body.albumId : null;
+    const imported = [], failed = [];
+    for (const id of itemIds) {
+        try {
+            const metaRes = await fetch(`${GDRIVE_API}/files/${encodeURIComponent(id)}?fields=name`, { headers: { Authorization: `Bearer ${at}` } });
+            const name = (await metaRes.json()).name || `google-${String(id).slice(-8)}.jpg`;
+            const dl = await fetch(`${GDRIVE_API}/files/${encodeURIComponent(id)}?alt=media`, { headers: { Authorization: `Bearer ${at}` } });
+            if (!dl.ok) throw new Error(`download ${dl.status}`);
+            const buf = Buffer.from(await dl.arrayBuffer());
+            const fn = await ingestImageBuffer(buf, name, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'google' });
+            imported.push(fn);
+        } catch (e) { console.error('Google import item', id, e.message); failed.push(id); }
+    }
+    saveData(appData);
+    addLog('import_google', { user: req.currentUser.username, ip: req.ip, detail: `${imported.length} photo(s)` });
+    res.json({ imported: imported.length, failed: failed.length, files: imported });
+});
+
+app.get('/import/google', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-google.html')));
+
+// ── Cloud photo sources: Synology Photos (DSM 7, per-user NAS login) ─────────
+// Home NAS units usually present a self-signed TLS cert, so we use a dispatcher
+// that doesn't reject it. The user explicitly enters their own NAS URL.
+let _synoAgent;
+function synoDispatcher() {
+    if (_synoAgent === undefined) {
+        try { const { Agent } = require('undici'); _synoAgent = new Agent({ connect: { rejectUnauthorized: false } }); }
+        catch { _synoAgent = null; }
+    }
+    return _synoAgent || undefined;
+}
+async function synoFetch(url, opts = {}) { return fetch(url, { dispatcher: synoDispatcher(), ...opts }); }
+// Low-level NAS login. With 2FA we ask for a device token (enable_device_token):
+// the OTP is needed once; the returned `did` is then reused to skip 2FA on every
+// later login. Returns { ok, base, sid, did } / { ok:false, error }.
+async function synologyAuth({ url, account, passwd, otp, deviceId }) {
+    const base = String(url || '').replace(/\/+$/, '');
+    const body = new URLSearchParams({ api: 'SYNO.API.Auth', version: '7', method: 'login',
+        account, passwd, session: 'Photo', format: 'sid', enable_device_token: 'yes', device_name: 'PhotoDock' });
+    if (deviceId) body.set('device_id', deviceId);   // remembered device → no OTP prompt
+    else if (otp) body.set('otp_code', otp);
+    try {
+        const r = await synoFetch(`${base}/webapi/entry.cgi`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const j = await r.json();
+        if (!j.success || !j.data?.sid) { console.error('Synology login failed:', JSON.stringify(j.error || {})); return { ok: false, error: j.error }; }
+        return { ok: true, base, sid: j.data.sid, did: j.data.did || j.data.device_id || null };
+    } catch (e) { console.error('Synology login error:', e.message); return { ok: false }; }
+}
+// Log in a stored user (uses their saved device token; no OTP) → { base, sid }.
+async function synologyLogin(user) {
+    const s = user?.synology;
+    if (!s?.url || !s.account) return null;
+    const a = await synologyAuth({ url: s.url, account: s.account, passwd: decryptSecret(s.passwd), deviceId: decryptSecret(s.deviceId) || undefined });
+    return a.ok ? { base: a.base, sid: a.sid } : null;
+}
+function synoUrl(base, sid, params) { return `${base}/webapi/entry.cgi?${new URLSearchParams({ ...params, _sid: sid })}`; }
+
+app.get('/api/sources/synology/status', (req, res) => {
+    const s = req.currentUser?.synology;
+    res.json({ connected: !!(s?.url && s.account), url: s?.url || '', account: s?.account || '' });
+});
+
+// Connect: verify the credentials by logging in, then store them (pw encrypted).
+app.post('/api/sources/synology/connect', async (req, res) => {
+    const url = String(req.body?.url || '').trim().replace(/\/+$/, '');
+    const account = String(req.body?.account || '').trim();
+    const passwd  = String(req.body?.passwd || '');
+    const otp     = String(req.body?.otp || '').trim();
+    if (!/^https?:\/\//i.test(url) || !account || !passwd) return res.status(400).json({ error: 'NAS URL (http/https), account and password are required.' });
+    const a = await synologyAuth({ url, account, passwd, otp: otp || undefined });
+    if (!a.ok) {
+        const needOtp = a.error?.code === 403 || a.error?.errors?.types?.some?.(t => t.type === 'otp');
+        return res.status(401).json({ error: needOtp
+            ? 'This account uses 2-step verification. Enter the current 6-digit code from your authenticator app and connect again.'
+            : 'Could not log in to the NAS. Check the URL, account and password.' });
+    }
+    // Store the device token (if any) so future logins skip the OTP prompt.
+    req.currentUser.synology = { url, account, passwd: encryptSecret(passwd), deviceId: a.did ? encryptSecret(a.did) : undefined };
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+app.post('/api/sources/synology/disconnect', (req, res) => {
+    if (req.currentUser?.synology) { delete req.currentUser.synology; saveData(appData); }
+    res.json({ ok: true });
+});
+
+// Re-verify with just a fresh 2FA code when the device token expired/was revoked
+// — reuses the stored URL/account/password, so the user only re-enters the code.
+app.post('/api/sources/synology/reauth', async (req, res) => {
+    const s = req.currentUser?.synology;
+    if (!s?.url || !s.account || !s.passwd) return res.status(400).json({ error: 'Not connected.' });
+    const otp = String(req.body?.otp || '').trim();
+    const a = await synologyAuth({ url: s.url, account: s.account, passwd: decryptSecret(s.passwd), otp: otp || undefined });
+    if (!a.ok) return res.status(401).json({ error: 'Could not re-verify. Check your current 2FA code.' });
+    s.deviceId = a.did ? encryptSecret(a.did) : undefined;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+// The Synology Photos API namespace per space: personal vs the shared "team" space.
+function synoApiNs(space) { return space === 'shared' ? 'SYNO.FotoTeam' : 'SYNO.Foto'; }
+
+// Browse: subfolders + photos in a Synology Photos folder (personal or shared).
+app.get('/api/sources/synology/browse', async (req, res) => {
+    const login = await synologyLogin(req.currentUser);
+    if (!login) return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
+    const { base, sid } = login;
+    const space = req.query.space === 'shared' ? 'shared' : 'personal';
+    const ns = synoApiNs(space);
+    const folderId = req.query.folderId ? String(req.query.folderId) : '0';
+    try {
+        const fr = await synoFetch(synoUrl(base, sid, { api: `${ns}.Browse.Folder`, version: '1', method: 'list', id: folderId, offset: '0', limit: '1000' }));
+        const fj = await fr.json();
+        const ir = await synoFetch(synoUrl(base, sid, { api: `${ns}.Browse.Item`, version: '1', method: 'list', folder_id: folderId, offset: '0', limit: '5000', additional: '["thumbnail"]' }));
+        const ij = await ir.json();
+        const folders = (fj.data?.list || []).map(f => ({ id: String(f.id), name: f.name?.split('/').pop() || f.name || 'Folder', isFolder: true }));
+        const items = (ij.data?.list || []).map(it => {
+            const t = it.additional?.thumbnail;
+            const thumb = t ? synoUrl(base, sid, { api: `${ns}.Thumbnail`, version: '2', method: 'get', id: String(t.unit_id || it.id), cache_key: t.cache_key || '', type: 'unit', size: 'sm' }) : null;
+            return { id: String(it.id), name: it.filename || ('photo-' + it.id), isFolder: false, thumb };
+        });
+        res.json({ items: [...folders, ...items], space });
+    } catch (e) {
+        console.error('Synology browse:', e.message);
+        res.status(502).json({ error: 'Could not list Synology Photos.' });
+    }
+});
+
+// Import: download each selected item from the NAS and ingest it.
+app.post('/api/sources/synology/import', requireUpload, async (req, res) => {
+    const login = await synologyLogin(req.currentUser);
+    if (!login) return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
+    const { base, sid } = login;
+    const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
+    if (!items.length) return res.status(400).json({ error: 'No photos selected' });
+    const screenId = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId)) return res.status(403).json({ error: 'You do not have access to that screen' });
+    const albumId = req.body.albumId && (appData.albums || []).find(a => a.id === req.body.albumId) ? req.body.albumId : null;
+    const ns = synoApiNs(req.body.space === 'shared' ? 'shared' : 'personal');
+    const imported = [], failed = [];
+    for (const it of items) {
+        try {
+            const dl = await synoFetch(synoUrl(base, sid, { api: `${ns}.Download`, version: '2', method: 'download', unit_id: `[${parseInt(it.id) || 0}]` }));
+            if (!dl.ok) throw new Error(`download ${dl.status}`);
+            const buf = Buffer.from(await dl.arrayBuffer());
+            const fn = await ingestImageBuffer(buf, it.name || `synology-${it.id}.jpg`, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'synology' });
+            imported.push(fn);
+        } catch (e) { console.error('Synology import item', it.id, e.message); failed.push(it.id); }
+    }
+    saveData(appData);
+    addLog('import_synology', { user: req.currentUser.username, ip: req.ip, detail: `${imported.length} photo(s)` });
+    res.json({ imported: imported.length, failed: failed.length, files: imported });
+});
+
+app.get('/import/synology', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-synology.html')));
 
 app.delete('/api/images/:filename', requireDelete, (req, res) => {
     const filename = path.basename(req.params.filename);

@@ -156,6 +156,68 @@
 
       <div class="msg" id="tfMsg"></div>
     </div>
+
+    <!-- Microsoft 365 -->
+    <div class="card glass" id="msCard">
+      <h2>Microsoft 365</h2>
+      <p class="hint" style="margin-top:-2px">Connect your Microsoft account to import photos from OneDrive and sign in with Microsoft.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="msStatus">Loading…</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a class="cyan-btn submit-btn" id="msConnect" href="/api/sources/onedrive/connect?return=/account" style="display:none;text-decoration:none">Connect</a>
+          <button class="glass-btn hbtn" id="msSetupBtn" style="display:none" onclick="msToggleSetup()">Use my own app</button>
+          <button class="glass-btn hbtn" id="msDisconnect" style="display:none" onclick="msDisconnect()">Disconnect</button>
+        </div>
+      </div>
+
+      <!-- Bring-your-own Microsoft app (for users without an admin-set app) -->
+      <div id="msSetup" style="display:none;margin-top:14px;border-top:1px solid rgba(255,255,255,0.1);padding-top:14px">
+        <p class="hint" style="margin-top:0">Register your own free Microsoft app to connect a personal account — no admin needed:</p>
+        <ol class="hint" style="margin:0 0 12px 18px;line-height:1.75">
+          <li>Open the <a href="https://entra.microsoft.com" target="_blank" rel="noopener" style="color:#67e8f9">Entra admin center</a> → <strong>App registrations</strong> → New registration.</li>
+          <li><strong>Supported account types</strong>: include personal Microsoft accounts.</li>
+          <li>Add a <strong>Single-page application</strong> redirect URI:
+            <code id="msRedirect" style="display:block;word-break:break-all;color:rgba(255,255,255,0.85);margin-top:4px"></code></li>
+          <li><strong>API permissions</strong> → Microsoft Graph → Delegated → <code>Files.Read</code>.</li>
+          <li>Copy the <strong>Application (client) ID</strong> below — no client secret needed.</li>
+        </ol>
+        <div class="field-label">Client ID</div>
+        <input class="glass-input" id="msClientId" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" style="margin-bottom:10px">
+        <div class="field-label">Tenant</div>
+        <input class="glass-input" id="msTenant" placeholder="common" value="common" style="margin-bottom:12px">
+        <button class="cyan-btn submit-btn" onclick="msSaveApp()">Save &amp; connect</button>
+      </div>
+
+      <div class="msg" id="msMsg"></div>
+    </div>
+
+    <!-- Google Drive -->
+    <div class="card glass" id="gCard" style="display:none">
+      <h2>Google Drive</h2>
+      <p class="hint" style="margin-top:-2px">Connect your Google account to import photos from Google Drive.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="gStatus">Loading…</div>
+        <div style="display:flex;gap:8px">
+          <a class="cyan-btn submit-btn" id="gConnect" href="/api/sources/google/connect?return=/account" style="display:none;text-decoration:none">Connect</a>
+          <button class="glass-btn hbtn" id="gDisconnect" style="display:none" onclick="gDisconnect()">Disconnect</button>
+        </div>
+      </div>
+      <div class="msg" id="gMsg"></div>
+    </div>
+
+    <!-- Synology Photos -->
+    <div class="card glass" id="synCard" style="display:none">
+      <h2>Synology Photos</h2>
+      <p class="hint" style="margin-top:-2px">Connect your Synology NAS to import from Synology Photos.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="synStatus">Loading…</div>
+        <div style="display:flex;gap:8px">
+          <a class="cyan-btn submit-btn" id="synConnectLink" href="/import/synology" style="display:none;text-decoration:none">Connect</a>
+          <button class="glass-btn hbtn" id="synDisc" style="display:none" onclick="synDisc()">Disconnect</button>
+        </div>
+      </div>
+      <div class="msg" id="synMsg"></div>
+    </div>
   </div>
 
   <script>
@@ -284,8 +346,104 @@
       await loadTwofa(); tfShow('Two-factor authentication disabled.', true);
     }
 
+    // ── Microsoft 365 ───────────────────────────────────────────────────────
+    function escMs(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+    async function loadMs() {
+      let st;
+      try { st = await (await fetch('/api/sources/onedrive/status')).json(); } catch { return; }
+      document.getElementById('msRedirect').textContent = st.redirectUri || '';
+      document.getElementById('msClientId').value = st.userClientId || '';
+      document.getElementById('msTenant').value   = st.userTenant || 'common';
+      const statusEl   = document.getElementById('msStatus');
+      const connect    = document.getElementById('msConnect');
+      const setupBtn   = document.getElementById('msSetupBtn');
+      const disconnect = document.getElementById('msDisconnect');
+      connect.style.display = setupBtn.style.display = disconnect.style.display = 'none';
+      document.getElementById('msSetup').style.display = 'none';
+      setupBtn.textContent = st.hasUserApp ? 'Edit my app' : 'Use my own app';
+      if (st.connected) {
+        statusEl.innerHTML = 'Connected' + (st.email ? ' as <strong>' + escMs(st.email) + '</strong>' : '');
+        disconnect.style.display = '';
+        if (st.hasUserApp) setupBtn.style.display = '';
+      } else if (st.configured) {                 // an app is available (global or the user's own)
+        statusEl.textContent = 'Not connected';
+        connect.style.display = '';
+        if (st.hasUserApp) setupBtn.style.display = '';
+      } else {                                     // nothing set up → user can bring their own app
+        statusEl.textContent = 'Not set up';
+        setupBtn.style.display = '';
+      }
+    }
+    function msToggleSetup() {
+      const s = document.getElementById('msSetup');
+      s.style.display = s.style.display === 'none' ? 'block' : 'none';
+    }
+    async function msSaveApp() {
+      const clientId = document.getElementById('msClientId').value.trim();
+      const tenant   = document.getElementById('msTenant').value.trim() || 'common';
+      if (!clientId) { msg('msMsg', 'Enter your Client ID.', false); return; }
+      const r = await fetch('/api/user/onedrive-app', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId, tenant }) });
+      if (!r.ok) { msg('msMsg', 'Could not save your app.', false); return; }
+      location.href = '/api/sources/onedrive/connect?return=/account';   // straight into consent
+    }
+    async function msDisconnect() {
+      await fetch('/api/sources/onedrive/disconnect', { method: 'POST' });
+      msg('msMsg', 'Microsoft account disconnected.', true);
+      loadMs();
+    }
+    if (new URLSearchParams(location.search).get('onedrive') === 'connected') msg('msMsg', 'Microsoft account connected.', true);
+
+    // ── Google Drive ────────────────────────────────────────────────────────
+    async function loadG() {
+      let st;
+      try { st = await (await fetch('/api/sources/google/status')).json(); } catch { return; }
+      document.getElementById('gCard').style.display = '';
+      const statusEl = document.getElementById('gStatus');
+      const connect = document.getElementById('gConnect'), disconnect = document.getElementById('gDisconnect');
+      connect.style.display = disconnect.style.display = 'none';
+      if (!st.configured) {
+        statusEl.innerHTML = 'Not set up yet. An admin enables it in <a href="/admin" style="color:#67e8f9">Settings → Cloud photo sources</a>.';
+      } else if (st.connected) {
+        statusEl.innerHTML = 'Connected' + (st.email ? ' as <strong>' + escMs(st.email) + '</strong>' : '');
+        disconnect.style.display = '';
+      } else {
+        statusEl.textContent = 'Not connected';
+        connect.style.display = '';
+      }
+    }
+    async function gDisconnect() {
+      await fetch('/api/sources/google/disconnect', { method: 'POST' });
+      msg('gMsg', 'Google account disconnected.', true);
+      loadG();
+    }
+    if (new URLSearchParams(location.search).get('google') === 'connected') msg('gMsg', 'Google account connected.', true);
+
+    // ── Synology Photos ─────────────────────────────────────────────────────
+    async function loadSyn() {
+      let st;
+      try { st = await (await fetch('/api/sources/synology/status')).json(); } catch { return; }
+      document.getElementById('synCard').style.display = '';
+      const statusEl = document.getElementById('synStatus');
+      const connect = document.getElementById('synConnectLink'), disc = document.getElementById('synDisc');
+      if (st.connected) {
+        statusEl.innerHTML = 'Connected to <strong>' + escMs(st.url) + '</strong>' + (st.account ? ' as ' + escMs(st.account) : '');
+        connect.style.display = 'none'; disc.style.display = '';
+      } else {
+        statusEl.textContent = 'Not connected';
+        connect.style.display = ''; disc.style.display = 'none';
+      }
+    }
+    async function synDisc() {
+      await fetch('/api/sources/synology/disconnect', { method: 'POST' });
+      msg('synMsg', 'Synology disconnected.', true);
+      loadSyn();
+    }
+
     load();
     loadTwofa();
+    loadMs();
+    loadG();
+    loadSyn();
   </script>
 </body>
 </html>
