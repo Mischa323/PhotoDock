@@ -2952,13 +2952,26 @@ app.post('/api/sources/synology/disconnect', (req, res) => {
     res.json({ ok: true });
 });
 
+// Re-verify with just a fresh 2FA code when the device token expired/was revoked
+// — reuses the stored URL/account/password, so the user only re-enters the code.
+app.post('/api/sources/synology/reauth', async (req, res) => {
+    const s = req.currentUser?.synology;
+    if (!s?.url || !s.account || !s.passwd) return res.status(400).json({ error: 'Not connected.' });
+    const otp = String(req.body?.otp || '').trim();
+    const a = await synologyAuth({ url: s.url, account: s.account, passwd: decryptSecret(s.passwd), otp: otp || undefined });
+    if (!a.ok) return res.status(401).json({ error: 'Could not re-verify. Check your current 2FA code.' });
+    s.deviceId = a.did ? encryptSecret(a.did) : undefined;
+    saveData(appData);
+    res.json({ ok: true });
+});
+
 // The Synology Photos API namespace per space: personal vs the shared "team" space.
 function synoApiNs(space) { return space === 'shared' ? 'SYNO.FotoTeam' : 'SYNO.Foto'; }
 
 // Browse: subfolders + photos in a Synology Photos folder (personal or shared).
 app.get('/api/sources/synology/browse', async (req, res) => {
     const login = await synologyLogin(req.currentUser);
-    if (!login) return res.status(401).json({ error: 'not_connected' });
+    if (!login) return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
     const { base, sid } = login;
     const space = req.query.space === 'shared' ? 'shared' : 'personal';
     const ns = synoApiNs(space);
@@ -2984,7 +2997,7 @@ app.get('/api/sources/synology/browse', async (req, res) => {
 // Import: download each selected item from the NAS and ingest it.
 app.post('/api/sources/synology/import', requireUpload, async (req, res) => {
     const login = await synologyLogin(req.currentUser);
-    if (!login) return res.status(401).json({ error: 'not_connected' });
+    if (!login) return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
     const { base, sid } = login;
     const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
     if (!items.length) return res.status(400).json({ error: 'No photos selected' });

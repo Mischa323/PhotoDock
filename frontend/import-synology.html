@@ -103,6 +103,30 @@
       } catch { btn.disabled = false; m.style.color = '#fca5a5'; m.textContent = 'Network error.'; }
     }
 
+    function renderReauth() {
+      panel.innerHTML = `<div class="center" style="max-width:380px;margin:0 auto;text-align:left">
+        <p style="text-align:center;margin-bottom:16px">Your NAS needs re-verification. Enter your current 2FA code — your saved login is reused.</p>
+        <div class="field-label">2FA code</div>
+        <input class="glass-input" id="reauthOtp" inputmode="numeric" placeholder="000000" style="margin-bottom:14px"
+               onkeydown="if(event.key==='Enter')synReauth()">
+        <button class="cyan-btn hbtn" style="padding:11px 22px;border-radius:12px;width:100%;justify-content:center" id="reauthBtn" onclick="synReauth()">Re-verify</button>
+        <p class="msg" id="reauthMsg" style="text-align:center;margin-top:10px"></p>
+        <p style="text-align:center;margin-top:6px"><a onclick="renderConnect()" style="color:rgba(255,255,255,0.5);cursor:pointer;font-size:12px">Use a different account</a></p></div>`;
+    }
+    async function synReauth() {
+      const btn = document.getElementById('reauthBtn'), m = document.getElementById('reauthMsg');
+      btn.disabled = true; m.style.color = 'rgba(255,255,255,0.7)'; m.textContent = 'Verifying…';
+      try {
+        const res = await fetch('/api/sources/synology/reauth', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ otp: document.getElementById('reauthOtp').value.trim() })
+        });
+        const data = await res.json();
+        if (!res.ok) { btn.disabled = false; m.style.color = '#fca5a5'; m.textContent = data.error || 'Could not verify.'; return; }
+        init();
+      } catch { btn.disabled = false; m.style.color = '#fca5a5'; m.textContent = 'Network error.'; }
+    }
+
     function renderBrowser() {
       panel.innerHTML = `
         <div class="targets">
@@ -164,7 +188,8 @@
       let data;
       try { data = await (await fetch('/api/sources/synology/browse?folderId=' + encodeURIComponent(folderId) + '&space=' + space)).json(); }
       catch { el.innerHTML = '<div class="center" style="grid-column:1/-1">Could not load folder.</div>'; return; }
-      if (data.error === 'not_connected') return renderConnect();   // creds invalid/expired → re-enter, no loop
+      if (data.error === 'reauth_required') return renderReauth();   // device token expired → only need a fresh 2FA code
+      if (data.error === 'not_connected') return renderConnect();    // not connected at all → full form
       const items = data.items || [];
       if (!items.length) { el.innerHTML = '<div class="center" style="grid-column:1/-1">This folder is empty.</div>'; return; }
       el.innerHTML = items.map(it => it.isFolder
