@@ -397,16 +397,18 @@
     async function loadG() {
       let st;
       try { st = await (await fetch('/api/sources/google/status')).json(); } catch { return; }
-      if (!st.configured) return;                       // admin hasn't set it up → keep hidden
       document.getElementById('gCard').style.display = '';
       const statusEl = document.getElementById('gStatus');
       const connect = document.getElementById('gConnect'), disconnect = document.getElementById('gDisconnect');
-      if (st.connected) {
+      connect.style.display = disconnect.style.display = 'none';
+      if (!st.configured) {
+        statusEl.innerHTML = 'Not set up yet. An admin enables it in <a href="/admin" style="color:#67e8f9">Settings → Cloud photo sources</a>.';
+      } else if (st.connected) {
         statusEl.innerHTML = 'Connected' + (st.email ? ' as <strong>' + escMs(st.email) + '</strong>' : '');
-        connect.style.display = 'none'; disconnect.style.display = '';
+        disconnect.style.display = '';
       } else {
         statusEl.textContent = 'Not connected';
-        connect.style.display = ''; disconnect.style.display = 'none';
+        connect.style.display = '';
       }
     }
     async function gDisconnect() {
