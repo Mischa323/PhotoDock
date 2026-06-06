@@ -1,5 +1,18 @@
 [
   {
+    "version": "2.6.0",
+    "date": "2026-06-06",
+    "changes": [
+      "Import photos straight from the cloud: OneDrive, Google Drive and Synology Photos (Personal and Shared Space). A picker lets you browse folders, multi-select photos and import them into a chosen screen/album",
+      "'Add photos' now asks where to import from (this device, or any connected cloud source); cloud options appear only when set up",
+      "Sign in with Microsoft and Sign in with Google (SSO) for users who have linked their account",
+      "Connect your Microsoft, Google or Synology account from your Account page; for Microsoft, non-admins can bring their own app, and PKCE means no client secret is needed",
+      "New 'Cloud photo sources' settings section (moved out of Email); type just your domain and the OAuth redirect URI builds itself",
+      "Synology: 2-step verification supported via a remembered device token — re-verify with just your 2FA code if it ever expires; NAS password and token are encrypted at rest",
+      "One public dashboard URL now drives device/API links, the cloud redirect URIs and alert-email links"
+    ]
+  },
+  {
     "version": "2.5.0",
     "date": "2026-06-04",
     "changes": [
