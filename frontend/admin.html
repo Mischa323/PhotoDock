@@ -1425,6 +1425,39 @@
                 <p id="odStatus" style="font-size:13px;margin:0;min-height:18px"></p>
             </div>
         </div>
+
+        <!-- Google Drive import -->
+        <div style="border-top:1px solid #e0e0e0;padding:20px 24px 24px">
+            <h3 style="margin:0 0 10px;font-size:15px">Google Drive import</h3>
+            <p style="margin:0 0 10px;font-size:13px;color:#666">Let users import photos from Google Drive. Uses the same <strong>Public base URL</strong> as above.</p>
+            <ol style="margin:0 0 14px 18px;font-size:13px;color:#555;line-height:1.85">
+                <li>In the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener" style="color:var(--accent)">Google Cloud Console</a> enable the <strong>Google Drive API</strong>.</li>
+                <li>Configure the <strong>OAuth consent screen</strong> (External; while unverified, add your users as <strong>Test users</strong>).</li>
+                <li><strong>Credentials → Create credentials → OAuth client ID → Web application</strong>; add the <strong>Redirect URI</strong> below as an <em>Authorized redirect URI</em>.</li>
+                <li>Copy the <strong>Client ID</strong> and <strong>Client secret</strong> into the fields below, then <strong>Save</strong>.</li>
+            </ol>
+            <div class="settings-grid" style="border:none;padding:0;box-shadow:none;border-radius:0">
+                <div class="settings-row" style="grid-column:1 / -1">
+                    <label>Redirect URI <span class="help" data-tip="Built from the Public base URL above. Add it as an Authorized redirect URI on your OAuth client.">?</span>
+                        <small>Add this as an Authorized redirect URI on your OAuth client</small></label>
+                    <input type="text" id="gdRedirect" class="tz-input" readonly onclick="this.select()" placeholder="https://your-dashboard.example.com/api/sources/google/callback">
+                </div>
+                <div class="settings-row" style="grid-column:span 2">
+                    <label for="gdClientId">Client ID <span class="help" data-tip="The OAuth 2.0 Client ID from Google Cloud Console.">?</span>
+                        <small>OAuth 2.0 Client ID</small></label>
+                    <input type="text" id="gdClientId" class="tz-input" placeholder="xxxxxxxx.apps.googleusercontent.com">
+                </div>
+                <div class="settings-row" style="grid-column:span 2">
+                    <label for="gdClientSecret">Client secret <span class="help" data-tip="The OAuth client secret (required for Google). Leave blank to keep the saved one.">?</span>
+                        <small id="gdSecretHint">Required — leave blank to keep the saved one</small></label>
+                    <input type="password" id="gdClientSecret" class="tz-input" autocomplete="new-password" placeholder="">
+                </div>
+            </div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:16px">
+                <button class="btn-save-settings" onclick="saveGoogle()">Save</button>
+                <p id="gdStatus" style="font-size:13px;margin:0;min-height:18px"></p>
+            </div>
+        </div>
         </div></div>
     </section>
 
@@ -2956,9 +2989,12 @@
         if (s && !/^https?:\/\//i.test(s)) s = 'https://' + s;   // assume https if no scheme typed
         return s;
     }
+    const GD_CALLBACK_PATH = '/api/sources/google/callback';
     function updateOdRedirect() {
         const base = normalizeBase(document.getElementById('odBaseUrl').value);
         document.getElementById('odRedirect').value = base ? base + OD_CALLBACK_PATH : '';
+        const gd = document.getElementById('gdRedirect');
+        if (gd) gd.value = base ? base + GD_CALLBACK_PATH : '';
     }
 
     let publicBaseUrl = '';   // canonical public base URL ('' → fall back to the current origin)
@@ -2992,6 +3028,31 @@
                 : 'Leave blank to use PKCE (no secret needed)';
             document.getElementById('odClearSecret').style.display = cfg.hasSecret ? '' : 'none';
         } catch {}
+    }
+
+    async function loadGoogle() {
+        try {
+            const cfg = await (await fetch('/api/admin/google')).json();
+            updateOdRedirect();   // (re)build the Google redirect from the shared base URL
+            document.getElementById('gdClientId').value = cfg.clientId || '';
+            document.getElementById('gdClientSecret').placeholder = cfg.hasSecret ? 'unchanged — a secret is saved' : '';
+        } catch {}
+    }
+
+    async function saveGoogle() {
+        const st = document.getElementById('gdStatus');
+        st.style.color = '#888'; st.textContent = 'Saving…';
+        const body = {
+            clientId:     document.getElementById('gdClientId').value.trim(),
+            clientSecret: document.getElementById('gdClientSecret').value,
+            publicUrl:    normalizeBase(document.getElementById('odBaseUrl').value),
+        };
+        const res = await fetch('/api/admin/google', {
+            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        if (res.ok) { st.style.color = '#2e7d32'; st.textContent = 'Saved.'; showToast('Google Drive settings saved.');
+                      document.getElementById('gdClientSecret').value = ''; loadGoogle(); }
+        else        { st.style.color = '#c0392b'; st.textContent = 'Could not save.'; }
     }
 
     async function clearOneDriveSecret() {
@@ -3253,6 +3314,7 @@
 
     loadEmailConfig();
     loadOneDrive();
+    loadGoogle();
     loadDisplaySettings();
     loadActivityLog();
     loadRoles().then(() => loadUsers());

@@ -767,7 +767,8 @@
     <div class="modal-title">Add photos</div>
     <div style="display:flex;flex-direction:column;gap:10px;margin-top:8px">
       <button class="glass-btn hbtn" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();pickFiles()">📷&nbsp;&nbsp;Upload from this device</button>
-      <button class="cyan-btn hbtn" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();importFromOneDrive()">☁&nbsp;&nbsp;Import from OneDrive</button>
+      <button class="cyan-btn hbtn" id="addChoiceOneDrive" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();importFromOneDrive()">☁&nbsp;&nbsp;Import from OneDrive</button>
+      <button class="cyan-btn hbtn" id="addChoiceGoogle" style="justify-content:flex-start;padding:14px 16px;font-size:14px;border-radius:12px" onclick="closeAddChoice();importFromGoogle()">🟦&nbsp;&nbsp;Import from Google Drive</button>
     </div>
     <div class="modal-footer"><button class="glass-btn modal-btn" onclick="closeAddChoice()">Cancel</button></div>
   </div>
@@ -844,10 +845,11 @@ function hexA(hex, a) {
 }
 
 // ── Data loading ──────────────────────────────────────────
-let oneDriveConfigured = false;   // gates the "Import from OneDrive" menu item
+let oneDriveConfigured = false, googleConfigured = false;   // gate the cloud-import options
 async function init() {
   await loadScreens();
   try { oneDriveConfigured = !!(await (await fetch('/api/sources/onedrive/status')).json()).configured; } catch {}
+  try { googleConfigured   = !!(await (await fetch('/api/sources/google/status')).json()).configured; } catch {}
   renderBreadcrumb();
   renderContent();
   buildUploadMenu();
@@ -1121,10 +1123,10 @@ function buildUploadMenu() {
     }
     container.innerHTML = html || '<div class="upload-item" style="opacity:0.5;cursor:default">No screens yet</div>';
   }
-  if (oneDriveConfigured) {
-    container.innerHTML +=
-      `<div style="height:1px;background:rgba(255,255,255,0.1);margin:6px 0"></div>` +
-      `<button class="upload-item" onclick="importFromOneDrive();closeUploadMenu()">☁ Import from OneDrive</button>`;
+  if (oneDriveConfigured || googleConfigured) {
+    container.innerHTML += `<div style="height:1px;background:rgba(255,255,255,0.1);margin:6px 0"></div>`;
+    if (oneDriveConfigured) container.innerHTML += `<button class="upload-item" onclick="importFromOneDrive();closeUploadMenu()">☁ Import from OneDrive</button>`;
+    if (googleConfigured)   container.innerHTML += `<button class="upload-item" onclick="importFromGoogle();closeUploadMenu()">🟦 Import from Google Drive</button>`;
   }
 }
 
@@ -1137,13 +1139,24 @@ function importFromOneDrive() {
   location.href = '/import/onedrive' + (qs ? '?' + qs : '');
 }
 
-// "Add photos" → let the user choose a source. Only prompts when OneDrive is
-// available; otherwise it goes straight to the device file picker.
+// "Add photos" → let the user choose a source. Only prompts when a cloud source
+// is available; otherwise it goes straight to the device file picker.
 function addPhotos() {
-  if (!oneDriveConfigured) { pickFiles(); return; }
+  if (!oneDriveConfigured && !googleConfigured) { pickFiles(); return; }
+  document.getElementById('addChoiceOneDrive').style.display = oneDriveConfigured ? '' : 'none';
+  document.getElementById('addChoiceGoogle').style.display   = googleConfigured ? '' : 'none';
   document.getElementById('addChoiceModal').style.display = 'flex';
 }
 function closeAddChoice() { document.getElementById('addChoiceModal').style.display = 'none'; }
+
+// Jump to the Google Drive picker, carrying the current screen/album as target.
+function importFromGoogle() {
+  const p = new URLSearchParams();
+  if (curView === 'photos' && curAlbum && curScreen) { p.set('screenId', curScreen.id); p.set('albumId', curAlbum.id); }
+  else if (curView === 'albums' && curScreen)        { p.set('screenId', curScreen.id); }
+  const qs = p.toString();
+  location.href = '/import/google' + (qs ? '?' + qs : '');
+}
 
 function toggleUploadMenu() {
   document.getElementById('uploadDropdown').classList.toggle('open');

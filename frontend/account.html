@@ -190,6 +190,20 @@
 
       <div class="msg" id="msMsg"></div>
     </div>
+
+    <!-- Google Drive -->
+    <div class="card glass" id="gCard" style="display:none">
+      <h2>Google Drive</h2>
+      <p class="hint" style="margin-top:-2px">Connect your Google account to import photos from Google Drive.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="gStatus">Loading…</div>
+        <div style="display:flex;gap:8px">
+          <a class="cyan-btn submit-btn" id="gConnect" href="/api/sources/google/connect?return=/account" style="display:none;text-decoration:none">Connect</a>
+          <button class="glass-btn hbtn" id="gDisconnect" style="display:none" onclick="gDisconnect()">Disconnect</button>
+        </div>
+      </div>
+      <div class="msg" id="gMsg"></div>
+    </div>
   </div>
 
   <script>
@@ -365,9 +379,33 @@
     }
     if (new URLSearchParams(location.search).get('onedrive') === 'connected') msg('msMsg', 'Microsoft account connected.', true);
 
+    // ── Google Drive ────────────────────────────────────────────────────────
+    async function loadG() {
+      let st;
+      try { st = await (await fetch('/api/sources/google/status')).json(); } catch { return; }
+      if (!st.configured) return;                       // admin hasn't set it up → keep hidden
+      document.getElementById('gCard').style.display = '';
+      const statusEl = document.getElementById('gStatus');
+      const connect = document.getElementById('gConnect'), disconnect = document.getElementById('gDisconnect');
+      if (st.connected) {
+        statusEl.innerHTML = 'Connected' + (st.email ? ' as <strong>' + escMs(st.email) + '</strong>' : '');
+        connect.style.display = 'none'; disconnect.style.display = '';
+      } else {
+        statusEl.textContent = 'Not connected';
+        connect.style.display = ''; disconnect.style.display = 'none';
+      }
+    }
+    async function gDisconnect() {
+      await fetch('/api/sources/google/disconnect', { method: 'POST' });
+      msg('gMsg', 'Google account disconnected.', true);
+      loadG();
+    }
+    if (new URLSearchParams(location.search).get('google') === 'connected') msg('gMsg', 'Google account connected.', true);
+
     load();
     loadTwofa();
     loadMs();
+    loadG();
   </script>
 </body>
 </html>

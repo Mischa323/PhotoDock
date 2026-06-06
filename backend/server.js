@@ -545,6 +545,7 @@ function requireAuth(req, res, next) {
     // OAuth callback returns from Microsoft cross-site (no session cookie); it
     // authenticates the user via the one-time `state` instead.
     if (req.path === '/api/sources/onedrive/callback') return next();
+    if (req.path === '/api/sources/google/callback') return next();
     // Microsoft SSO entry points are used before a session exists.
     if (req.path === '/api/sso/microsoft/login' || req.path === '/api/sso/microsoft/enabled') return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
@@ -2700,6 +2701,159 @@ app.post('/api/sources/onedrive/import', requireUpload, async (req, res) => {
 
 // OneDrive picker page
 app.get('/import/onedrive', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-onedrive.html')));
+
+// ── Cloud photo sources: Google Drive (OAuth 2.0) ───────────────────────────
+const GDRIVE_API   = 'https://www.googleapis.com/drive/v3';
+const GDRIVE_SCOPE = 'openid email https://www.googleapis.com/auth/drive.readonly';
+const _googleStates = new Map();   // oauth state -> { userId, exp, ret, verifier }
+function googleCfg() {
+    const c = appData.settings?.google || {};
+    return { clientId: c.clientId || '', clientSecret: decryptSecret(c.clientSecret) };
+}
+function googleRedirectUri(req) { return `${publicBase(req)}/api/sources/google/callback`; }
+
+app.get('/api/admin/google', requireAdmin, (req, res) => {
+    const c   = appData.settings?.google || {};
+    const pub = (appData.settings?.publicUrl || '').replace(/\/+$/, '');
+    res.json({ clientId: c.clientId || '', hasSecret: !!c.clientSecret,
+               publicUrl: pub, redirectUri: pub ? `${pub}/api/sources/google/callback` : '' });
+});
+app.put('/api/admin/google', requireAdmin, (req, res) => {
+    if (!appData.settings) appData.settings = {};
+    const ex = appData.settings.google || {};
+    appData.settings.google = {
+        clientId:     String(req.body.clientId || '').trim(),
+        clientSecret: req.body.clearSecret ? '' : (req.body.clientSecret ? encryptSecret(String(req.body.clientSecret)) : (ex.clientSecret || '')),
+    };
+    if ('publicUrl' in req.body) appData.settings.publicUrl = String(req.body.publicUrl || '').trim().replace(/\/+$/, '');
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+app.get('/api/sources/google/status', (req, res) => {
+    const cfg = googleCfg();
+    const g   = req.currentUser?.google;
+    res.json({ configured: !!(cfg.clientId && cfg.clientSecret), connected: !!g?.refreshToken, email: g?.email || null,
+               redirectUri: `${publicBase(req)}/api/sources/google/callback` });
+});
+
+app.get('/api/sources/google/connect', (req, res) => {
+    const cfg = googleCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return res.status(400).send('Google Drive is not set up yet. Add the credentials in Settings.');
+    const state = crypto.randomBytes(16).toString('hex');
+    const { verifier, challenge } = pkcePair();
+    const ret = typeof req.query.return === 'string' && /^\/[^/]/.test(req.query.return) ? req.query.return : '/import/google';
+    _googleStates.set(state, { userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret, verifier });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, redirect_uri: googleRedirectUri(req), response_type: 'code',
+        scope: GDRIVE_SCOPE, access_type: 'offline', prompt: 'consent', state,
+        code_challenge: challenge, code_challenge_method: 'S256',
+    });
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
+});
+
+app.get('/api/sources/google/callback', async (req, res) => {
+    const { code, state, error } = req.query;
+    const st = _googleStates.get(state); _googleStates.delete(state);
+    const back = `${st?.ret || '/import/google'}?google=error`;
+    if (error) { console.warn('Google OAuth:', error); return res.redirect(back); }
+    if (!st || st.exp < Date.now()) return res.status(400).send('This Google sign-in link expired. Please try again.');
+    const user = appData.users.find(u => u.id === st.userId);
+    if (!user) return res.status(400).send('Account not found.');
+    const cfg = googleCfg();
+    try {
+        const body = new URLSearchParams({
+            client_id: cfg.clientId, client_secret: cfg.clientSecret, code: String(code || ''),
+            redirect_uri: googleRedirectUri(req), grant_type: 'authorization_code',
+        });
+        if (st.verifier) body.set('code_verifier', st.verifier);
+        const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const tok = await r.json();
+        if (!r.ok || !tok.access_token) throw new Error(tok.error_description || tok.error || 'token exchange failed');
+        let email = null;
+        try {
+            const ui = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tok.access_token}` } });
+            email = (await ui.json()).email || null;
+        } catch {}
+        user.google = Object.assign({}, user.google, { connectedAt: new Date().toISOString(), email });
+        if (tok.refresh_token) user.google.refreshToken = encryptSecret(tok.refresh_token);
+        saveData(appData);
+        res.redirect(`${st.ret || '/import/google'}?google=connected`);
+    } catch (e) {
+        console.error('Google token exchange:', e.message);
+        res.redirect(back);
+    }
+});
+
+async function googleAccessToken(user) {
+    const rt = decryptSecret(user?.google?.refreshToken);
+    if (!rt) return null;
+    const cfg = googleCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return null;
+    try {
+        const body = new URLSearchParams({ client_id: cfg.clientId, client_secret: cfg.clientSecret, refresh_token: rt, grant_type: 'refresh_token' });
+        const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const tok = await r.json();
+        if (!r.ok || !tok.access_token) { console.error('Google refresh failed:', tok.error_description || r.status); return null; }
+        return tok.access_token;
+    } catch (e) { console.error('Google refresh error:', e.message); return null; }
+}
+
+app.post('/api/sources/google/disconnect', (req, res) => {
+    if (req.currentUser?.google) { delete req.currentUser.google; saveData(appData); }
+    res.json({ ok: true });
+});
+
+// Browse a Drive folder — subfolders + image files with thumbnails.
+app.get('/api/sources/google/browse', async (req, res) => {
+    const at = await googleAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const folderId = req.query.folderId ? String(req.query.folderId) : 'root';
+    const q = `'${folderId.replace(/'/g, "\\'")}' in parents and trashed=false and (mimeType='application/vnd.google-apps.folder' or mimeType contains 'image/')`;
+    const p = new URLSearchParams({ q, pageSize: '200', orderBy: 'folder,name',
+        fields: 'files(id,name,mimeType,thumbnailLink)' });
+    try {
+        const r = await fetch(`${GDRIVE_API}/files?${p}`, { headers: { Authorization: `Bearer ${at}` } });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error?.message || 'browse failed');
+        const items = (data.files || []).map(f => ({
+            id: f.id, name: f.name, isFolder: f.mimeType === 'application/vnd.google-apps.folder',
+            thumb: f.thumbnailLink || null,
+        }));
+        res.json({ items });
+    } catch (e) {
+        console.error('Google browse:', e.message);
+        res.status(502).json({ error: 'Could not list Google Drive items.' });
+    }
+});
+
+// Import selected Drive files into the library.
+app.post('/api/sources/google/import', requireUpload, async (req, res) => {
+    const at = await googleAccessToken(req.currentUser);
+    if (!at) return res.status(401).json({ error: 'not_connected' });
+    const itemIds = Array.isArray(req.body.itemIds) ? req.body.itemIds.slice(0, 100) : [];
+    if (!itemIds.length) return res.status(400).json({ error: 'No photos selected' });
+    const screenId = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId)) return res.status(403).json({ error: 'You do not have access to that screen' });
+    const albumId = req.body.albumId && (appData.albums || []).find(a => a.id === req.body.albumId) ? req.body.albumId : null;
+    const imported = [], failed = [];
+    for (const id of itemIds) {
+        try {
+            const metaRes = await fetch(`${GDRIVE_API}/files/${encodeURIComponent(id)}?fields=name`, { headers: { Authorization: `Bearer ${at}` } });
+            const name = (await metaRes.json()).name || `google-${String(id).slice(-8)}.jpg`;
+            const dl = await fetch(`${GDRIVE_API}/files/${encodeURIComponent(id)}?alt=media`, { headers: { Authorization: `Bearer ${at}` } });
+            if (!dl.ok) throw new Error(`download ${dl.status}`);
+            const buf = Buffer.from(await dl.arrayBuffer());
+            const fn = await ingestImageBuffer(buf, name, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'google' });
+            imported.push(fn);
+        } catch (e) { console.error('Google import item', id, e.message); failed.push(id); }
+    }
+    saveData(appData);
+    addLog('import_google', { user: req.currentUser.username, ip: req.ip, detail: `${imported.length} photo(s)` });
+    res.json({ imported: imported.length, failed: failed.length, files: imported });
+});
+
+app.get('/import/google', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-google.html')));
 
 app.delete('/api/images/:filename', requireDelete, (req, res) => {
     const filename = path.basename(req.params.filename);
