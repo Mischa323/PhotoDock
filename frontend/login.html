@@ -111,10 +111,15 @@
         <span style="font-size:11px;color:rgba(255,255,255,0.35)">or</span>
         <div style="flex:1;height:1px;background:rgba(255,255,255,0.12)"></div>
       </div>
-      <a href="/api/sso/microsoft/login" class="glass-btn submit-btn"
-         style="display:flex;align-items:center;justify-content:center;gap:9px;text-decoration:none;color:#fff">
+      <a id="ssoMicrosoft" href="/api/sso/microsoft/login" class="glass-btn submit-btn"
+         style="display:none;align-items:center;justify-content:center;gap:9px;text-decoration:none;color:#fff;margin-bottom:10px">
         <svg width="17" height="17" viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
         Sign in with Microsoft
+      </a>
+      <a id="ssoGoogle" href="/api/sso/google/login" class="glass-btn submit-btn"
+         style="display:none;align-items:center;justify-content:center;gap:9px;text-decoration:none;color:#fff">
+        <svg width="17" height="17" viewBox="0 0 48 48" aria-hidden="true"><path fill="#4285F4" d="M45.1 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h11.8c-.5 2.7-2 5-4.4 6.6v5.5h7.1c4.1-3.8 6.6-9.4 6.6-16.1z"/><path fill="#34A853" d="M24 46c5.9 0 10.9-2 14.5-5.3l-7.1-5.5c-2 1.3-4.5 2.1-7.4 2.1-5.7 0-10.5-3.8-12.2-9h-7.3v5.7C8.1 41 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.8 28.3c-.4-1.3-.7-2.7-.7-4.3s.3-3 .7-4.3v-5.7H4.5C3 17 2 20.4 2 24s1 7 2.5 10z"/><path fill="#EA4335" d="M24 10.7c3.2 0 6.1 1.1 8.4 3.3l6.3-6.3C34.9 4.1 29.9 2 24 2 15.4 2 8.1 7 4.5 14l7.3 5.7c1.7-5.2 6.5-9 12.2-9z"/></svg>
+        Sign in with Google
       </a>
     </div>
 
@@ -145,10 +150,15 @@
       el.style.display = 'block';
     }
 
-    // Show the Microsoft button only when SSO is configured.
-    fetch('/api/sso/microsoft/enabled').then(r => r.json())
-      .then(d => { if (d.enabled) document.getElementById('ssoWrap').style.display = 'block'; })
-      .catch(() => {});
+    // Show each SSO button only when that provider is configured.
+    Promise.all([
+      fetch('/api/sso/microsoft/enabled').then(r => r.json()).catch(() => ({})),
+      fetch('/api/sso/google/enabled').then(r => r.json()).catch(() => ({})),
+    ]).then(([ms, g]) => {
+      if (ms.enabled) document.getElementById('ssoMicrosoft').style.display = 'flex';
+      if (g.enabled)  document.getElementById('ssoGoogle').style.display = 'flex';
+      if (ms.enabled || g.enabled) document.getElementById('ssoWrap').style.display = 'block';
+    });
   </script>
 </body>
 </html>

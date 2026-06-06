@@ -546,8 +546,9 @@ function requireAuth(req, res, next) {
     // authenticates the user via the one-time `state` instead.
     if (req.path === '/api/sources/onedrive/callback') return next();
     if (req.path === '/api/sources/google/callback') return next();
-    // Microsoft SSO entry points are used before a session exists.
+    // SSO entry points are used before a session exists.
     if (req.path === '/api/sso/microsoft/login' || req.path === '/api/sso/microsoft/enabled') return next();
+    if (req.path === '/api/sso/google/login'    || req.path === '/api/sso/google/enabled')    return next();
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
         return res.status(401).json({ error: 'Not authenticated' });
     }
@@ -2743,7 +2744,7 @@ app.get('/api/sources/google/connect', (req, res) => {
     const state = crypto.randomBytes(16).toString('hex');
     const { verifier, challenge } = pkcePair();
     const ret = typeof req.query.return === 'string' && /^\/[^/]/.test(req.query.return) ? req.query.return : '/import/google';
-    _googleStates.set(state, { userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret, verifier });
+    _googleStates.set(state, { purpose: 'link', userId: req.currentUser.id, exp: Date.now() + 10 * 60 * 1000, ret, verifier });
     const p = new URLSearchParams({
         client_id: cfg.clientId, redirect_uri: googleRedirectUri(req), response_type: 'code',
         scope: GDRIVE_SCOPE, access_type: 'offline', prompt: 'consent', state,
@@ -2752,15 +2753,15 @@ app.get('/api/sources/google/connect', (req, res) => {
     res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
 });
 
+// Shared by Drive linking and "Sign in with Google".
 app.get('/api/sources/google/callback', async (req, res) => {
     const { code, state, error } = req.query;
     const st = _googleStates.get(state); _googleStates.delete(state);
-    const back = `${st?.ret || '/import/google'}?google=error`;
+    const back = st?.purpose === 'login' ? '/login?error=sso' : `${st?.ret || '/import/google'}?google=error`;
     if (error) { console.warn('Google OAuth:', error); return res.redirect(back); }
     if (!st || st.exp < Date.now()) return res.status(400).send('This Google sign-in link expired. Please try again.');
-    const user = appData.users.find(u => u.id === st.userId);
-    if (!user) return res.status(400).send('Account not found.');
     const cfg = googleCfg();
+    let tok, info;
     try {
         const body = new URLSearchParams({
             client_id: cfg.clientId, client_secret: cfg.clientSecret, code: String(code || ''),
@@ -2768,21 +2769,50 @@ app.get('/api/sources/google/callback', async (req, res) => {
         });
         if (st.verifier) body.set('code_verifier', st.verifier);
         const r = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-        const tok = await r.json();
+        tok = await r.json();
         if (!r.ok || !tok.access_token) throw new Error(tok.error_description || tok.error || 'token exchange failed');
-        let email = null;
-        try {
-            const ui = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tok.access_token}` } });
-            email = (await ui.json()).email || null;
-        } catch {}
-        user.google = Object.assign({}, user.google, { connectedAt: new Date().toISOString(), email });
-        if (tok.refresh_token) user.google.refreshToken = encryptSecret(tok.refresh_token);
-        saveData(appData);
-        res.redirect(`${st.ret || '/import/google'}?google=connected`);
-    } catch (e) {
-        console.error('Google token exchange:', e.message);
-        res.redirect(back);
+        const ui = await fetch('https://openidconnect.googleapis.com/v1/userinfo', { headers: { Authorization: `Bearer ${tok.access_token}` } });
+        info = await ui.json();
+    } catch (e) { console.error('Google OAuth:', e.message); return res.redirect(back); }
+    const email = info?.email || null, sub = info?.sub || null;
+
+    // ── Sign in with Google: match to a linked account ──
+    if (st.purpose === 'login') {
+        const lc = (email || '').toLowerCase();
+        const u = (sub && appData.users.find(x => x.google?.googleId === sub))
+               || (lc && appData.users.find(x => (x.google?.email || '').toLowerCase() === lc))
+               || (lc && appData.users.find(x => x.google?.refreshToken && (x.email || '').toLowerCase() === lc));
+        if (!u) { console.warn('SSO(Google): no linked account for sub=%s email=%s', sub, email); return res.redirect('/login?error=sso_nolink'); }
+        if (u.blocked) { addLog('login_fail', { user: u.username, ip: req.ip, detail: 'google sso, blocked' }); return res.redirect('/login?error=blocked'); }
+        u.lastLogin = new Date().toISOString(); saveData(appData);
+        addLog('login_success', { user: u.username, ip: req.ip, detail: 'google sso' });
+        const { token, expiresAt } = createToken(u.id); setCookie(res, token, expiresAt, req);
+        return res.redirect('/');
     }
+
+    // ── Drive linking ──
+    const user = appData.users.find(u => u.id === st.userId);
+    if (!user) return res.status(400).send('Account not found.');
+    user.google = Object.assign({}, user.google, { connectedAt: new Date().toISOString(), email, googleId: sub });
+    if (tok.refresh_token) user.google.refreshToken = encryptSecret(tok.refresh_token);
+    saveData(appData);
+    res.redirect(`${st.ret || '/import/google'}?google=connected`);
+});
+
+// ── Sign in with Google ─────────────────────────────────────────────────────
+app.get('/api/sso/google/enabled', (_req, res) => { const cfg = googleCfg(); res.json({ enabled: !!(cfg.clientId && cfg.clientSecret) }); });
+app.get('/api/sso/google/login', (req, res) => {
+    const cfg = googleCfg();
+    if (!cfg.clientId || !cfg.clientSecret) return res.redirect('/login?error=sso');
+    const state = crypto.randomBytes(16).toString('hex');
+    const { verifier, challenge } = pkcePair();
+    _googleStates.set(state, { purpose: 'login', exp: Date.now() + 10 * 60 * 1000, verifier });
+    const p = new URLSearchParams({
+        client_id: cfg.clientId, redirect_uri: googleRedirectUri(req), response_type: 'code',
+        scope: 'openid email profile', prompt: 'select_account', state,
+        code_challenge: challenge, code_challenge_method: 'S256',
+    });
+    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${p}`);
 });
 
 async function googleAccessToken(user) {
