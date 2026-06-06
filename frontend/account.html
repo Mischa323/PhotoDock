@@ -204,6 +204,20 @@
       </div>
       <div class="msg" id="gMsg"></div>
     </div>
+
+    <!-- Synology Photos -->
+    <div class="card glass" id="synCard" style="display:none">
+      <h2>Synology Photos</h2>
+      <p class="hint" style="margin-top:-2px">Connect your Synology NAS to import from Synology Photos.</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:6px">
+        <div style="font-size:13px;color:rgba(255,255,255,0.6)" id="synStatus">Loading…</div>
+        <div style="display:flex;gap:8px">
+          <a class="cyan-btn submit-btn" id="synConnectLink" href="/import/synology" style="display:none;text-decoration:none">Connect</a>
+          <button class="glass-btn hbtn" id="synDisc" style="display:none" onclick="synDisc()">Disconnect</button>
+        </div>
+      </div>
+      <div class="msg" id="synMsg"></div>
+    </div>
   </div>
 
   <script>
@@ -402,10 +416,32 @@
     }
     if (new URLSearchParams(location.search).get('google') === 'connected') msg('gMsg', 'Google account connected.', true);
 
+    // ── Synology Photos ─────────────────────────────────────────────────────
+    async function loadSyn() {
+      let st;
+      try { st = await (await fetch('/api/sources/synology/status')).json(); } catch { return; }
+      document.getElementById('synCard').style.display = '';
+      const statusEl = document.getElementById('synStatus');
+      const connect = document.getElementById('synConnectLink'), disc = document.getElementById('synDisc');
+      if (st.connected) {
+        statusEl.innerHTML = 'Connected to <strong>' + escMs(st.url) + '</strong>' + (st.account ? ' as ' + escMs(st.account) : '');
+        connect.style.display = 'none'; disc.style.display = '';
+      } else {
+        statusEl.textContent = 'Not connected';
+        connect.style.display = ''; disc.style.display = 'none';
+      }
+    }
+    async function synDisc() {
+      await fetch('/api/sources/synology/disconnect', { method: 'POST' });
+      msg('synMsg', 'Synology disconnected.', true);
+      loadSyn();
+    }
+
     load();
     loadTwofa();
     loadMs();
     loadG();
+    loadSyn();
   </script>
 </body>
 </html>

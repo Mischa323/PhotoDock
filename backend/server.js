@@ -2855,6 +2855,111 @@ app.post('/api/sources/google/import', requireUpload, async (req, res) => {
 
 app.get('/import/google', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-google.html')));
 
+// ── Cloud photo sources: Synology Photos (DSM 7, per-user NAS login) ─────────
+// Home NAS units usually present a self-signed TLS cert, so we use a dispatcher
+// that doesn't reject it. The user explicitly enters their own NAS URL.
+let _synoAgent;
+function synoDispatcher() {
+    if (_synoAgent === undefined) {
+        try { const { Agent } = require('undici'); _synoAgent = new Agent({ connect: { rejectUnauthorized: false } }); }
+        catch { _synoAgent = null; }
+    }
+    return _synoAgent || undefined;
+}
+async function synoFetch(url, opts = {}) { return fetch(url, { dispatcher: synoDispatcher(), ...opts }); }
+// Log in to the NAS with the user's stored credentials → { base, sid }.
+async function synologyLogin(user) {
+    const s = user?.synology;
+    if (!s?.url || !s.account) return null;
+    const base = String(s.url).replace(/\/+$/, '');
+    const body = new URLSearchParams({ api: 'SYNO.API.Auth', version: '7', method: 'login',
+        account: s.account, passwd: decryptSecret(s.passwd), session: 'Photo', format: 'sid' });
+    if (s.otp) body.set('otp_code', s.otp);
+    try {
+        const r = await synoFetch(`${base}/webapi/entry.cgi`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const j = await r.json();
+        if (!j.success || !j.data?.sid) { console.error('Synology login failed:', JSON.stringify(j.error || {})); return null; }
+        return { base, sid: j.data.sid };
+    } catch (e) { console.error('Synology login error:', e.message); return null; }
+}
+function synoUrl(base, sid, params) { return `${base}/webapi/entry.cgi?${new URLSearchParams({ ...params, _sid: sid })}`; }
+
+app.get('/api/sources/synology/status', (req, res) => {
+    const s = req.currentUser?.synology;
+    res.json({ connected: !!(s?.url && s.account), url: s?.url || '', account: s?.account || '' });
+});
+
+// Connect: verify the credentials by logging in, then store them (pw encrypted).
+app.post('/api/sources/synology/connect', async (req, res) => {
+    const url = String(req.body?.url || '').trim().replace(/\/+$/, '');
+    const account = String(req.body?.account || '').trim();
+    const passwd  = String(req.body?.passwd || '');
+    const otp     = String(req.body?.otp || '').trim();
+    if (!/^https?:\/\//i.test(url) || !account || !passwd) return res.status(400).json({ error: 'NAS URL (http/https), account and password are required.' });
+    const probe = { synology: { url, account, passwd: encryptSecret(passwd), otp: otp || undefined } };
+    const login = await synologyLogin(probe);
+    if (!login) return res.status(401).json({ error: 'Could not log in to the NAS. Check the URL, account, password (and 2FA code if enabled).' });
+    req.currentUser.synology = { url, account, passwd: encryptSecret(passwd) };
+    saveData(appData);
+    res.json({ ok: true });
+});
+
+app.post('/api/sources/synology/disconnect', (req, res) => {
+    if (req.currentUser?.synology) { delete req.currentUser.synology; saveData(appData); }
+    res.json({ ok: true });
+});
+
+// Browse: subfolders + photos in a Synology Photos folder (personal space).
+app.get('/api/sources/synology/browse', async (req, res) => {
+    const login = await synologyLogin(req.currentUser);
+    if (!login) return res.status(401).json({ error: 'not_connected' });
+    const { base, sid } = login;
+    const folderId = req.query.folderId ? String(req.query.folderId) : '0';
+    try {
+        const fr = await synoFetch(synoUrl(base, sid, { api: 'SYNO.Foto.Browse.Folder', version: '1', method: 'list', id: folderId, offset: '0', limit: '1000' }));
+        const fj = await fr.json();
+        const ir = await synoFetch(synoUrl(base, sid, { api: 'SYNO.Foto.Browse.Item', version: '1', method: 'list', folder_id: folderId, offset: '0', limit: '5000', additional: '["thumbnail"]' }));
+        const ij = await ir.json();
+        const folders = (fj.data?.list || []).map(f => ({ id: String(f.id), name: f.name?.split('/').pop() || f.name || 'Folder', isFolder: true }));
+        const items = (ij.data?.list || []).map(it => {
+            const t = it.additional?.thumbnail;
+            const thumb = t ? synoUrl(base, sid, { api: 'SYNO.Foto.Thumbnail', version: '2', method: 'get', id: String(t.unit_id || it.id), cache_key: t.cache_key || '', type: 'unit', size: 'sm' }) : null;
+            return { id: String(it.id), name: it.filename || ('photo-' + it.id), isFolder: false, thumb };
+        });
+        res.json({ items: [...folders, ...items] });
+    } catch (e) {
+        console.error('Synology browse:', e.message);
+        res.status(502).json({ error: 'Could not list Synology Photos.' });
+    }
+});
+
+// Import: download each selected item from the NAS and ingest it.
+app.post('/api/sources/synology/import', requireUpload, async (req, res) => {
+    const login = await synologyLogin(req.currentUser);
+    if (!login) return res.status(401).json({ error: 'not_connected' });
+    const { base, sid } = login;
+    const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
+    if (!items.length) return res.status(400).json({ error: 'No photos selected' });
+    const screenId = req.body.screenId && (appData.screens || []).find(s => s.id === req.body.screenId) ? req.body.screenId : null;
+    if (screenId && !userCanAccessScreen(req.currentUser, screenId)) return res.status(403).json({ error: 'You do not have access to that screen' });
+    const albumId = req.body.albumId && (appData.albums || []).find(a => a.id === req.body.albumId) ? req.body.albumId : null;
+    const imported = [], failed = [];
+    for (const it of items) {
+        try {
+            const dl = await synoFetch(synoUrl(base, sid, { api: 'SYNO.Foto.Download', version: '2', method: 'download', unit_id: `[${parseInt(it.id) || 0}]` }));
+            if (!dl.ok) throw new Error(`download ${dl.status}`);
+            const buf = Buffer.from(await dl.arrayBuffer());
+            const fn = await ingestImageBuffer(buf, it.name || `synology-${it.id}.jpg`, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'synology' });
+            imported.push(fn);
+        } catch (e) { console.error('Synology import item', it.id, e.message); failed.push(it.id); }
+    }
+    saveData(appData);
+    addLog('import_synology', { user: req.currentUser.username, ip: req.ip, detail: `${imported.length} photo(s)` });
+    res.json({ imported: imported.length, failed: failed.length, files: imported });
+});
+
+app.get('/import/synology', (_req, res) => res.sendFile(path.join(FRONTEND_DIR, 'import-synology.html')));
+
 app.delete('/api/images/:filename', requireDelete, (req, res) => {
     const filename = path.basename(req.params.filename);
     const filepath = path.join(UPLOADS_DIR, filename);
