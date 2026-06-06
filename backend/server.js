@@ -432,14 +432,18 @@ function deleteToken(token) {
 
 function setCookie(res, token, expiresAt, req = null) {
     const secure = req?.secure || req?.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+    // Lax (not Strict) so the session cookie is honoured on the top-level
+    // redirect back from an external OAuth provider (Microsoft SSO). Strict
+    // withholds the cookie on the request that follows a cross-site navigation,
+    // which left SSO users un-authenticated after the callback redirect.
     res.setHeader('Set-Cookie',
-        `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Strict; Expires=${new Date(expiresAt).toUTCString()}${secure}`
+        `${COOKIE_NAME}=${token}; Path=/; HttpOnly; SameSite=Lax; Expires=${new Date(expiresAt).toUTCString()}${secure}`
     );
 }
 
 function clearCookie(res, req = null) {
     const secure = req?.secure || req?.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
-    res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secure}`);
+    res.setHeader('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`);
 }
 
 // ── Multer ─────────────────────────────────────────────────────────────────
