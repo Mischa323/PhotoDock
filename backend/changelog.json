@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.6.2",
+    "date": "2026-06-11",
+    "changes": [
+      "Fixed Synology Photos breaking for a second user on the same NAS account — each PhotoDock user now registers a uniquely-named trusted device, so connecting one account no longer invalidates the other's saved login"
+    ]
+  },
+  {
     "version": "2.6.1",
     "date": "2026-06-06",
     "changes": [
