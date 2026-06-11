@@ -2924,6 +2924,25 @@ async function synologyLogin(user) {
     return a.ok ? { base: a.base, sid: a.sid } : null;
 }
 function synoUrl(base, sid, params) { return `${base}/webapi/entry.cgi?${new URLSearchParams({ ...params, _sid: sid })}`; }
+// Sniff common image magic bytes — used to reject a ZIP/JSON the Download API
+// may return instead of the raw photo.
+function looksLikeImage(b) {
+    if (!b || b.length < 12) return false;
+    return (b[0] === 0xFF && b[1] === 0xD8)                                   // JPEG
+        || (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) // PNG
+        || (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46)                  // GIF
+        || (b[0] === 0x42 && b[1] === 0x4D)                                   // BMP
+        || (b.slice(0, 4).toString('ascii') === 'RIFF')                       // WEBP
+        || (b.slice(4, 8).toString('ascii') === 'ftyp');                      // HEIC/HEIF
+}
+// A short, log-friendly reason from a failed synologyAuth() result.
+function synoErrDetail(a) {
+    const e = a?.error;
+    if (!e) return 'could not reach the NAS';
+    if (e.code === 403 || e.errors?.types?.some?.(t => t.type === 'otp')) return '2FA code required or invalid (403)';
+    if (e.code === 400) return 'wrong account or password (400)';
+    return `login rejected (error code ${e.code ?? '?'})`;
+}
 
 app.get('/api/sources/synology/status', (req, res) => {
     const s = req.currentUser?.synology;
@@ -2939,6 +2958,7 @@ app.post('/api/sources/synology/connect', async (req, res) => {
     if (!/^https?:\/\//i.test(url) || !account || !passwd) return res.status(400).json({ error: 'NAS URL (http/https), account and password are required.' });
     const a = await synologyAuth({ url, account, passwd, otp: otp || undefined, deviceName: synoDeviceName(req.currentUser) });
     if (!a.ok) {
+        addLog('synology_error', { user: req.currentUser.username, ip: req.ip, detail: `connect (${account}) — ${synoErrDetail(a)}` });
         const needOtp = a.error?.code === 403 || a.error?.errors?.types?.some?.(t => t.type === 'otp');
         return res.status(401).json({ error: needOtp
             ? 'This account uses 2-step verification. Enter the current 6-digit code from your authenticator app and connect again.'
@@ -2962,7 +2982,10 @@ app.post('/api/sources/synology/reauth', async (req, res) => {
     if (!s?.url || !s.account || !s.passwd) return res.status(400).json({ error: 'Not connected.' });
     const otp = String(req.body?.otp || '').trim();
     const a = await synologyAuth({ url: s.url, account: s.account, passwd: decryptSecret(s.passwd), otp: otp || undefined, deviceName: synoDeviceName(req.currentUser) });
-    if (!a.ok) return res.status(401).json({ error: 'Could not re-verify. Check your current 2FA code.' });
+    if (!a.ok) {
+        addLog('synology_error', { user: req.currentUser.username, ip: req.ip, detail: `re-verify — ${synoErrDetail(a)}` });
+        return res.status(401).json({ error: 'Could not re-verify. Check your current 2FA code.' });
+    }
     s.deviceId = a.did ? encryptSecret(a.did) : undefined;
     saveData(appData);
     res.json({ ok: true });
@@ -2974,7 +2997,10 @@ function synoApiNs(space) { return space === 'shared' ? 'SYNO.FotoTeam' : 'SYNO.
 // Browse: subfolders + photos in a Synology Photos folder (personal or shared).
 app.get('/api/sources/synology/browse', async (req, res) => {
     const login = await synologyLogin(req.currentUser);
-    if (!login) return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
+    if (!login) {
+        if (req.currentUser?.synology?.url) addLog('synology_error', { user: req.currentUser.username, ip: req.ip, detail: 'browse — NAS session login failed (device token expired/invalid; re-verify needed)' });
+        return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
+    }
     const { base, sid } = login;
     const space = req.query.space === 'shared' ? 'shared' : 'personal';
     const ns = synoApiNs(space);
@@ -2987,12 +3013,14 @@ app.get('/api/sources/synology/browse', async (req, res) => {
         const folders = (fj.data?.list || []).map(f => ({ id: String(f.id), name: f.name?.split('/').pop() || f.name || 'Folder', isFolder: true }));
         const items = (ij.data?.list || []).map(it => {
             const t = it.additional?.thumbnail;
-            const thumb = t ? synoUrl(base, sid, { api: `${ns}.Thumbnail`, version: '2', method: 'get', id: String(t.unit_id || it.id), cache_key: t.cache_key || '', type: 'unit', size: 'sm' }) : null;
-            return { id: String(it.id), name: it.filename || ('photo-' + it.id), isFolder: false, thumb };
+            const thumbId = String(t?.unit_id || it.id);
+            const thumb = t ? synoUrl(base, sid, { api: `${ns}.Thumbnail`, version: '2', method: 'get', id: thumbId, cache_key: t.cache_key || '', type: 'unit', size: 'sm' }) : null;
+            return { id: String(it.id), name: it.filename || ('photo-' + it.id), isFolder: false, thumb, thumbId, cacheKey: t?.cache_key || '' };
         });
         res.json({ items: [...folders, ...items], space });
     } catch (e) {
         console.error('Synology browse:', e.message);
+        addLog('synology_error', { user: req.currentUser.username, ip: req.ip, detail: `browse — ${e.message}` });
         res.status(502).json({ error: 'Could not list Synology Photos.' });
     }
 });
@@ -3000,7 +3028,10 @@ app.get('/api/sources/synology/browse', async (req, res) => {
 // Import: download each selected item from the NAS and ingest it.
 app.post('/api/sources/synology/import', requireUpload, async (req, res) => {
     const login = await synologyLogin(req.currentUser);
-    if (!login) return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
+    if (!login) {
+        if (req.currentUser?.synology?.url) addLog('synology_error', { user: req.currentUser.username, ip: req.ip, detail: 'import — NAS session login failed (re-verify needed)' });
+        return res.status(401).json({ error: req.currentUser?.synology?.url ? 'reauth_required' : 'not_connected' });
+    }
     const { base, sid } = login;
     const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
     if (!items.length) return res.status(400).json({ error: 'No photos selected' });
@@ -3011,10 +3042,20 @@ app.post('/api/sources/synology/import', requireUpload, async (req, res) => {
     const imported = [], failed = [];
     for (const it of items) {
         try {
-            const dl = await synoFetch(synoUrl(base, sid, { api: `${ns}.Download`, version: '2', method: 'download', unit_id: `[${parseInt(it.id) || 0}]` }));
-            if (!dl.ok) throw new Error(`download ${dl.status}`);
-            const buf = Buffer.from(await dl.arrayBuffer());
-            const fn = await ingestImageBuffer(buf, it.name || `synology-${it.id}.jpg`, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'synology' });
+            let buf = null, name = it.name || `synology-${it.id}.jpg`;
+            // Try the original file. SYNO.Foto.Download returns a ZIP (or an error
+            // JSON) on some setups, so only keep it if it's actually image bytes.
+            try {
+                const dl = await synoFetch(synoUrl(base, sid, { api: `${ns}.Download`, version: '2', method: 'download', unit_id: `[${parseInt(it.id) || 0}]` }));
+                if (dl.ok) { const b = Buffer.from(await dl.arrayBuffer()); if (looksLikeImage(b)) buf = b; }
+            } catch {}
+            // Fall back to the large preview (always a real JPEG) — plenty for an e-ink frame.
+            if (!buf && it.cacheKey) {
+                const tr = await synoFetch(synoUrl(base, sid, { api: `${ns}.Thumbnail`, version: '2', method: 'get', id: String(it.thumbId || it.id), cache_key: it.cacheKey, type: 'unit', size: 'xl' }));
+                if (tr.ok) { const b = Buffer.from(await tr.arrayBuffer()); if (looksLikeImage(b)) { buf = b; name = name.replace(/\.[^.]*$/, '') + '.jpg'; } }
+            }
+            if (!buf) throw new Error('no image bytes (Download returned non-image and no preview available)');
+            const fn = await ingestImageBuffer(buf, name, { uploadedBy: req.currentUser.username, screenId, albumId, source: 'synology' });
             imported.push(fn);
         } catch (e) { console.error('Synology import item', it.id, e.message); failed.push(it.id); }
     }

@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.6.4",
+    "date": "2026-06-11",
+    "changes": [
+      "Fixed Synology imports saving a broken (non-image) file — the original is used when it's valid image data, otherwise it falls back to the high-resolution preview (plenty for an e-ink frame)",
+      "Synology connection and login errors now appear in the dashboard activity log (Settings → Activity) with the reason, not just the server console"
+    ]
+  },
+  {
     "version": "2.6.3",
     "date": "2026-06-11",
     "changes": [

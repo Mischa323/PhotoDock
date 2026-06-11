@@ -195,15 +195,15 @@
       el.innerHTML = items.map(it => it.isFolder
         ? `<div class="cell folder" onclick='openFolder(${JSON.stringify(it.id)}, ${JSON.stringify(it.name)})'>
              <div class="fi">📁</div><div class="name">${esc(it.name)}</div></div>`
-        : `<div class="cell ${selected.has(it.id) ? 'sel' : ''}" data-id="${esc(it.id)}" onclick='toggle(${JSON.stringify(it.id)}, ${JSON.stringify(it.name)})'>
+        : `<div class="cell ${selected.has(it.id) ? 'sel' : ''}" data-id="${esc(it.id)}" onclick='toggle(${JSON.stringify(it.id)}, ${JSON.stringify({ name: it.name, thumbId: it.thumbId, cacheKey: it.cacheKey })})'>
              ${it.thumb ? `<img loading="lazy" src="${esc(it.thumb)}" alt="">` : `<div class="cell folder"><div class="fi">🖼</div></div>`}
              <div class="check">✓</div><div class="name">${esc(it.name)}</div></div>`).join('');
     }
 
     function openFolder(id, name) { stack.push({ id, name }); browse(id); }
 
-    function toggle(id, name) {
-      if (selected.has(id)) selected.delete(id); else selected.set(id, name);
+    function toggle(id, meta) {
+      if (selected.has(id)) selected.delete(id); else selected.set(id, meta);
       const cell = document.querySelector(`.cell[data-id="${CSS.escape(id)}"]`);
       if (cell) cell.classList.toggle('sel', selected.has(id));
       const btn = document.getElementById('importBtn');
@@ -218,7 +218,7 @@
       if (!screenId) { msg.style.color = '#fca5a5'; msg.textContent = 'Pick a screen to import into.'; return; }
       btn.disabled = true; msg.style.color = 'rgba(255,255,255,0.7)'; msg.textContent = `Importing ${selected.size}…`;
       try {
-        const items = [...selected.entries()].map(([id, name]) => ({ id, name }));
+        const items = [...selected.entries()].map(([id, m]) => ({ id, name: m.name, thumbId: m.thumbId, cacheKey: m.cacheKey }));
         const res = await fetch('/api/sources/synology/import', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ items, screenId, albumId: albumId || null, space })
