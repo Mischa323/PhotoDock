@@ -2939,9 +2939,14 @@ function looksLikeImage(b) {
 function synoErrDetail(a) {
     const e = a?.error;
     if (!e) return 'could not reach the NAS';
-    if (e.code === 403 || e.errors?.types?.some?.(t => t.type === 'otp')) return '2FA code required or invalid (403)';
-    if (e.code === 400) return 'wrong account or password (400)';
-    return `login rejected (error code ${e.code ?? '?'})`;
+    const c = e.code;
+    if (c === 403 || c === 406 || e.errors?.types?.some?.(t => t.type === 'otp')) return '2FA code required or invalid (403)';
+    if (c === 404) return 'wrong 2FA code (404)';
+    if (c === 400) return 'wrong account or password (400)';
+    if (c === 401) return 'account is disabled (401)';
+    if (c === 402) return 'account has no permission to use Synology Photos — grant it in DSM (402)';
+    if (c === 407) return 'too many attempts / IP blocked by the NAS (407)';
+    return `login rejected (error code ${c ?? '?'})`;
 }
 
 app.get('/api/sources/synology/status', (req, res) => {
@@ -2959,10 +2964,10 @@ app.post('/api/sources/synology/connect', async (req, res) => {
     const a = await synologyAuth({ url, account, passwd, otp: otp || undefined, deviceName: synoDeviceName(req.currentUser) });
     if (!a.ok) {
         addLog('synology_error', { user: req.currentUser.username, ip: req.ip, detail: `connect (${account}) — ${synoErrDetail(a)}` });
-        const needOtp = a.error?.code === 403 || a.error?.errors?.types?.some?.(t => t.type === 'otp');
+        const needOtp = a.error?.code === 403 || a.error?.code === 406 || a.error?.errors?.types?.some?.(t => t.type === 'otp');
         return res.status(401).json({ error: needOtp
             ? 'This account uses 2-step verification. Enter the current 6-digit code from your authenticator app and connect again.'
-            : 'Could not log in to the NAS. Check the URL, account and password.' });
+            : `Could not connect: ${synoErrDetail(a)}.` });
     }
     // Store the device token (if any) so future logins skip the OTP prompt.
     req.currentUser.synology = { url, account, passwd: encryptSecret(passwd), deviceId: a.did ? encryptSecret(a.did) : undefined };
