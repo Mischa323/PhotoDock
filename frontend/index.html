@@ -1030,13 +1030,14 @@ function renderAlbumsView() {
     const count = a.photoCount || 0;
     const favBadge = a.fav ? `<div class="album-fav-badge">★</div>` : '';
     const emptyMsg = count === 0 ? `<div class="album-empty-msg">No photos yet</div>` : '';
+    const previews = a.previews || [];
+    const cells = [0, 1, 2, 3].map(i => previews[i]
+      ? `<div class="album-cover-cell" style="background-image:url('${esc(previews[i])}')"></div>`
+      : `<div class="album-cover-cell"></div>`).join('');
 
     html += `<div class="album-card glass" style="border-top:2.5px solid ${color}" onclick="openAlbum('${a.id}')">
       <div class="album-card-cover">
-        <div class="album-cover-cell"></div>
-        <div class="album-cover-cell"></div>
-        <div class="album-cover-cell"></div>
-        <div class="album-cover-cell"></div>
+        ${cells}
         ${favBadge}
         ${emptyMsg}
         <button class="album-del-btn" title="Delete album" onclick="event.stopPropagation(); deleteAlbum('${a.id}')">🗑</button>

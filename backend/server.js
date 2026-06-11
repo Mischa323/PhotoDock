@@ -3662,7 +3662,13 @@ app.get('/api/screens/:screenId/albums', (req, res) => {
     const meta = appData.imageMetadata || {};
     const albums = (appData.albums || [])
         .filter(a => a.screenId === screenId)
-        .map(a => ({ ...a, photoCount: Object.values(meta).filter(m => m.albumId === a.id).length }));
+        .map(a => {
+            const files = Object.keys(meta).filter(f => meta[f].albumId === a.id);
+            // up to 4 random photos for the card collage (Fisher–Yates shuffle)
+            const shuffled = files.slice();
+            for (let i = shuffled.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]; }
+            return { ...a, photoCount: files.length, previews: shuffled.slice(0, 4).map(f => `/uploads/${encodeURIComponent(f)}`) };
+        });
     res.json(albums);
 });
 
