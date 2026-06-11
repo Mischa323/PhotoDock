@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.6.5",
+    "date": "2026-06-11",
+    "changes": [
+      "Synology connection errors now explain the cause in plain language (e.g. wrong password, 2FA needed, or 'no permission to use Synology Photos') instead of a raw error code — shown both when connecting and in the activity log"
+    ]
+  },
+  {
     "version": "2.6.4",
     "date": "2026-06-11",
     "changes": [
