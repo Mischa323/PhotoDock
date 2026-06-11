@@ -87,7 +87,7 @@
 
     /* Edit modal (dark glass) */
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); display: none; align-items: center; justify-content: center; z-index: 100; padding: 20px; }
-    .modal-box { width: 340px; max-width: calc(100vw - 24px); border-radius: 18px; padding: 22px; }
+    .modal-box { width: 340px; max-width: calc(100vw - 24px); border-radius: 18px; padding: 22px; max-height: calc(100vh - 40px); overflow-y: auto; }
     .modal-title { font-size: 16px; font-weight: 600; color: rgba(255,255,255,0.92); margin-bottom: 16px; }
     .modal-input { margin-bottom: 16px; }
     /* CSS-only slider switch (keeps the underlying checkbox + :checked state) */
@@ -215,6 +215,8 @@
     /* ── Mobile / small screens ──────────────────────── */
     @media (max-width: 640px) {
       .cards-grid { padding: 0 12px 80px; grid-template-columns: 1fr; }
+      .modal-backdrop { padding: 10px; }
+      .modal-box { padding: 18px; max-height: calc(100vh - 20px); }
       .wizard-scroll { padding: 16px; }
       .wizard-steps { margin-bottom: 16px; }
       .wizard-step-line { margin: 0 6px; }
