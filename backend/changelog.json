@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.6.3",
+    "date": "2026-06-11",
+    "changes": [
+      "Album cards now show a collage of up to 4 random photos from the album instead of an empty grid"
+    ]
+  },
+  {
     "version": "2.6.2",
     "date": "2026-06-11",
     "changes": [
