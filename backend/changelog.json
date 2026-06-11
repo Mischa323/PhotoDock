@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.6.1",
+    "date": "2026-06-06",
+    "changes": [
+      "Fixed the screen-settings dialog overflowing the screen on mobile — it now fits the viewport and scrolls"
+    ]
+  },
+  {
     "version": "2.6.0",
     "date": "2026-06-06",
     "changes": [
