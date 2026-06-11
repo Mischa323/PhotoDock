@@ -2903,9 +2903,17 @@ async function synoFetch(url, opts = {}) { return fetch(url, { dispatcher: synoD
 async function synologyAuth({ url, account, passwd, otp, deviceId, deviceName }) {
     const base = String(url || '').replace(/\/+$/, '');
     const body = new URLSearchParams({ api: 'SYNO.API.Auth', version: '7', method: 'login',
-        account, passwd, session: 'Photo', format: 'sid', enable_device_token: 'yes', device_name: deviceName || 'PhotoDock' });
-    if (deviceId) body.set('device_id', deviceId);   // remembered device → no OTP prompt
-    else if (otp) body.set('otp_code', otp);
+        account, passwd, session: 'Photo', format: 'sid' });
+    if (deviceId) {
+        // Remembered device: send ONLY the token. Re-sending enable_device_token here
+        // makes DSM ask for a fresh 2FA code we can't supply → "authorization failure".
+        body.set('device_id', deviceId);
+    } else if (otp) {
+        // First sign-in with a 2FA code: issue a device token to skip OTP next time.
+        body.set('otp_code', otp);
+        body.set('enable_device_token', 'yes');
+        body.set('device_name', deviceName || 'PhotoDock');
+    }
     try {
         const r = await synoFetch(`${base}/webapi/entry.cgi`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
         const j = await r.json();

@@ -1,5 +1,12 @@
 [
   {
+    "version": "2.6.6",
+    "date": "2026-06-11",
+    "changes": [
+      "Fixed Synology Photos sign-in failing for accounts with 2-step verification (2FA): the saved 'remembered device' token is now reused correctly, so browsing and importing no longer fail with an authorization error after connecting"
+    ]
+  },
+  {
     "version": "2.6.5",
     "date": "2026-06-11",
     "changes": [
