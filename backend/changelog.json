@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.7.0",
+    "date": "2026-06-21",
+    "changes": [
+      "Albums: click any photo to open it full-screen, with ←/→ arrow keys (and on-screen arrows) to flip through the album",
+      "Play next / Add to queue (Spotify-style): line up a photo to show on the frame at its next refresh — from a photo's full-screen view or the ▶ button on a tile",
+      "New \"Up next\" panel shows what the frame is showing now, what's queued to play next, and what follows from the normal rotation, with one-click removal",
+      "The queue is per-screen and one-shot: a queued photo plays once at the next refresh, then the normal rotation resumes",
+      "Consistent toolbars across the album list and photo views (Up next + New Album / Upload photos)"
+    ]
+  },
+  {
     "version": "2.6.6",
     "date": "2026-06-11",
     "changes": [
