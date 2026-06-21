@@ -1,6 +1,6 @@
 {
   "name": "photodock",
-  "version": "2.6.6",
+  "version": "2.7.0",
   "description": "Image upload site with backend",
   "main": "backend/server.js",
   "scripts": {

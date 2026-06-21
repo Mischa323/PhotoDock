@@ -2007,6 +2007,31 @@ function getScreenFiles(keyRecord) {
     return all.filter(f => (meta[f]?.screenId || null) === screenId);
 }
 
+// ── Per-screen "play next" queue (Spotify-style, one-shot) ──────────────────
+// appData.queues[screenId]      = [filename, …]  (head plays next)
+// appData.queueState[screenId]  = { slot }       (last slot we served a queued
+//                                                  item, so each plays exactly once)
+function screenQueue(screenId) {
+    if (!screenId) return [];
+    const q = appData.queues?.[screenId];
+    return Array.isArray(q) ? q.filter(f => fs.existsSync(path.join(UPLOADS_DIR, f))) : [];
+}
+// Shared shape for a queued/upcoming photo in the API responses.
+function queueItem(f) { return { filename: f, url: `/uploads/${encodeURIComponent(f)}`, uploadedBy: appData.imageMetadata?.[f]?.uploadedBy || null }; }
+// On a fresh slot, pop the next still-existing queued file and return it (else null).
+function consumeScreenQueue(screenId, slot) {
+    if (!screenId || !Array.isArray(appData.queues?.[screenId]) || !appData.queues[screenId].length) return null;
+    if (appData.queueState?.[screenId]?.slot === slot) return null;   // already served this slot
+    const q = appData.queues[screenId];
+    let picked = null;
+    while (q.length) { const f = q.shift(); if (fs.existsSync(path.join(UPLOADS_DIR, f))) { picked = f; break; } }
+    appData.queueState = appData.queueState || {};
+    appData.queueState[screenId] = { slot };
+    if (!q.length) delete appData.queues[screenId];
+    saveData(appData);
+    return picked;
+}
+
 
 // Current local minutes-of-day in a timezone (0-1439).
 function nowMinutesInTz(tz) {
@@ -2046,13 +2071,23 @@ app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (re
     // KEY1 short-press advances the photo via a per-device offset.
     const offset   = parseInt(req.query.offset, 10) || 0;
     const slot     = Math.floor(Date.now() / intervalMs);
-    const index    = (((slot + offset) % files.length) + files.length) % files.length;
-    const filename = files[index];
+    // "Play next / Add to queue" (per-screen, one-shot): when the slot advances,
+    // serve the head of the screen's queue instead of the clock-based photo, then
+    // drop it so normal rotation resumes next refresh.
+    let filename, queued = false;
+    const sid = keyRecord?.screenId || null;
+    filename = consumeScreenQueue(sid, slot);
+    if (filename) { queued = true; }
+    let index = filename ? files.indexOf(filename) : -1;
+    if (!filename) {
+        index    = (((slot + offset) % files.length) + files.length) % files.length;
+        filename = files[index];
+    }
     const nextSlot = (slot + 1) * intervalMs;
     const baseUrl  = `${req.protocol}://${req.get('host')}`;
     const screen   = keyRecord?.screenId ? (appData.screens || []).find(s => s.id === keyRecord.screenId) : null;
     const debug    = !!(keyRecord?.debugLogging || screen?.debugLogging);
-    res.json({ index, total: files.length, filename, url: `${baseUrl}/uploads/${filename}`, interval_minutes: keyRecord?.intervalMinutes || 5, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now(), debug });
+    res.json({ index, total: files.length, filename, queued, url: `${baseUrl}/uploads/${filename}`, interval_minutes: keyRecord?.intervalMinutes || 5, next_at: new Date(nextSlot).toISOString(), next_in_ms: nextSlot - Date.now(), debug });
 });
 
 app.get('/api/slideshow/all', requireApiKey, requireEndpoint('all'), (req, res) => {
@@ -3770,6 +3805,79 @@ app.delete('/api/screens/:screenId/albums/:albumId', (req, res) => {
     }
     saveData(appData);
     res.json({ deleted: albumId });
+});
+
+// ── Per-screen play-next queue API ─────────────────────────────────────────
+// Drives what the physical frame shows next; shared by everyone on the screen.
+function screenQueueGuard(req, res) {
+    const sid = req.params.screenId;
+    if (!(appData.screens || []).find(s => s.id === sid)) { res.status(404).json({ error: 'Screen not found' }); return null; }
+    if (!userCanAccessScreen(req.currentUser, sid)) { res.status(403).json({ error: 'Permission denied' }); return null; }
+    return sid;
+}
+// A photo may be queued if it lives on this screen, or in one of its albums.
+function photoBelongsToScreen(filename, sid) {
+    const m = appData.imageMetadata?.[filename];
+    if (!m) return false;
+    if (m.screenId === sid) return true;
+    const album = m.albumId ? (appData.albums || []).find(a => a.id === m.albumId) : null;
+    return !!(album && album.screenId === sid);
+}
+
+// Current queue + a short projection of what plays after it.
+app.get('/api/screens/:screenId/queue', (req, res) => {
+    const sid = screenQueueGuard(req, res); if (!sid) return;
+    const linkedKey   = (appData.apiKeys || []).find(k => k.screenId === sid) || { screenId: sid };
+    const intervalMin = linkedKey.intervalMinutes || 5;
+    const files       = getScreenFiles(linkedKey);
+    const len         = files.length;
+    const slot        = Math.floor(Date.now() / (intervalMin * 60 * 1000));
+    const at          = i => files[(((slot + i) % len) + len) % len];
+    const item        = queueItem;
+    const queue       = screenQueue(sid);
+    // Best-effort "now playing": the photo the device most recently fetched, else
+    // the clock-based pick for this slot.
+    const lastImg     = (appData.apiKeys || []).filter(k => k.screenId === sid && k.lastImage)
+                          .sort((a, b) => new Date(b.lastImageAt || 0) - new Date(a.lastImageAt || 0))[0]?.lastImage;
+    const nowPlaying  = (lastImg && fs.existsSync(path.join(UPLOADS_DIR, lastImg))) ? lastImg : (len ? at(0) : null);
+    const upNext      = [];
+    for (let i = 1; i <= 10 && len; i++) upNext.push(at(i));
+    res.json({
+        intervalMinutes: intervalMin,
+        nowPlaying: nowPlaying ? item(nowPlaying) : null,
+        queue:  queue.map(item),
+        upNext: upNext.map(item),
+    });
+});
+
+// Add a photo: mode 'next' (play next) unshifts, 'end' (add to queue) pushes.
+app.post('/api/screens/:screenId/queue', (req, res) => {
+    const sid = screenQueueGuard(req, res); if (!sid) return;
+    const filename = path.basename(String(req.body?.filename || ''));
+    const mode     = req.body?.mode === 'end' ? 'end' : 'next';
+    if (!filename || !fs.existsSync(path.join(UPLOADS_DIR, filename))) return res.status(400).json({ error: 'Photo not found' });
+    if (!photoBelongsToScreen(filename, sid)) return res.status(400).json({ error: 'That photo is not on this screen' });
+    if (!userCanSeeImage(req.currentUser, filename)) return res.status(403).json({ error: 'Permission denied' });
+    appData.queues = appData.queues || {};
+    const q = appData.queues[sid] = appData.queues[sid] || [];
+    const existing = q.indexOf(filename);          // de-dupe: re-queueing just moves it
+    if (existing >= 0) q.splice(existing, 1);
+    if (mode === 'next') q.unshift(filename); else q.push(filename);
+    saveData(appData);
+    addLog('queue', { user: req.currentUser?.username, detail: `${mode === 'next' ? 'play next' : 'queued'} on screen` });
+    res.json({ ok: true, queue: screenQueue(sid).map(queueItem) });
+});
+
+// Remove one item by position, or clear the whole queue (no :index).
+app.delete('/api/screens/:screenId/queue/:index?', (req, res) => {
+    const sid = screenQueueGuard(req, res); if (!sid) return;
+    const q = appData.queues?.[sid];
+    if (Array.isArray(q) && q.length) {
+        if (req.params.index === undefined) { delete appData.queues[sid]; }
+        else { const i = parseInt(req.params.index, 10); if (i >= 0 && i < q.length) q.splice(i, 1); if (!q.length) delete appData.queues[sid]; }
+        saveData(appData);
+    }
+    res.json({ ok: true, queue: screenQueue(sid).map(queueItem) });
 });
 
 app.put('/api/images/:filename/screen', (req, res) => {

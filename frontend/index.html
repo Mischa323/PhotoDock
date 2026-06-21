@@ -576,6 +576,45 @@
       cursor: pointer;
     }
 
+    /* ── Lightbox (full-photo viewer) ─────────────────── */
+    .lb-overlay { position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.93);
+      display: flex; align-items: center; justify-content: center; }
+    .lb-stage { position: relative; width: 100%; height: 100%; display: flex;
+      align-items: center; justify-content: center; }
+    .lb-img { max-width: 92vw; max-height: 80vh; object-fit: contain; border-radius: 8px;
+      box-shadow: 0 16px 60px rgba(0,0,0,0.6); }
+    .lb-arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 48px;
+      border-radius: 50%; font-size: 26px; padding: 0; display: flex; align-items: center; justify-content: center; }
+    .lb-top { position: absolute; top: 16px; left: 0; right: 0; display: flex; align-items: center;
+      justify-content: space-between; padding: 0 18px; gap: 12px; }
+    .lb-counter { font-size: 13px; color: rgba(255,255,255,0.85); font-weight: 600;
+      background: rgba(0,0,0,0.45); padding: 6px 13px; border-radius: 20px; }
+    .lb-meta { position: absolute; bottom: 26px; left: 20px; font-size: 12px; color: rgba(255,255,255,0.6); }
+    .lb-actions { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+      display: flex; gap: 10px; align-items: center; }
+    .photo-queue { position: absolute; top: 7px; right: 39px; width: 26px; height: 26px; border-radius: 50%;
+      background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.2); color: #fff; font-size: 12px;
+      cursor: pointer; display: none; align-items: center; justify-content: center; }
+    .photo-tile:hover .photo-queue { display: flex; }
+    .photo-tile img { cursor: zoom-in; }
+
+    /* ── Up-next queue panel ──────────────────────────── */
+    .q-row { display: flex; align-items: center; gap: 10px; padding: 7px 2px; }
+    .q-thumb { width: 46px; height: 46px; border-radius: 8px; object-fit: cover; flex: none; background: rgba(255,255,255,0.06); }
+    .q-name { font-size: 12.5px; color: rgba(255,255,255,0.85); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .q-sub  { font-size: 11px; color: rgba(255,255,255,0.42); }
+    .q-x { margin-left: auto; background: rgba(255,255,255,0.08); border: none; color: #fff; width: 24px; height: 24px;
+      border-radius: 50%; cursor: pointer; flex: none; font-size: 11px; }
+    .q-head { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+      color: rgba(255,255,255,0.42); margin: 14px 2px 4px; }
+
+    /* ── Toast ────────────────────────────────────────── */
+    #toast { position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%) translateY(20px);
+      z-index: 600; background: rgba(20,24,40,0.97); border: 1px solid rgba(255,255,255,0.12);
+      color: #fff; font-size: 13.5px; font-weight: 500; padding: 11px 20px; border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: all 0.25s; }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
     /* ── Slideshow overlay ───────────────────────────── */
     .ss-overlay {
       position: fixed;
@@ -774,6 +813,31 @@
     <div class="modal-footer"><button class="glass-btn modal-btn" onclick="closeAddChoice()">Cancel</button></div>
   </div>
 </div>
+
+<!-- Lightbox (full-photo viewer) -->
+<div id="lbOverlay" class="lb-overlay" style="display:none" onclick="if(event.target===this||event.target.classList.contains('lb-stage'))closeLightbox()">
+  <div class="lb-stage">
+    <img id="lbImg" class="lb-img" src="" alt="">
+    <button class="glass-btn lb-arrow" style="left:20px" onclick="lbPrev()">‹</button>
+    <button class="glass-btn lb-arrow" style="right:20px" onclick="lbNext()">›</button>
+    <div class="lb-top">
+      <div class="lb-counter" id="lbCounter"></div>
+      <button class="glass-btn hbtn" onclick="closeLightbox()">✕ Close</button>
+    </div>
+    <div class="lb-meta" id="lbMeta"></div>
+    <div class="lb-actions">
+      <button class="cyan-btn hbtn" style="padding:10px 18px;border-radius:11px;font-weight:600" onclick="lbQueue('next')">▶&nbsp;Play next</button>
+      <button class="glass-btn hbtn" style="padding:10px 18px;border-radius:11px" onclick="lbQueue('end')">＋&nbsp;Add to queue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Up-next queue panel -->
+<div class="modal-backdrop" id="queueModal" style="display:none" onclick="if(event.target===this)closeQueue()">
+  <div class="glass modal-box" style="width:430px;max-height:84vh;overflow-y:auto" id="queueBox"></div>
+</div>
+
+<div id="toast"></div>
 
 <!-- Slideshow overlay -->
 <div id="ssOverlay" class="ss-overlay" style="display:none">
@@ -1024,7 +1088,14 @@ function renderScreensView() {
 function renderAlbumsView() {
   const content = document.getElementById('mainContent');
   const color = curScreen.color || '#06b6d4';
-  let html = `<div class="albums-grid">`;
+  let html = `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+      <span style="font-size:13px;color:rgba(255,255,255,0.5)">${albums.length} album${albums.length===1?'':'s'} on ${esc(curScreen.name)}</span>
+      <div style="display:flex;gap:8px">
+        <button class="glass-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:11px" onclick="openQueue()" title="What the frame shows next">≡ Up next</button>
+        <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="openNewAlbumModal()">＋ New Album</button>
+      </div>
+    </div>
+    <div class="albums-grid">`;
 
   for (const a of albums) {
     const count = a.photoCount || 0;
@@ -1078,7 +1149,7 @@ function renderPhotosView() {
   const hint = count === 0 ? 'Drag photos here or use Upload' : `${count} photo${count===1?'':'s'} in this album`;
 
   let photosHtml = '';
-  for (const p of photos) {
+  photos.forEach((p, i) => {
     const fit = p.imageFit === 'cover' ? 'cover' : p.imageFit === 'contain' ? 'contain' : 'auto';
     const fitLabel = fit === 'cover' ? 'Fill' : fit === 'contain' ? 'Fit' : 'Auto';
     const fitTitle = 'Fit on screen: ' + (fit === 'cover' ? 'Fill (crop edges)' : fit === 'contain' ? 'Fit whole photo (bars)' : 'Follow screen setting') + ' — click to change';
@@ -1086,12 +1157,13 @@ function renderPhotosView() {
       ? `<div class="photo-uploader" title="Uploaded by ${esc(p.uploadedBy)}">👤 ${esc(p.uploadedBy)}</div>`
       : '';
     photosHtml += `<div class="photo-tile glass">
-      <img src="${esc(p.url)}" alt="${esc(p.filename)}">
+      <img src="${esc(p.url)}" alt="${esc(p.filename)}" onclick="openLightbox(${i})">
       <button class="photo-delete" onclick="deletePhoto('${esc(p.filename)}')">✕</button>
+      <button class="photo-queue" title="Play next on the frame" onclick="quickQueue('${esc(p.filename)}')">▶</button>
       <button class="photo-fit" title="${esc(fitTitle)}" onclick="cycleFit('${esc(p.filename)}','${fit}')">${fitLabel}</button>
       ${uploader}
     </div>`;
-  }
+  });
 
   photosHtml += `<button class="photo-add-tile" style="border:1.5px dashed ${hexA(color,0.5)};background:${hexA(color,0.07)};color:${hexA(color,0.95)}" onclick="addPhotos()">
     <span style="font-size:30px;font-weight:300;line-height:1">+</span>
@@ -1101,7 +1173,10 @@ function renderPhotosView() {
   content.innerHTML = `<div class="photos-section">
     <div class="photos-topbar">
       <span class="photos-hint">${hint}</span>
-      <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="addPhotos()">↑ Upload photos</button>
+      <div style="display:flex;gap:8px">
+        <button class="glass-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 16px;border-radius:11px" onclick="openQueue()" title="What the frame shows next">≡ Up next</button>
+        <button class="cyan-btn hbtn" style="font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:11px" onclick="addPhotos()">↑ Upload photos</button>
+      </div>
     </div>
     <div class="photos-grid" id="photosGrid"
       ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"
@@ -1445,6 +1520,13 @@ function closeSlideshow() {
 }
 
 document.addEventListener('keydown', e => {
+  const lb = document.getElementById('lbOverlay');
+  if (lb.style.display !== 'none') {
+    if (e.key === 'ArrowRight') lbNext();
+    else if (e.key === 'ArrowLeft') lbPrev();
+    else if (e.key === 'Escape') closeLightbox();
+    return;
+  }
   const ss = document.getElementById('ssOverlay');
   if (ss.style.display !== 'none') {
     if (e.key === 'ArrowRight') ssNext();
@@ -1452,10 +1534,95 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'Escape') closeSlideshow();
   }
   if (e.key === 'Escape') {
+    if (document.getElementById('queueModal').style.display !== 'none') closeQueue();
     if (document.getElementById('newScreenModal').style.display !== 'none') closeNewScreenModal();
     if (document.getElementById('newAlbumModal').style.display !== 'none') closeNewAlbumModal();
   }
 });
+
+// ── Lightbox (full-photo viewer) ──────────────────────────
+let lbIdx = 0;
+function openLightbox(i) {
+  if (!photos.length) return;
+  lbIdx = i;
+  document.getElementById('lbOverlay').style.display = 'flex';
+  lbRender();
+}
+function lbRender() {
+  const p = photos[lbIdx];
+  if (!p) return;
+  document.getElementById('lbImg').src = p.url;
+  document.getElementById('lbCounter').textContent = `${lbIdx + 1} / ${photos.length}`;
+  document.getElementById('lbMeta').textContent = p.uploadedBy ? '👤 ' + p.uploadedBy : '';
+}
+function lbNext() { if (photos.length) { lbIdx = (lbIdx + 1) % photos.length; lbRender(); } }
+function lbPrev() { if (photos.length) { lbIdx = (lbIdx - 1 + photos.length) % photos.length; lbRender(); } }
+function closeLightbox() { document.getElementById('lbOverlay').style.display = 'none'; }
+function lbQueue(mode) { const p = photos[lbIdx]; if (p) queueAdd(p.filename, mode); }
+
+// ── Play next / add to queue (drives the physical frame) ──
+function quickQueue(filename) { queueAdd(filename, 'next'); }
+async function queueAdd(filename, mode) {
+  if (!curScreen) return;
+  try {
+    const res = await fetch('/api/screens/' + curScreen.id + '/queue', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, mode }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(j.error || 'Could not queue that photo'); return; }
+    toast(mode === 'next' ? '▶ Plays next on ' + curScreen.name : '＋ Added to the queue');
+  } catch { toast('Could not queue that photo'); }
+}
+
+// ── "Up next" queue panel ─────────────────────────────────
+async function openQueue() {
+  if (!curScreen) return;
+  document.getElementById('queueModal').style.display = 'flex';
+  await renderQueue();
+}
+function closeQueue() { document.getElementById('queueModal').style.display = 'none'; }
+async function renderQueue() {
+  const box = document.getElementById('queueBox');
+  const header = sub => `<div class="modal-title">Up next on ${esc(curScreen.name)}</div><div class="modal-sub">${sub}</div>`;
+  box.innerHTML = header('Loading…');
+  let data;
+  try { const res = await fetch('/api/screens/' + curScreen.id + '/queue'); data = res.ok ? await res.json() : null; }
+  catch { data = null; }
+  if (!data) { box.innerHTML = header('') + '<div style="color:#f87171;font-size:13px">Could not load the queue.</div>'; return; }
+  const row = (p, sub, removeIdx) => `<div class="q-row">
+      <img class="q-thumb" src="${esc(p.url)}" alt="">
+      <div style="min-width:0">
+        <div class="q-name">${esc((p.uploadedBy ? p.uploadedBy + ' · ' : '') + p.filename)}</div>
+        ${sub ? `<div class="q-sub">${esc(sub)}</div>` : ''}
+      </div>
+      ${removeIdx != null ? `<button class="q-x" title="Remove" onclick="queueRemove(${removeIdx})">✕</button>` : ''}
+    </div>`;
+  let html = header(`Shown on the frame at its next refresh (about every ${data.intervalMinutes} min)`);
+  if (data.nowPlaying) html += `<div class="q-head">Now showing</div>` + row(data.nowPlaying, 'on the frame now', null);
+  html += `<div class="q-head">Queued — plays next${data.queue.length ? '' : ' (empty)'}</div>`;
+  html += data.queue.length
+    ? data.queue.map((p, i) => row(p, i === 0 ? 'plays next' : 'then #' + (i + 1), i)).join('')
+    : `<div style="color:rgba(255,255,255,0.4);font-size:12.5px;padding:2px">Hover a photo and hit ▶, or open one and choose “Play next”.</div>`;
+  if (data.upNext.length) html += `<div class="q-head">Then, from the rotation</div>` + data.upNext.slice(0, 6).map(p => row(p, '', null)).join('');
+  html += `<div class="modal-footer" style="margin-top:16px">
+      ${data.queue.length ? `<button class="glass-btn modal-btn" onclick="queueClear()">Clear queue</button>` : ''}
+      <button class="cyan-btn modal-btn" onclick="closeQueue()">Done</button>
+    </div>`;
+  box.innerHTML = html;
+}
+async function queueRemove(i) { try { await fetch('/api/screens/' + curScreen.id + '/queue/' + i, { method: 'DELETE' }); } catch {} renderQueue(); }
+async function queueClear()    { try { await fetch('/api/screens/' + curScreen.id + '/queue',       { method: 'DELETE' }); } catch {} renderQueue(); }
+
+// ── Toast ─────────────────────────────────────────────────
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
 
 function esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
