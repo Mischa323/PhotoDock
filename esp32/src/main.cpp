@@ -11,6 +11,7 @@
 #include <esp_sleep.h>
 #include <esp_system.h>
 #include <esp_mac.h>
+#include "esp_ota_ops.h"
 #include "driver/rtc_io.h"
 #include "JPEGDEC.h"
 #include "config.h"
@@ -45,6 +46,17 @@ RTC_DATA_ATTR static bool g_sleepShown = false;
 // on each short press; g_manualSleep is toggled by a long press.
 RTC_DATA_ATTR static int  g_manualOffset = 0;
 RTC_DATA_ATTR static bool g_manualSleep  = false;
+
+// Retry/backoff counters, kept across deep sleep (reset by a power cycle).
+RTC_DATA_ATTR static uint8_t g_wifiFails   = 0;   // consecutive wakes WiFi didn't connect
+RTC_DATA_ATTR static uint8_t g_pairFails   = 0;   // consecutive pairing windows that expired
+RTC_DATA_ATTR static uint8_t g_keyRejected = 0;   // consecutive wakes the server rejected our key
+// The setup-portal screen is already on the panel, so a portal reopened after a
+// sleep doesn't redraw it (a full e-ink refresh costs ~20 s of power).
+RTC_DATA_ATTR static bool    g_setupShown  = false;
+// Running firmware version, cached across wakes (hashing the image takes time).
+RTC_DATA_ATTR static char     g_fwVer[17]  = {0};
+RTC_DATA_ATTR static uint32_t g_fwVerAddr  = 0;
 
 // â”€â”€ Framebuffer size (depends on bits-per-pixel of the panel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #if PANEL_E6
@@ -140,6 +152,64 @@ static String jsonEscape(const String &in) {
     return o;
 }
 
+// ── OTA rollback ─────────────────────────────────────────────────────────────
+// The bootloader can fall back to the previous firmware if a new one never
+// confirms itself, but the Arduino core confirms every image the moment it
+// boots. Defer that: a new image is confirmed only once it has talked to the
+// server (so it can still receive a fixed update) or made it through a whole
+// wake cycle to deep sleep. If it crashes or resets before either, the next
+// boot runs the previous firmware again.
+extern "C" bool verifyRollbackLater() { return true; }
+
+static void markAppValid() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    esp_ota_img_states_t state;
+    if (running && esp_ota_get_state_partition(running, &state) == ESP_OK &&
+        state == ESP_OTA_IMG_PENDING_VERIFY) {
+        esp_ota_mark_app_valid_cancel_rollback();
+        logln("OTA: new firmware confirmed");
+    }
+}
+
+// The running firmware's version: the first 16 hex chars of its image MD5, the
+// same id the server derives from firmware.bin. Reporting what is actually
+// running (instead of a version noted down before an update) means a failed or
+// rolled-back update can't make the device claim a version it doesn't have.
+static String runningFwVersion() {
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const uint32_t addr = running ? running->address : 0;
+    if (g_fwVer[0] == 0 || g_fwVerAddr != addr) {
+        String md5 = ESP.getSketchMD5();
+        strlcpy(g_fwVer, md5.c_str(), sizeof(g_fwVer));
+        g_fwVerAddr = addr;
+    }
+    return String(g_fwVer);
+}
+
+// After a failed OTA attempt, skip the next few update checks (2, 4, 8, 16, then
+// every 24 wakes) instead of re-downloading ~1 MB and redrawing the "Updating"
+// screen on every wake. A different target version starts the count over.
+static void otaRecordFailure(const String &version) {
+    Preferences p; p.begin("ota", false);
+    int fails = p.getString("failver", "") == version ? p.getInt("fails", 0) + 1 : 1;
+    int skip  = fails >= 5 ? 24 : (1 << fails);
+    p.putString("failver", version);
+    p.putInt("fails", fails);
+    p.putInt("skip", skip);
+    p.end();
+    logf("OTA: update to %s failed (attempt %d) - next try in %d wake(s)\n", version.c_str(), fails, skip);
+}
+static void otaRecordSuccess() {
+    Preferences p; p.begin("ota", false);
+    p.putString("failver", "");
+    p.putInt("fails", 0);
+    p.putInt("skip", 0);
+    p.end();
+}
+
 // â”€â”€ Runtime config â€” stored in NVS, set via setup portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 struct Config {
     String wifiSsid;
@@ -181,6 +251,25 @@ static bool configComplete(const Config &c) {
     return c.wifiSsid.length() > 0 &&
            c.serverHost.length() > 0;
 }
+
+// Has this WiFi config ever worked? A device that has never connected with its
+// saved settings (e.g. a typo in the portal) goes back to the setup portal after
+// a few failed tries; one that has worked before (or is already paired) only
+// retries, so a router outage can't drop a working frame into setup mode.
+static bool everConnected(const Config &c) {
+    if (c.apiKey.length() > 0) return true;
+    Preferences p; p.begin("photodisplay", true);
+    bool ok = p.getBool("ok", false);
+    p.end();
+    return ok;
+}
+static void setEverConnected(bool ok) {
+    Preferences p; p.begin("photodisplay", false);
+    if (p.getBool("ok", false) != ok) p.putBool("ok", ok);
+    p.end();
+}
+
+static void deep_sleep(uint32_t seconds);   // defined below
 
 // â”€â”€ Captive portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static WebServer apServer(80);
@@ -251,6 +340,7 @@ static void startCaptivePortal() {
     snprintf(apName, sizeof(apName), "PhotoDock-%02X%02X", mac[4], mac[5]);
 
     logf("Starting setup portal: %s\n", apName);
+    markAppValid();   // reached interactive setup: this firmware works
     WiFi.mode(WIFI_AP);
     WiFi.softAP(apName);
     delay(500);
@@ -265,19 +355,42 @@ static void startCaptivePortal() {
         Config c;
         c.wifiSsid     = apServer.arg("ssid");
         c.wifiPassword = apServer.arg("pass");
-        c.serverHost   = apServer.arg("host");
-        const String ps = apServer.arg("port");
-        c.serverPort   = ps.length() > 0 ? ps.toInt() : 8080;
         c.apiKey       = "";   // obtained later via QR pairing
 
-        if (!configComplete(c)) {
+        // Accept the server address however it's typed — "192.168.1.10",
+        // "http://192.168.1.10:8080/" or "https://photos.example.com" — and keep
+        // just the host; a scheme or path left in would make every request fail.
+        String host = apServer.arg("host"); host.trim();
+        String ps   = apServer.arg("port"); ps.trim();
+        int urlPort = 0;
+        bool https  = host.startsWith("https://");
+        int s = host.indexOf("://");
+        if (s >= 0) host = host.substring(s + 3);
+        int slash = host.indexOf('/');
+        if (slash >= 0) host = host.substring(0, slash);
+        int colon = host.lastIndexOf(':');
+        if (colon > 0) { urlPort = host.substring(colon + 1).toInt(); host = host.substring(0, colon); }
+        c.serverHost = host;
+        if (urlPort > 0)                         c.serverPort = urlPort;
+        else if (https && (ps == "8080" || !ps.length())) c.serverPort = 443;   // https:// with the port left at its default
+        else                                     c.serverPort = ps.length() > 0 ? ps.toInt() : 8080;
+
+        String err;
+        if (c.wifiSsid.length() == 0 || c.wifiSsid.length() > 32)   err = "Enter the WiFi network name (up to 32 characters).";
+        else if (c.wifiPassword.length() > 0 && (c.wifiPassword.length() < 8 || c.wifiPassword.length() > 64))
+                                                                    err = "A WiFi password is 8 to 64 characters (leave it empty for an open network).";
+        else if (c.serverHost.length() == 0 || c.serverHost.indexOf(' ') >= 0)
+                                                                    err = "Enter the server address, e.g. 192.168.1.100.";
+        else if (c.serverPort < 1 || c.serverPort > 65535)         err = "The server port must be between 1 and 65535.";
+        if (err.length()) {
             apServer.send(400, "text/html",
                 "<div style='font-family:sans-serif;padding:30px'>"
-                "<h2 style='color:red'>Missing required fields.</h2>"
+                "<h2 style='color:red'>Please check the form</h2><p>" + err + "</p>"
                 "<p><a href='/'>Go back</a></p></div>");
             return;
         }
         saveConfig(c);
+        setEverConnected(false);   // new settings: not proven to work yet
         apServer.send_P(200, "text/html", SAVED_HTML);
         delay(1500);
         ESP.restart();
@@ -297,9 +410,20 @@ static void startCaptivePortal() {
     apServer.begin();
     logf("Portal: http://%s\n", WiFi.softAPIP().toString().c_str());
 
+    // Don't keep the radio on for ever if nobody sets the device up: after 15
+    // minutes with no phone connected, sleep for 30 minutes (a restart or KEY1
+    // wakes it sooner) and open the portal again on the next wake.
+    const uint32_t IDLE_MS = 15UL * 60 * 1000;
+    uint32_t lastActive = millis();
     while (true) {
         dnsServer.processNextRequest();
         apServer.handleClient();
+        if (WiFi.softAPgetStationNum() > 0) lastActive = millis();
+        if (millis() - lastActive > IDLE_MS) {
+            logln("Setup portal idle for 15 min - sleeping");
+            deep_sleep(30 * 60);
+        }
+        delay(2);
     }
 }
 
@@ -760,9 +884,20 @@ static void epd_show_setup(const char *apName) {
     epd_text(24, 260, "Enter your WiFi password and", C_BLACK, C_WHITE, 2);
     epd_text(24, 282, "server address to get started.", C_BLACK, C_WHITE, 2);
 
+    epd_text(24, 330, "No setup network? It turns off after", C_BLACK, C_WHITE, 2);
+    epd_text(24, 352, "15 min - restart the frame to retry.", C_BLACK, C_WHITE, 2);
+
     epd_init();
     epd_display(epd_buf);
     epd_sleep_mode();
+    g_setupShown = true;
+}
+
+// Open the setup portal, drawing the setup screen only if it isn't already on
+// the panel (a portal reopened after sleeping doesn't need a fresh refresh).
+static void openSetupPortal() {
+    if (!g_setupShown) { String ap = apNameFromMac(); epd_show_setup(ap.c_str()); }
+    startCaptivePortal();   // never returns
 }
 
 // Show a server-unreachable error screen on the e-ink display
@@ -810,6 +945,10 @@ static void epd_show_no_photos() {
 static void epd_draw_qr(const char *text, int ox, int oy, int scale) {
     QRCode qr;
     static uint8_t qrData[256];   // ample for version 6 (holds ~134 byte URL)
+    // Version 6 / ECC_LOW holds at most 134 bytes and the library doesn't check:
+    // a longer URL (long public URL) would overrun qrData. Skip the QR instead —
+    // the pairing code next to it still works.
+    if (strlen(text) > 134) { logf("Pair URL too long for the QR code (%u chars) - showing the code only\n", (unsigned)strlen(text)); return; }
     if (qrcode_initText(&qr, qrData, 6, ECC_LOW, text) != 0) return;
     // Quiet zone
     epd_rect(ox - scale*2, oy - scale*2,
@@ -1091,20 +1230,23 @@ static void post_status(uint32_t sleep_s) {
     HTTPClient http;
     beginServer(http, serverUrl("/api/device/status?key=" + cfg.apiKey));
     http.addHeader("Content-Type", "application/json");
-    Preferences fp; fp.begin("ota", true);
-    String fwver = fp.getString("fwver", "");
-    fp.end();
+    const String fwver = runningFwVersion();
     // Charging/USB diagnostics are only available on the AXP2101 boards.
     String chargePart = "";
 #if HAS_AXP2101
-    if (g_pmicReady)
+    if (g_pmicReady) {
+        // The fuel gauge reads -1 with no battery attached; don't report that as
+        // a level (the server would raise a "-1%" low-battery alert).
+        const bool battConn = PMU.isBatteryConnect();
+        const int  battPct  = PMU.getBatteryPercent();
         chargePart = String(",\"charging\":") + (PMU.isCharging() ? "true" : "false")
                    + ",\"usb\":" + (PMU.isVbusIn() ? "true" : "false")
-                   + ",\"battery_pct\":" + String(PMU.getBatteryPercent())
-                   + ",\"battery_connected\":" + (PMU.isBatteryConnect() ? "true" : "false")
+                   + (battConn && battPct >= 0 && battPct <= 100 ? ",\"battery_pct\":" + String(battPct) : String(""))
+                   + ",\"battery_connected\":" + (battConn ? "true" : "false")
                    + ",\"vbus_mv\":" + String(PMU.getVbusVoltage())
                    + ",\"sys_mv\":" + String(PMU.getSystemVoltage())
                    + ",\"charge_status\":\"" + charger_status_str() + "\"";
+    }
 #endif
     String body = "{\"device_id\":\"" + String(device_id) + "\""
                 + ",\"wifi_rssi\":"  + rssi
@@ -1116,6 +1258,7 @@ static void post_status(uint32_t sleep_s) {
     int code = http.POST(body);
     logf("Status POST %d\n", code);
     http.end();
+    if (code >= 200 && code < 300) markAppValid();   // reached the server
 }
 
 // Upload the captured log buffer to the server (best effort).
@@ -1138,6 +1281,7 @@ static void flushLogs() {
 
 // â”€â”€ Deep sleep â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 static void deep_sleep(uint32_t seconds) {
+    markAppValid();   // got through a whole wake cycle without crashing
     logf("Deep sleep for %u s\n", seconds);
     flushLogs();
     Serial.flush();
@@ -1223,30 +1367,54 @@ static void clearConfig() {
 }
 
 // â”€â”€ Fetch a JPEG URL and render it to the panel ──────────────────────────
-static bool fetchAndShow(const String &url) {
-    HTTPClient http;
-    beginServer(http, url);
-    if (http.GET() != 200) { http.end(); return false; }
-    int total = http.getSize();
+// Read an HTTP response body into buf. Gives up when no data arrives for 10 s
+// or the whole body takes over 60 s: if WiFi drops mid-download the connection
+// can still look open, and without a limit the device would spin here, never
+// sleeping, until the battery is flat. Returns true only for a complete body
+// (all Content-Length bytes, or everything up to a clean close if none was
+// sent); *outLen gets the bytes read either way.
+static bool readBody(HTTPClient &http, uint8_t *buf, size_t cap, size_t *outLen) {
     WiFiClient *stream = http.getStreamPtr();
+    const int total = http.getSize();          // -1 if the server sent no length
     size_t len = 0;
+    const uint32_t start = millis();
+    uint32_t lastData = start;
+    bool timedOut = false;
     while (http.connected() && (total < 0 || len < (size_t)total)) {
         int avail = stream->available();
         if (avail > 0) {
-            int room = (int)(JPEG_BUF_SIZE - len);
-            if (room <= 0) break;
-            len += stream->readBytes(jpeg_buf + len, min(room, avail));
+            size_t room = cap - len;
+            if (room == 0) break;               // bigger than the buffer
+            len += stream->readBytes(buf + len, (size_t)avail < room ? (size_t)avail : room);
+            lastData = millis();
+        } else if (millis() - lastData > 10000 || millis() - start > 60000) {
+            timedOut = true;
+            break;
         } else {
             delay(1);
         }
     }
+    *outLen = len;
+    if (timedOut) logf("Download stalled after %u bytes - giving up\n", (unsigned)len);
+    return len > 0 && !timedOut && (total < 0 ? true : len == (size_t)total);
+}
+
+static bool fetchAndShow(const String &url) {
+    HTTPClient http;
+    beginServer(http, url);
+    if (http.GET() != 200) { http.end(); return false; }
+    size_t len = 0;
+    bool complete = readBody(http, jpeg_buf, JPEG_BUF_SIZE, &len);
     http.end();
-    if (len == 0) return false;
+    // Only touch the panel with a complete, decodable image; otherwise the
+    // caller falls back to its built-in screen.
+    if (!complete) return false;
     memset(rgb_buf, 0, EPD_W * EPD_H * 3);
     if (!jpeg.openRAM(jpeg_buf, (int)len, jpegDraw)) return false;
     jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
-    jpeg.decode(0, 0, 0);
+    const bool decoded = jpeg.decode(0, 0, 0);
     jpeg.close();
+    if (!decoded) return false;
     dither_and_pack();
     epd_init();
     epd_display(epd_buf);
@@ -1264,9 +1432,7 @@ static bool showServerScreen(const char *state) {
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     int mv  = read_battery_mv();
     int pct = mv > 0 ? constrain((mv - 3300) * 100 / (4200 - 3300), 0, 100) : -1;
-    Preferences fp; fp.begin("ota", true);
-    String fw = fp.getString("fwver", "");
-    fp.end();
+    const String fw = runningFwVersion();
     String url = serverUrl("/api/device/screen?key=" + cfg.apiKey + "&state=" + state
                + "&id=" + id + "&rssi=" + WiFi.RSSI());
     if (pct >= 0)       url += "&batt=" + String(pct);
@@ -1275,43 +1441,46 @@ static bool showServerScreen(const char *state) {
 }
 
 // â”€â”€ OTA firmware update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Ask the server which firmware version it has; if it differs from the version
-// we last applied, download and flash it (the device reboots on success). A
-// freshly hand-flashed device "adopts" the server version without re-flashing.
+// Ask the server which firmware version it has; if it differs from the one
+// we're running and an update is enabled, download and flash it (the device
+// reboots on success). Versions are compared by image hash, so a device flashed
+// with the server's own build is already "up to date".
 static void otaCheck() {
-    const String base = serverUrl("");
     Preferences p;
     p.begin("ota", false);
-    String applied = p.getString("fwver", "");
+    int skip = p.getInt("skip", 0);
+    if (skip > 0) {                               // backing off after a failure
+        p.putInt("skip", skip - 1);
+        p.end();
+        logf("OTA: skipping update check after a failed update (%d more)\n", skip - 1);
+        return;
+    }
+    p.end();
+    const String running = runningFwVersion();
 
     HTTPClient http;
-    beginServer(http, base + "/api/device/firmware?key=" + cfg.apiKey + "&current=" + applied
-               + "&model=" BOARD_MODEL);
-    if (http.GET() != 200) { http.end(); p.end(); return; }
+    beginServer(http, serverUrl("/api/device/firmware?key=" + cfg.apiKey + "&current=" + running
+               + "&model=" BOARD_MODEL));
+    if (http.GET() != 200) { http.end(); return; }
     String resp = http.getString(); http.end();
+    markAppValid();                               // reached the server: we can still get a fix
     String version = jsonStr(resp, "version");
     String url     = jsonStr(resp, "url");
     String update  = jsonStr(resp, "update");
-    if (version.length() == 0 || url.length() == 0) { p.end(); return; }
+    if (version.length() == 0 || url.length() == 0) return;
 
-    if (applied.length() == 0) {                 // adopt current build, no flash
-        p.putString("fwver", version);
-        p.end();
-        logf("OTA: adopting version %s\n", version.c_str());
-        return;
-    }
-    if (update != "yes" || version == applied) {
-        p.end();
-        logln(version == applied ? "OTA: up to date" : "OTA: update available (not enabled)");
+    if (update != "yes" || version == running) {
+        logln(version == running ? "OTA: up to date" : "OTA: update available (not enabled)");
         return;
     }
 
-    logf("OTA: updating %s -> %s\n", applied.c_str(), version.c_str());
+    logf("OTA: updating %s -> %s\n", running.c_str(), version.c_str());
     // Show the "Updating firmware" screen so it's clear what's happening, and
-    // leave a flag so the next boot can show an "Update complete" confirmation.
+    // leave a note so the next boot can confirm the update actually took.
     showServerScreen("updating");
+    p.begin("ota", false);
     p.putBool("didupd", true);
-    p.putString("fwver", version);               // optimistic; revert on failure
+    p.putString("target", version);
     p.end();
     flushLogs();                                  // get the pre-update log out first
 
@@ -1327,13 +1496,13 @@ static void otaCheck() {
         WiFiClient client;
         r = httpUpdate.update(client, otaUrl);
     }
-    if (r == HTTP_UPDATE_FAILED) {                // reverts so we retry next wake
+    if (r == HTTP_UPDATE_FAILED) {
         logf("OTA failed (%d): %s\n", httpUpdate.getLastError(),
              httpUpdate.getLastErrorString().c_str());
         Preferences p2; p2.begin("ota", false);
-        p2.putString("fwver", applied);
         p2.putBool("didupd", false);             // update didn't happen
         p2.end();
+        otaRecordFailure(version);
     }
     // HTTP_UPDATE_OK reboots automatically into the new firmware.
 }
@@ -1500,9 +1669,7 @@ void setup() {
             logln("Loaded compile-time config");
         } else {
             logln("No config â€” starting setup portal");
-            String ap = apNameFromMac();
-            epd_show_setup(ap.c_str());
-            startCaptivePortal();
+            openSetupPortal();
         }
     }
 
@@ -1533,15 +1700,28 @@ void setup() {
         // get stuck in the AP portal forever â€” it should sleep and retry so it
         // recovers on its own without a manual reboot.
         if (firstBoot) {
-            logln("\nWiFi failed on first boot â€” starting setup portal");
-            String ap = apNameFromMac();
-            epd_show_setup(ap.c_str());
-            startCaptivePortal();
+            logln("\nWiFi failed on first boot - starting setup portal");
+            openSetupPortal();
         }
-        logln("\nWiFi failed â€” sleeping and retrying next wake");
-        deep_sleep(60);
+        if (g_wifiFails < 250) g_wifiFails++;
+        // These settings have never connected (most likely a typo in the WiFi
+        // password): after 3 tries, reopen the portal so it can be corrected
+        // instead of retrying the wrong password for ever.
+        if (!everConnected(cfg) && g_wifiFails >= 3) {
+            g_wifiFails = 0;
+            logln("\nWiFi has never connected with these settings - reopening setup portal");
+            openSetupPortal();
+        }
+        // Worked before: retry, backing off 1, 2, 4 ... 32 min so a long outage
+        // doesn't keep powering the radio up every minute.
+        const uint32_t wait = 60UL << (g_wifiFails > 6 ? 5 : g_wifiFails - 1);
+        logf("\nWiFi failed (%u in a row) - retrying in %u s\n", g_wifiFails, wait);
+        deep_sleep(wait);
     }
     logf("\nIP: %s\n", WiFi.localIP().toString().c_str());
+    g_wifiFails  = 0;
+    g_setupShown = false;          // the next screen drawn replaces the setup one
+    setEverConnected(true);
 
     // Remember which AP we connected to so the next wake can skip the scan.
     {
@@ -1552,7 +1732,17 @@ void setup() {
     // No API key yet â†’ run the QR pairing flow to obtain one.
     if (cfg.apiKey.length() == 0) {
         logln("No API key â€” starting QR pairing");
-        if (!pairDevice()) { logln("Pairing not completed; retry after sleep"); deep_sleep(120); }
+        if (!pairDevice()) {
+            // Each attempt keeps the radio on for ~10 min. Retry soon at first
+            // (someone may be pairing right now), then back off to 15 min and 1 h
+            // so an unpaired frame doesn't drain its battery. A restart (or KEY1)
+            // starts a new attempt straight away.
+            const uint32_t wait = g_pairFails < 2 ? 120 : (g_pairFails < 4 ? 900 : 3600);
+            if (g_pairFails < 250) g_pairFails++;
+            logf("Pairing not completed; retrying in %u s\n", wait);
+            deep_sleep(wait);
+        }
+        g_pairFails = 0;
     }
 
     // If we just rebooted from a completed OTA update, show an "Update complete"
@@ -1560,8 +1750,19 @@ void setup() {
     {
         Preferences pu; pu.begin("ota", false);
         bool didUpdate = pu.getBool("didupd", false);
+        String target  = pu.getString("target", "");
         if (didUpdate) pu.putBool("didupd", false);
         pu.end();
+        // The flag only says an update was started. If we're not running the
+        // version it was meant to install (power lost mid-flash, or the new image
+        // crashed and the bootloader rolled back), count it as a failed attempt.
+        if (didUpdate && target.length() && target != runningFwVersion()) {
+            logf("OTA: update to %s did not take effect (running %s)\n", target.c_str(), runningFwVersion().c_str());
+            otaRecordFailure(target);
+            didUpdate = false;
+        } else if (didUpdate) {
+            otaRecordSuccess();
+        }
         if (didUpdate) {
             logln("OTA: update complete â€” showing confirmation");
             showServerScreen("updated");
@@ -1584,7 +1785,25 @@ void setup() {
         String url = serverUrl("/api/slideshow/current?key=" + cfg.apiKey
                    + "&offset=" + g_manualOffset);   // KEY1 short-press advances this
         beginServer(http, url);
-        if (http.GET() == 200) {
+        const int code = http.GET();
+        if (code == 401 && http.getString().indexOf("API key") >= 0) {
+            // The server no longer knows our key: the screen or key was deleted
+            // in the dashboard. On the second wake in a row, forget it and pair
+            // again, instead of showing "Cannot reach server" for ever. (Checking
+            // the message stops a proxy's own 401 page from unpairing the frame.)
+            http.end();
+            if (++g_keyRejected >= 2) {
+                logln("Server no longer accepts this device's key - pairing again");
+                g_keyRejected = 0;
+                cfg.apiKey = "";
+                saveConfig(cfg);
+                deep_sleep(2);                    // the next wake starts pairing
+            }
+            logln("Server rejected the API key - checking again in 60 s");
+            deep_sleep(60);
+        }
+        if (code == 200) {
+            g_keyRejected = 0;
             String body = http.getString();
             // Scheduled sleep window: server tells us to show the sleeping screen
             // and sleep until the wake time (carried in next_in_ms).
@@ -1654,18 +1873,15 @@ void setup() {
             epd_show_error(cfg.serverHost.c_str(), cfg.serverPort);
             deep_sleep(sleep_s);
         }
-        WiFiClient *stream = http.getStreamPtr();
-        int total = http.getSize();
-        logf("JPEG: %d bytes\n", total);
-        while (http.connected() && jpeg_len < (size_t)total) {
-            int avail = stream->available();
-            if (avail > 0) {
-                size_t room = JPEG_BUF_SIZE - jpeg_len;
-                if (room == 0) break;
-                jpeg_len += stream->readBytes(jpeg_buf + jpeg_len, min((int)room, avail));
-            }
-        }
+        logf("JPEG: %d bytes\n", http.getSize());
+        const bool complete = readBody(http, jpeg_buf, JPEG_BUF_SIZE, &jpeg_len);
         http.end();
+        if (!complete) {
+            // A cut-off download would paint a partial photo for a whole
+            // interval. Keep what's on the panel and try again in a few minutes.
+            logf("Incomplete image (%u bytes) - keeping the current one\n", (unsigned)jpeg_len);
+            deep_sleep(sleep_s < 300 ? sleep_s : 300);
+        }
     }
 
     // The e-ink refresh below takes ~15-25s and doesn't need the network. Power
@@ -1679,20 +1895,27 @@ void setup() {
     }
 
     memset(rgb_buf, 0, EPD_W * EPD_H * 3);   // black where the image doesn't cover
+    bool decoded = false;
     if (jpeg.openRAM(jpeg_buf, (int)jpeg_len, jpegDraw)) {
         jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
-        if (!jpeg.decode(0, 0, 0)) logln("JPEG decode error");
-        else                        logln("JPEG decoded");
+        decoded = jpeg.decode(0, 0, 0);
+        logln(decoded ? "JPEG decoded" : "JPEG decode error");
         jpeg.close();
-        dither_and_pack();           // quantize + dither into epd_buf
-        logln("Dithered to 6 colors");
     } else {
         logln("JPEG open failed");
     }
 
-    epd_init();
-    epd_display(epd_buf);
-    epd_sleep_mode();
+    if (decoded) {
+        dither_and_pack();           // quantize + dither into epd_buf
+        logln("Dithered to 6 colors");
+        epd_init();
+        epd_display(epd_buf);
+        epd_sleep_mode();
+    } else {
+        // Refreshing now would show a half-decoded or blank frame (black stripes
+        // on the mono panel). Keep the current photo until the next slot.
+        logln("Keeping the current image");
+    }
 
     // Subtract the time spent fetching + refreshing so we wake on the slot
     // boundary (exact minute/hour) rather than drifting later each cycle.
