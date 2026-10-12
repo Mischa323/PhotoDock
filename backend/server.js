@@ -3344,7 +3344,9 @@ app.post('/api/device/status', requireApiKey, express.json(), (req, res) => {
         charging:        charging != null ? !!charging : null,
         usb:             usb      != null ? !!usb      : null,
         // Detailed power diagnostics (reported when the PMIC was read this wake).
-        batteryPct:       battery_pct != null ? Number(battery_pct) : null,
+        // The fuel gauge reads -1 with no battery attached — not a level.
+        batteryPct:       battery_pct != null && battery_connected !== false && Number(battery_pct) >= 0 && Number(battery_pct) <= 100
+                              ? Number(battery_pct) : null,
         batteryConnected: battery_connected != null ? !!battery_connected : null,
         vbusMv:           vbus_mv != null ? Number(vbus_mv) : null,
         sysMv:            sys_mv  != null ? Number(sys_mv)  : null,
@@ -3413,7 +3415,12 @@ function currentFirmwareInfo(model) {
 }
 
 app.get('/api/device/firmware', requireApiKey, (req, res) => {
+    // Firmware from before multi-board support doesn't send a model (those are
+    // all PhotoPainters). Any model it does send must be one we build — never
+    // fall back to another board's binary (e.g. a custom device that was
+    // deleted), which would flash the wrong firmware over the air.
     const model = req.query.model || 'PhotoPainter-E6';
+    if (!knownModel(model)) return res.status(404).json({ error: 'No firmware for this model' });
     const info  = currentFirmwareInfo(model);
     if (!info) return res.status(404).json({ error: 'No firmware available' });
     const key     = req.apiKey;
@@ -3720,11 +3727,15 @@ app.get('/api/screens', (req, res) => {
                     statusLabel,
                     lastSeen:    src.lastSeen,
                     fw:          src.fw || src.fwVersion || null,
+                    model:       src.model || null,
                     deviceStatus: src.status || null,
                 };
             }
         }
-        const serverFw = currentFirmwareInfo();
+        // Compare against the firmware built for THIS device's board (a reTerminal
+        // must not be told the PhotoPainter build is an update for it).
+        const devModel = deviceInfo?.model || 'PhotoPainter-E6';
+        const serverFw = knownModel(devModel) ? currentFirmwareInfo(devModel) : null;
         const deviceFw = deviceInfo?.fw || null;
         // The photo the device is currently showing (most recently fetched across
         // the screen's keys), for a live preview on the card.

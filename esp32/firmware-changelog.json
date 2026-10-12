@@ -5,6 +5,22 @@
       "name": "Seeed reTerminal E1001 (7.5\" monochrome)",
       "releases": [
         {
+          "version": "2026.10.12",
+          "date": "2026-10-12",
+          "title": "Download timeouts, OTA rollback & retry back-off, re-pairing, safer setup portal",
+          "changes": [
+            "Image downloads now give up after 10 s without data (or 60 s in total) instead of waiting for ever when WiFi drops mid-download, which kept the device awake until the battery was flat",
+            "A cut-off download or an image that fails to decode no longer gets painted on the panel - the current photo stays and the frame tries again shortly",
+            "Firmware updates: the device now reports the version it is actually running (the hash of its own image), so an update interrupted by power loss is retried instead of being reported as installed",
+            "Firmware updates: a new firmware that crashes before it can reach the server is rolled back automatically to the previous version on the next boot",
+            "Firmware updates: after a failed update the device waits 2, 4, 8, 16, then 24 wakes before trying again, instead of re-downloading on every wake",
+            "If the device's key is deleted in the dashboard, it now goes back to pairing (after two wakes) instead of showing \"Cannot reach server\" for ever",
+            "Setup portal: the WiFi password, server address and port are checked before saving; an address typed as http://host:port/ is accepted; a device whose WiFi has never connected reopens the setup portal after 3 tries",
+            "Setup portal turns itself off after 15 idle minutes and sleeps for 30 (restart the frame to reopen it); WiFi outages are retried with back-off up to 32 minutes; unpaired frames back off between pairing attempts",
+            "Pairing: a server address too long for the QR code no longer crashes the device - the pairing code is shown on its own"
+          ]
+        },
+        {
           "version": "2026.06.01-e874157",
           "date": "2026-06-01",
           "commit": "e874157",
@@ -48,6 +64,23 @@
     "PhotoPainter-E6": {
       "name": "Waveshare 7.3\" PhotoPainter (E6 Spectra 6)",
       "releases": [
+        {
+          "version": "2026.10.12",
+          "date": "2026-10-12",
+          "title": "Download timeouts, OTA rollback & retry back-off, re-pairing, safer setup portal",
+          "changes": [
+            "Image downloads now give up after 10 s without data (or 60 s in total) instead of waiting for ever when WiFi drops mid-download, which kept the device awake until the battery was flat",
+            "A cut-off download or an image that fails to decode no longer gets painted on the panel - the current photo stays and the frame tries again shortly",
+            "Firmware updates: the device now reports the version it is actually running (the hash of its own image), so an update interrupted by power loss is retried instead of being reported as installed",
+            "Firmware updates: a new firmware that crashes before it can reach the server is rolled back automatically to the previous version on the next boot",
+            "Firmware updates: after a failed update the device waits 2, 4, 8, 16, then 24 wakes before trying again, instead of re-downloading on every wake",
+            "If the device's key is deleted in the dashboard, it now goes back to pairing (after two wakes) instead of showing \"Cannot reach server\" for ever",
+            "Setup portal: the WiFi password, server address and port are checked before saving; an address typed as http://host:port/ is accepted; a device whose WiFi has never connected reopens the setup portal after 3 tries",
+            "Setup portal turns itself off after 15 idle minutes and sleeps for 30 (restart the frame to reopen it); WiFi outages are retried with back-off up to 32 minutes; unpaired frames back off between pairing attempts",
+            "Pairing: a server address too long for the QR code no longer crashes the device - the pairing code is shown on its own",
+            "Battery level is only reported when a battery is connected (the gauge reads -1% without one, which triggered a false low-battery alert)"
+          ]
+        },
         {
           "version": "2026.06.01-e874157",
           "date": "2026-06-01",

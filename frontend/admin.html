@@ -3450,7 +3450,10 @@
 
     applyGridLayout();
 
-    Sortable.create(document.querySelector('main'), {
+    // Drag-to-reorder is loaded from a CDN. If it can't load (offline server,
+    // blocked CDN) just skip it — an exception here would stop the rest of the
+    // page from initialising.
+    if (window.Sortable) Sortable.create(document.querySelector('main'), {
         handle:    '.drag-handle',
         animation: 180,
         ghostClass: 'sortable-ghost',

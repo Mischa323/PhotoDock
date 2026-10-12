@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.7.2",
+    "date": "2026-10-12",
+    "changes": [
+      "New device firmware (2026.10.12) for PhotoPainter and reTerminal: download timeouts, automatic rollback of a broken update, retry back-off, automatic re-pairing when a device's key is deleted, and a safer setup portal - install it via Admin → Firmware source → Pull & rebuild",
+      "Firmware updates are only offered for a model the server actually builds; an unknown or deleted custom board is no longer sent the PhotoPainter firmware",
+      "The \"update available\" badge now compares each screen against the firmware for its own board (reTerminal screens no longer always show an update)",
+      "A device without a battery no longer triggers a \"-1%\" low-battery alert",
+      "Admin page keeps working when the drag-to-reorder script can't be loaded from its CDN (offline or blocked networks)"
+    ]
+  },
+  {
     "version": "2.7.1",
     "date": "2026-10-12",
     "changes": [
