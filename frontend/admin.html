@@ -2106,11 +2106,11 @@
                 <td>
                     <div class="actions">
                         <button class="icon-btn" title="Edit" onclick="openEditModal('${u.id}')">&#9998;</button>
-                        ${u.twoFactorEnabled ? `<button class="icon-btn danger" title="Reset 2FA" onclick="adminReset2FA('${u.id}', '${escHtml(u.username)}')">&#128274;</button>` : ''}
+                        ${u.twoFactorEnabled ? `<button class="icon-btn danger" title="Reset 2FA" onclick="adminReset2FA('${u.id}', ${jsArg(u.username)})">&#128274;</button>` : ''}
                         ${u.blocked
-                            ? `<button class="icon-btn" title="Unblock account" onclick="setUserBlocked('${u.id}', '${escHtml(u.username)}', false)" style="color:#2e7d32">&#128275;</button>`
-                            : `<button class="icon-btn danger" title="Block account" onclick="setUserBlocked('${u.id}', '${escHtml(u.username)}', true)">&#128683;</button>`}
-                        <button class="icon-btn danger" title="Delete" onclick="deleteUser('${u.id}', '${escHtml(u.username)}')">&#128465;</button>
+                            ? `<button class="icon-btn" title="Unblock account" onclick="setUserBlocked('${u.id}', ${jsArg(u.username)}, false)" style="color:#2e7d32">&#128275;</button>`
+                            : `<button class="icon-btn danger" title="Block account" onclick="setUserBlocked('${u.id}', ${jsArg(u.username)}, true)">&#128683;</button>`}
+                        <button class="icon-btn danger" title="Delete" onclick="deleteUser('${u.id}', ${jsArg(u.username)})">&#128465;</button>
                     </div>
                 </td>
             </tr>
@@ -2281,7 +2281,7 @@
                 <td>
                     <div style="display:flex;gap:4px">
                         <button class="icon-btn" title="Expand settings" onclick="toggleKeyExpand('${k.id}')">&#9881;</button>
-                        <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', '${escHtml(keyName(k))}')">&#128465;</button>
+                        <button class="icon-btn danger" title="Delete" onclick="deleteApiKey('${k.id}', ${jsArg(keyName(k))})">&#128465;</button>
                     </div>
                 </td>
             </tr>
@@ -2292,8 +2292,8 @@
                             <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">API Key</div>
                             <div class="key-cell">
                                 <span class="key-masked" id="keyval-${k.id}">••••••••••••</span>
-                                <button class="icon-btn" title="Show/hide" onclick="toggleKey('${k.id}', '${escHtml(k.key)}')">&#128065;</button>
-                                <button class="icon-btn" title="Copy" onclick="copyKey('${escHtml(k.key)}')">&#128203;</button>
+                                <button class="icon-btn" title="Show/hide" onclick="toggleKey('${k.id}', ${jsArg(k.key)})">&#128065;</button>
+                                <button class="icon-btn" title="Copy" onclick="copyKey(${jsArg(k.key)})">&#128203;</button>
                             </div>
                         </div>
                         <div>
@@ -2435,6 +2435,13 @@
     // ── Helpers ────────────────────────────────────────────────────────────
     function escHtml(str) {
         return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+    // A value as a JS string literal inside an inline handler, e.g.
+    // onclick="fn(${jsArg(name)})". escHtml alone isn't enough there: the browser
+    // decodes &#39; back to ' before running the handler, so a quote in the value
+    // would end the string. JSON-encode first, then HTML-escape for the attribute.
+    function jsArg(str) {
+        return escHtml(JSON.stringify(String(str ?? '')));
     }
 
     document.getElementById('editModal').addEventListener('click', e => {
@@ -3660,7 +3667,7 @@
             <code style="font-size:12px;color:rgba(255,255,255,0.7)">${escHtml(v.hash.slice(0,8))}</code>
             ${isCur ? '<span class="cd-badge ready">running</span>' : ''}
             <span style="font-size:12px;color:rgba(255,255,255,0.55);flex:1;min-width:120px">${v.title ? escHtml(v.title) : ''}${v.archivedAt ? ' · archived ' + relTimeAgo(v.archivedAt) : ''}</span>
-            ${isCur ? '' : `<button class="btn-cancel" style="font-size:12px;padding:5px 12px" onclick="revertFirmware('${escHtml(m.id)}','${escHtml(v.hash)}')">Revert to this</button>`}
+            ${isCur ? '' : `<button class="btn-cancel" style="font-size:12px;padding:5px 12px" onclick="revertFirmware(${jsArg(m.id)},${jsArg(v.hash)})">Revert to this</button>`}
         </div>`;
         const blocks = await Promise.all(models.map(async m => {
             let data; try { data = await (await fetch('/api/admin/firmware/versions?model=' + encodeURIComponent(m.id))).json(); } catch { return ''; }
