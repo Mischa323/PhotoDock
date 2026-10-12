@@ -21,6 +21,31 @@ const FIRMWARE_DIR = path.join(ROOT_DIR, 'firmware_build');
 const CUSTOM_FW_DIR = path.join(ROOT_DIR, 'custom_firmware');   // cloned community board repos
 
 const app = express();
+
+// Express 4 doesn't pass a rejected promise from an async handler to the error
+// handler — it surfaces as an unhandledRejection, which ends the Node process.
+// Wrap every route/middleware so an unexpected throw becomes a 500, not a crash.
+function catchAsync(fn) {
+    if (Array.isArray(fn)) return fn.map(catchAsync);
+    if (typeof fn !== 'function' || fn.length === 4 || typeof fn.handle === 'function') return fn;
+    return function (req, res, next) {
+        const r = fn.call(this, req, res, next);
+        if (r && typeof r.catch === 'function') r.catch(next);
+        return r;
+    };
+}
+for (const method of ['get', 'post', 'put', 'patch', 'delete', 'use']) {
+    const orig = app[method].bind(app);
+    app[method] = (...args) => orig(...args.map(catchAsync));
+}
+// Last resort for async work outside a request (timers, multer callbacks):
+// log it instead of letting one stray rejection take the server down.
+process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
+
+// Uploaded files are served from this origin; never let a browser second-guess
+// their declared Content-Type (e.g. sniff an "image" into HTML).
+app.use((_req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
+
 const PORT        = process.env.PORT        || 8080;
 const HTTPS_PORT  = process.env.HTTPS_PORT  !== undefined ? process.env.HTTPS_PORT : '8081';
 const SSL_CERT    = process.env.SSL_CERT    || null; // path to certificate file (auto-generated if absent)
@@ -43,6 +68,9 @@ async function hashPassword(plain) {
 }
 
 async function verifyPassword(plain, stored) {
+    // A missing/non-string password (e.g. a login POST without the field) makes
+    // crypto.scrypt throw — treat it as a wrong password, not a server error.
+    if (typeof plain !== 'string' || typeof stored !== 'string') return false;
     if (!stored.startsWith('scrypt:')) {
         // Legacy plain-text — use timing-safe comparison to prevent user enumeration
         const a = Buffer.from(plain);
@@ -283,7 +311,26 @@ async function sendDeviceAlert(templateName, subject, vars) {
 // The externally-reachable base URL for links in account emails: the configured
 // public dashboard URL when set, else whatever host this request came in on.
 function publicBase(req) {
-    return appData.settings?.publicUrl || `${req.protocol}://${req.get('host')}`;
+    return appData.settings?.publicUrl || requestBase(req);
+}
+function requestBase(req) { return `${req.protocol}://${req.get('host')}`; }
+// The base URL for a link e-mailed in reply to an ANONYMOUS request (password
+// reset). That request's Host / X-Forwarded-Proto are attacker-controlled, so
+// without a configured public URL only fall back to an address an admin has
+// actually used to reach the dashboard (see rememberAdminBase). null = unknown.
+function trustedPublicBase(req) {
+    if (appData.settings?.publicUrl) return appData.settings.publicUrl;
+    const base = requestBase(req);
+    return (appData.adminBases || []).includes(base) ? base : null;
+}
+function rememberAdminBase(req) {
+    if (!isAdmin(req.currentUser)) return;
+    const base = requestBase(req);
+    const list = appData.adminBases || (appData.adminBases = []);
+    if (list.includes(base)) return;
+    list.push(base);
+    if (list.length > 10) list.shift();
+    saveData(appData);
 }
 // A friendly name for the server, shown in the invite email's info card.
 function serverLabel(base) { try { return new URL(base).host; } catch { return 'PhotoDock'; } }
@@ -326,7 +373,28 @@ function reset2FARateLimit(ip) { twoFaAttempts.delete(ip); }
 
 // ── Persistent data ────────────────────────────────────────────────────────
 function loadData() {
-    if (fs.existsSync(DATA_FILE)) return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    if (fs.existsSync(DATA_FILE)) {
+        try {
+            const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+            // Keep a last-known-good copy from each successful start.
+            try { fs.copyFileSync(DATA_FILE, DATA_FILE + '.bak'); } catch (e) { console.error('Could not back up data file:', e.message); }
+            return data;
+        } catch (e) {
+            // Never fall through to a fresh, empty store here: an empty user list
+            // reopens /setup, letting the first visitor create an admin account.
+            const kept = `${DATA_FILE}.corrupt-${Date.now()}`;
+            try { fs.copyFileSync(DATA_FILE, kept); } catch {}
+            console.error(`Data file ${DATA_FILE} is unreadable (${e.message}); kept a copy at ${kept}.`);
+            try {
+                const data = JSON.parse(fs.readFileSync(DATA_FILE + '.bak', 'utf8'));
+                console.error(`Restored from ${DATA_FILE}.bak — changes since the last restart may be missing.`);
+                return data;
+            } catch (e2) {
+                console.error(`No usable backup (${e2.message}). Refusing to start with an empty store.`);
+                process.exit(1);
+            }
+        }
+    }
     const initial = {
         users: [], apiKeys: [], tokens: [],
         roles: {
@@ -339,7 +407,28 @@ function loadData() {
     return initial;
 }
 
-function saveData(data) { fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2)); }
+// Write to a temp file, flush it, then rename over the original. A rename is
+// atomic, so a crash or full disk mid-write can't leave a truncated data.json.
+// A failed save is logged rather than thrown: the in-memory state stays valid
+// and the next save tries again.
+function saveData(data) {
+    const tmp = DATA_FILE + '.tmp';
+    try {
+        const fd = fs.openSync(tmp, 'w');
+        try { fs.writeSync(fd, JSON.stringify(data, null, 2)); fs.fsyncSync(fd); }
+        finally { fs.closeSync(fd); }
+        try { fs.renameSync(tmp, DATA_FILE); }
+        catch (e) {
+            // data.json bind-mounted as a single file can't be replaced by rename.
+            if (!['EBUSY', 'EXDEV', 'EPERM'].includes(e.code)) throw e;
+            fs.copyFileSync(tmp, DATA_FILE);
+            fs.unlinkSync(tmp);
+        }
+    } catch (e) {
+        console.error('Saving data failed:', e.message);
+        try { fs.unlinkSync(tmp); } catch {}
+    }
+}
 
 // ── Secret-at-rest encryption (AES-256-GCM) ────────────────────────────────
 // Used for secrets we must keep but should never store in plaintext (e.g. a
@@ -447,24 +536,42 @@ function clearCookie(res, req = null) {
 }
 
 // ── Multer ─────────────────────────────────────────────────────────────────
+const HEIC_EXTS  = new Set(['.heic', '.heif']);
+const IMAGE_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i;
+
+// Extensions an upload may be stored with. The stored extension decides the
+// Content-Type the file is later served with, and both the filename and the
+// MIME type are client-supplied — so anything a browser would render as a
+// document (.html, .svg, …) must never be kept.
+const UPLOAD_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif']);
+const MIME_EXTS   = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif', 'image/webp': '.webp',
+                      'image/bmp': '.bmp', 'image/heic': '.heic', 'image/heif': '.heif' };
+// The safe extension to store an upload under, or null to reject it.
+function uploadExt(file) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (UPLOAD_EXTS.has(ext)) return ext;
+    return ext ? null : (MIME_EXTS[file.mimetype] || null);   // no extension: derive one from the MIME type
+}
+// Headers for serving user-uploaded files: even if a non-image slipped in,
+// the browser must not run it as a page on this origin.
+const UPLOAD_HEADERS = {
+    'Content-Security-Policy': "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'",
+};
+
 const storage = multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
     filename: (_req, file, cb) => {
-        const ext  = path.extname(file.originalname);
-        const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-        cb(null, `${base}-${Date.now()}-${Math.round(Math.random() * 1e6)}${ext}`);
+        const base = path.basename(file.originalname, path.extname(file.originalname)).replace(/[^a-zA-Z0-9_-]/g, '_');
+        cb(null, `${base}-${Date.now()}-${Math.round(Math.random() * 1e6)}${uploadExt(file)}`);
     }
 });
-
-const HEIC_EXTS  = new Set(['.heic', '.heif']);
-const IMAGE_EXTS = /\.(jpg|jpeg|png|gif|webp|bmp|svg|heic|heif)$/i;
 
 const upload = multer({
     storage,
     fileFilter: (_req, file, cb) => {
-        const ext = path.extname(file.originalname).toLowerCase();
+        const ext = uploadExt(file);
         // Accept by MIME type OR by extension — browsers often send HEIC as application/octet-stream
-        if (file.mimetype.startsWith('image/') || HEIC_EXTS.has(ext)) cb(null, true);
+        if (ext && (file.mimetype.startsWith('image/') || HEIC_EXTS.has(ext))) cb(null, true);
         else cb(new Error('Only image files are allowed'));
     },
     limits: { fileSize: 50 * 1024 * 1024 } // raised to 50 MB for HEIC (raw files are large)
@@ -479,6 +586,7 @@ app.use(express.json());
 app.use((req, _res, next) => {
     const cookies = parseCookies(req);
     req.currentUser = resolveToken(cookies[COOKIE_NAME]) || null;
+    rememberAdminBase(req);
     next();
 });
 
@@ -614,10 +722,13 @@ app.post('/api/devices/pair/request', express.json(), (req, res) => {
     const { hwId, model } = req.body || {};
     const token = crypto.randomBytes(16).toString('hex');
     const code  = generatePairCode();
+    // Anyone can call this endpoint, and these values end up in pages and in the
+    // paired key's label — keep only characters a model name or MAC address uses.
+    const clean = v => String(v ?? '').replace(/[^\w .:+-]/g, '').slice(0, 64);
     pendingPairings.set(token, {
         code,
-        hwId:        (hwId  || '').slice(0, 64),
-        model:       (model || 'PhotoPainter').slice(0, 64),
+        hwId:        clean(hwId),
+        model:       clean(model) || 'PhotoPainter',
         requestedAt: new Date().toISOString(),
         status:      'pending',
         apiKeyId:    null,
@@ -1251,8 +1362,9 @@ app.get('/setup', (_req, res) => {
 app.post('/api/setup', async (req, res) => {
     if (appData.users.length > 0) return res.status(400).json({ error: 'Already set up' });
     const { username, password, email } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-    if (!email || !email.includes('@')) return res.status(400).json({ error: 'A valid email address is required' });
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password)
+        return res.status(400).json({ error: 'Username and password required' });
+    if (typeof email !== 'string' || !email.includes('@')) return res.status(400).json({ error: 'A valid email address is required' });
     const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), email: email.trim().toLowerCase(), role: 'admin' };
     appData.users.push(user);
     saveData(appData);
@@ -1267,6 +1379,38 @@ app.get('/login', (req, res) => {
     res.sendFile(path.join(FRONTEND_DIR, 'login.html'));
 });
 
+// Send a user who has 2FA enabled on to the second step (TOTP or e-mailed
+// code) instead of issuing a session. Used by password login and SSO alike.
+async function redirectTo2FA(user, res) {
+    if (user.twoFactorMethod === 'email') {
+        if (!user.email) return res.redirect('/login?error=1');
+        // Check email is configured before generating OTP
+        const emailCfg = appData.settings?.email;
+        if (!emailCfg?.method) {
+            // Email not configured — fall back to TOTP if available, otherwise block login
+            if (user.twoFactorSecret) {
+                console.warn(`Email 2FA for ${user.username}: email not configured, falling back to TOTP`);
+                const pendingToken = createPending2FA(user.id);
+                return res.redirect(`/2fa?t=${pendingToken}`);
+            }
+            console.error(`Email 2FA for ${user.username}: email not configured and no TOTP fallback`);
+            return res.redirect('/login?error=email');
+        }
+        const otp = generateOtp();
+        const pendingToken = createPending2FA(user.id, otp);
+        try {
+            await sendEmail(user.email, 'Your login code — PhotoDock', otpEmailHtml(otp));
+        } catch (e) {
+            console.error('Failed to send 2FA email:', e.message);
+            pending2FA.delete(pendingToken);
+            return res.redirect('/login?error=email');
+        }
+        return res.redirect(`/2fa?t=${pendingToken}&method=email`);
+    }
+    const pendingToken = createPending2FA(user.id);
+    return res.redirect(`/2fa?t=${pendingToken}`);
+}
+
 app.post('/login', async (req, res) => {
     const ip = req.ip;
     if (!checkRateLimit(ip)) return res.redirect('/login?error=locked');
@@ -1280,35 +1424,7 @@ app.post('/login', async (req, res) => {
     if (user && user.password && (await verifyPassword(password, user.password))) {
         resetRateLimit(ip);
         user.failedLoginAttempts = 0;
-        if (user.twoFactorEnabled) {
-            if (user.twoFactorMethod === 'email') {
-                if (!user.email) return res.redirect('/login?error=1');
-                // Check email is configured before generating OTP
-                const emailCfg = appData.settings?.email;
-                if (!emailCfg?.method) {
-                    // Email not configured — fall back to TOTP if available, otherwise block login
-                    if (user.twoFactorSecret) {
-                        console.warn(`Email 2FA for ${user.username}: email not configured, falling back to TOTP`);
-                        const pendingToken = createPending2FA(user.id);
-                        return res.redirect(`/2fa?t=${pendingToken}`);
-                    }
-                    console.error(`Email 2FA for ${user.username}: email not configured and no TOTP fallback`);
-                    return res.redirect('/login?error=email');
-                }
-                const otp = generateOtp();
-                const pendingToken = createPending2FA(user.id, otp);
-                try {
-                    await sendEmail(user.email, 'Your login code — PhotoDock', otpEmailHtml(otp));
-                } catch (e) {
-                    console.error('Failed to send 2FA email:', e.message);
-                    pending2FA.delete(pendingToken);
-                    return res.redirect('/login?error=email');
-                }
-                return res.redirect(`/2fa?t=${pendingToken}&method=email`);
-            }
-            const pendingToken = createPending2FA(user.id);
-            return res.redirect(`/2fa?t=${pendingToken}`);
-        }
+        if (user.twoFactorEnabled) return redirectTo2FA(user, res);
         user.lastLogin = new Date().toISOString();
         saveData(appData);
         addLog('login_success', { user: user.username, ip });
@@ -1318,8 +1434,7 @@ app.post('/login', async (req, res) => {
     } else {
         addLog('login_fail', { user: username, ip });
         if (user) {
-            const settings = Object.assign({}, DEFAULT_SETTINGS, appData.settings || {});
-            const maxAttempts = settings.maxLoginAttempts;
+            const maxAttempts = displaySettings().maxLoginAttempts;
             user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
             if (maxAttempts > 0 && user.failedLoginAttempts >= maxAttempts) {
                 user.blocked = true;
@@ -1362,7 +1477,7 @@ app.post('/api/invite/accept', express.json(), async (req, res) => {
     const u = appData.users.find(u => u.inviteToken === token);
     if (!u || !u.pending) return res.status(404).json({ error: 'This invite is no longer valid.' });
     if (u.inviteExpires && Date.now() > u.inviteExpires) return res.status(410).json({ error: 'This invite has expired.' });
-    if (!password || String(password).length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
+    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
     u.password = await hashPassword(password);
     delete u.pending; delete u.inviteToken; delete u.inviteExpires;
     u.lastLogin = new Date().toISOString();
@@ -1380,11 +1495,16 @@ app.post('/api/password/forgot', express.json(), async (req, res) => {
     if (!email || !appData.settings?.email?.method) return;
     const u = appData.users.find(u => (u.email || '').toLowerCase() === email);
     if (!u) return;
+    const base = trustedPublicBase(req);
+    if (!base) {
+        console.warn('Password reset for %s not sent: %s is not a known dashboard address — set a public URL under Admin → Email', u.username, requestBase(req));
+        addLog('password_reset_requested', { user: u.username, ip: req.ip, detail: 'not sent: unknown host, set a public URL' });
+        return;
+    }
     const token = crypto.randomBytes(24).toString('hex');
     const code  = String(Math.floor(100000 + Math.random() * 900000));
     u.resetToken = token; u.resetCode = code; u.resetExpires = Date.now() + 30 * 60 * 1000;
     saveData(appData);
-    const base = publicBase(req);
     const tz = appData.settings?.timezone || DEFAULT_SETTINGS.timezone;
     const now = new Date();
     const when = `${now.toLocaleDateString('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' })} · `
@@ -1406,7 +1526,7 @@ app.post('/api/password/reset', express.json(), async (req, res) => {
     const { token, password } = req.body || {};
     const u = appData.users.find(u => u.resetToken === token);
     if (!u || !u.resetExpires || Date.now() > u.resetExpires) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
-    if (!password || String(password).length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
+    if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Choose a password of at least 8 characters.' });
     u.password = await hashPassword(password);
     delete u.resetToken; delete u.resetCode; delete u.resetExpires;
     u.failedLoginAttempts = 0; u.blocked = false;   // a successful reset clears any lockout
@@ -1573,7 +1693,7 @@ app.put('/api/user/email', (req, res) => {
 app.put('/api/user/password', express.json(), async (req, res) => {
     if (!req.currentUser) return res.status(401).json({ error: 'Not authenticated' });
     const { currentPassword, newPassword } = req.body || {};
-    if (!newPassword || String(newPassword).length < 6)
+    if (typeof newPassword !== 'string' || newPassword.length < 6)
         return res.status(400).json({ error: 'New password must be at least 6 characters' });
     const u = appData.users.find(u => u.id === req.currentUser.id);
     if (!u) return res.status(404).json({ error: 'User not found' });
@@ -1590,9 +1710,9 @@ try { fs.mkdirSync(AVATARS_DIR, { recursive: true }); } catch {}
 const avatarUpload = multer({
     storage: multer.diskStorage({
         destination: (_req, _file, cb) => cb(null, AVATARS_DIR),
-        filename: (req, file, cb) => cb(null, req.currentUser.id + (path.extname(file.originalname).toLowerCase() || '.jpg')),
+        filename: (req, file, cb) => cb(null, req.currentUser.id + uploadExt(file)),
     }),
-    fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith('image/')),
+    fileFilter: (_req, file, cb) => cb(null, file.mimetype.startsWith('image/') && !!uploadExt(file)),
     limits: { fileSize: 8 * 1024 * 1024 },
 });
 app.post('/api/user/avatar', (req, res) => {
@@ -1617,6 +1737,7 @@ app.get('/api/user/avatar/:id', (req, res) => {
     const p = path.join(AVATARS_DIR, u.avatar);
     if (!fs.existsSync(p)) return res.status(404).end();
     res.set('Cache-Control', 'no-cache');
+    res.set(UPLOAD_HEADERS);
     res.sendFile(p);
 });
 
@@ -1694,7 +1815,7 @@ app.post('/api/admin/users', requireAdmin, async (req, res) => {
         return res.json({ id: user.id, username, role, invited: true });
     }
 
-    if (!password) return res.status(400).json({ error: 'Username and password required' });
+    if (typeof password !== 'string' || !password) return res.status(400).json({ error: 'Username and password required' });
     const user = { id: crypto.randomUUID(), username, password: await hashPassword(password), role,
                    email: String(email || '').trim() || undefined };
     appData.users.push(user);
@@ -1706,6 +1827,7 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
     const user = appData.users.find(u => u.id === req.params.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     const { username, password, role, blocked } = req.body;
+    if (password && typeof password !== 'string') return res.status(400).json({ error: 'Invalid password' });
     if (username) {
         if (appData.users.some(u => u.username === username && u.id !== user.id))
             return res.status(400).json({ error: 'Username already exists' });
@@ -1960,26 +2082,53 @@ app.post('/api/admin/email/test', requireAdmin, async (req, res) => {
 // ── Display settings ───────────────────────────────────────────────────────
 const DEFAULT_SETTINGS = { timezone: 'Europe/Amsterdam', showDayName: true, showDate: true, showTime: true, showSeconds: false, accentColor: '#06b6d4', slideshowInterval: 30, imageWidth: 1920, imageHeight: 1080, datePosition: 'top-right', userInactivityDays: 0, apiKeyInactivityDays: 0, logRetentionDays: 30, maxLoginAttempts: 5, imageBrightness: 1.15, imageSaturation: 1.2 };
 
-app.get('/api/settings', (_req, res) => res.json(Object.assign({}, DEFAULT_SETTINGS, appData.settings || {})));
+// The display/behaviour settings. appData.settings also holds the email,
+// OneDrive/Google and alert config (including SMTP/Graph secrets), so it is
+// never returned whole. A null value — e.g. maxLoginAttempts saved as NaN by an
+// older build — falls back to the default.
+function displaySettings() {
+    const s = appData.settings || {};
+    return Object.fromEntries(Object.keys(DEFAULT_SETTINGS).map(k => [k, s[k] ?? DEFAULT_SETTINGS[k]]));
+}
+
+app.get('/api/settings', (_req, res) => res.json(displaySettings()));
 
 app.put('/api/settings', requireAdmin, (req, res) => {
-    const { timezone, showDayName, showDate, showTime, showSeconds, accentColor, slideshowInterval, imageWidth, imageHeight, datePosition, userInactivityDays, apiKeyInactivityDays, logRetentionDays, maxLoginAttempts, imageBrightness, imageSaturation } = req.body;
-    try { Intl.DateTimeFormat(undefined, { timeZone: timezone }); } catch { return res.status(400).json({ error: 'Invalid timezone' }); }
-    if (accentColor && !/^#[0-9a-fA-F]{6}$/.test(accentColor)) return res.status(400).json({ error: 'Invalid colour' });
-    const interval    = Math.max(1, parseInt(slideshowInterval) || DEFAULT_SETTINGS.slideshowInterval);
-    const w           = Math.min(7680, Math.max(1, parseInt(imageWidth)  || DEFAULT_SETTINGS.imageWidth));
-    const h           = Math.min(4320, Math.max(1, parseInt(imageHeight) || DEFAULT_SETTINGS.imageHeight));
-    const validPos    = ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
-    const pos         = validPos.includes(datePosition) ? datePosition : DEFAULT_SETTINGS.datePosition;
-    const userDays    = Math.max(0, parseInt(userInactivityDays)   || 0);
-    const keyDays     = Math.max(0, parseInt(apiKeyInactivityDays) || 0);
-    const retentionDays   = Math.max(1, parseInt(logRetentionDays) || DEFAULT_SETTINGS.logRetentionDays);
-    const maxAttempts = Math.max(0, parseInt(maxLoginAttempts) ?? DEFAULT_SETTINGS.maxLoginAttempts);
-    const brightness  = Math.min(2, Math.max(0.5, parseFloat(imageBrightness) || DEFAULT_SETTINGS.imageBrightness));
-    const saturation  = Math.min(2, Math.max(0.5, parseFloat(imageSaturation) || DEFAULT_SETTINGS.imageSaturation));
-    appData.settings = { timezone, showDayName: !!showDayName, showDate: !!showDate, showTime: !!showTime, showSeconds: !!showSeconds, accentColor: accentColor || DEFAULT_SETTINGS.accentColor, slideshowInterval: interval, imageWidth: w, imageHeight: h, datePosition: pos, userInactivityDays: userDays, apiKeyInactivityDays: keyDays, logRetentionDays: retentionDays, maxLoginAttempts: maxAttempts, imageBrightness: brightness, imageSaturation: saturation };
+    const b   = req.body || {};
+    const has = k => Object.prototype.hasOwnProperty.call(b, k);
+    if (has('timezone')) {
+        try { if (typeof b.timezone !== 'string') throw 0; Intl.DateTimeFormat(undefined, { timeZone: b.timezone }); }
+        catch { return res.status(400).json({ error: 'Invalid timezone' }); }
+    }
+    if (b.accentColor && !/^#[0-9a-fA-F]{6}$/.test(b.accentColor)) return res.status(400).json({ error: 'Invalid colour' });
+    const D        = DEFAULT_SETTINGS;
+    const validPos = ['top-right', 'top-left', 'bottom-right', 'bottom-left'];
+    const attempts = parseInt(b.maxLoginAttempts, 10);
+    // How each field is normalised when it is present in the request.
+    const fields = {
+        timezone:             () => b.timezone,
+        showDayName:          () => !!b.showDayName,
+        showDate:             () => !!b.showDate,
+        showTime:             () => !!b.showTime,
+        showSeconds:          () => !!b.showSeconds,
+        accentColor:          () => b.accentColor || D.accentColor,
+        slideshowInterval:    () => Math.max(1, parseInt(b.slideshowInterval) || D.slideshowInterval),
+        imageWidth:           () => Math.min(7680, Math.max(1, parseInt(b.imageWidth)  || D.imageWidth)),
+        imageHeight:          () => Math.min(4320, Math.max(1, parseInt(b.imageHeight) || D.imageHeight)),
+        datePosition:         () => validPos.includes(b.datePosition) ? b.datePosition : D.datePosition,
+        userInactivityDays:   () => Math.max(0, parseInt(b.userInactivityDays)   || 0),
+        apiKeyInactivityDays: () => Math.max(0, parseInt(b.apiKeyInactivityDays) || 0),
+        logRetentionDays:     () => Math.max(1, parseInt(b.logRetentionDays) || D.logRetentionDays),
+        maxLoginAttempts:     () => Number.isFinite(attempts) ? Math.max(0, attempts) : displaySettings().maxLoginAttempts,
+        imageBrightness:      () => Math.min(2, Math.max(0.5, parseFloat(b.imageBrightness) || D.imageBrightness)),
+        imageSaturation:      () => Math.min(2, Math.max(0.5, parseFloat(b.imageSaturation) || D.imageSaturation)),
+    };
+    // Merge, don't replace: a display-settings save must not wipe the email,
+    // OneDrive/Google or alert config that lives in the same object.
+    appData.settings = appData.settings || {};
+    for (const [k, normalise] of Object.entries(fields)) if (has(k)) appData.settings[k] = normalise();
     saveData(appData);
-    res.json(appData.settings);
+    res.json(displaySettings());
 });
 
 // ── Slideshow API (external) ───────────────────────────────────────────────
@@ -2009,8 +2158,9 @@ function getScreenFiles(keyRecord) {
 
 // ── Per-screen "play next" queue (Spotify-style, one-shot) ──────────────────
 // appData.queues[screenId]      = [filename, …]  (head plays next)
-// appData.queueState[screenId]  = { slot }       (last slot we served a queued
-//                                                  item, so each plays exactly once)
+// appData.queueState[screenId]  = { slot, offset, filename }  (the slot we last
+//                                  served a queued item in, and which item — so
+//                                  each plays exactly once, on /current and /image)
 function screenQueue(screenId) {
     if (!screenId) return [];
     const q = appData.queues?.[screenId];
@@ -2019,17 +2169,31 @@ function screenQueue(screenId) {
 // Shared shape for a queued/upcoming photo in the API responses.
 function queueItem(f) { return { filename: f, url: `/uploads/${encodeURIComponent(f)}`, uploadedBy: appData.imageMetadata?.[f]?.uploadedBy || null }; }
 // On a fresh slot, pop the next still-existing queued file and return it (else null).
-function consumeScreenQueue(screenId, slot) {
+function consumeScreenQueue(screenId, slot, offset = 0) {
     if (!screenId || !Array.isArray(appData.queues?.[screenId]) || !appData.queues[screenId].length) return null;
     if (appData.queueState?.[screenId]?.slot === slot) return null;   // already served this slot
     const q = appData.queues[screenId];
     let picked = null;
     while (q.length) { const f = q.shift(); if (fs.existsSync(path.join(UPLOADS_DIR, f))) { picked = f; break; } }
     appData.queueState = appData.queueState || {};
-    appData.queueState[screenId] = { slot };
+    appData.queueState[screenId] = { slot, offset, filename: picked };
     if (!q.length) delete appData.queues[screenId];
     saveData(appData);
     return picked;
+}
+// The photo a key shows in this slot. The firmware asks /current first and then
+// downloads /image, so a queued photo popped by the first call is remembered in
+// queueState and served again by the second. A KEY1 press changes the offset,
+// which drops back to the normal rotation.
+function slotPhoto(keyRecord, files, slot, offset) {
+    const sid = keyRecord?.screenId || null;
+    const st  = sid ? appData.queueState?.[sid] : null;
+    if (st?.filename && st.slot === slot && (st.offset || 0) === offset
+        && fs.existsSync(path.join(UPLOADS_DIR, st.filename)))
+        return { filename: st.filename, queued: true };
+    const picked = consumeScreenQueue(sid, slot, offset);
+    if (picked) return { filename: picked, queued: true };
+    return { filename: files[(((slot + offset) % files.length) + files.length) % files.length], queued: false };
 }
 
 
@@ -2074,15 +2238,8 @@ app.get('/api/slideshow/current', requireApiKey, requireEndpoint('current'), (re
     // "Play next / Add to queue" (per-screen, one-shot): when the slot advances,
     // serve the head of the screen's queue instead of the clock-based photo, then
     // drop it so normal rotation resumes next refresh.
-    let filename, queued = false;
-    const sid = keyRecord?.screenId || null;
-    filename = consumeScreenQueue(sid, slot);
-    if (filename) { queued = true; }
-    let index = filename ? files.indexOf(filename) : -1;
-    if (!filename) {
-        index    = (((slot + offset) % files.length) + files.length) % files.length;
-        filename = files[index];
-    }
+    const { filename, queued } = slotPhoto(keyRecord, files, slot, offset);
+    const index = queued ? files.indexOf(filename) : (((slot + offset) % files.length) + files.length) % files.length;
     const nextSlot = (slot + 1) * intervalMs;
     const baseUrl  = `${req.protocol}://${req.get('host')}`;
     const screen   = keyRecord?.screenId ? (appData.screens || []).find(s => s.id === keyRecord.screenId) : null;
@@ -2265,7 +2422,7 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
     if (files.length === 0) return res.status(404).json({ error: 'No images available' });
     const offset   = parseInt(req.query.offset, 10) || 0;   // KEY1 short-press advance
     const slot     = Math.floor(Date.now() / intervalMs);
-    const filename = files[(((slot + offset) % files.length) + files.length) % files.length];
+    const { filename } = slotPhoto(keyRecord, files, slot, offset);   // same pick as /current, incl. a queued photo
     const filepath = path.join(UPLOADS_DIR, filename);
     // Remember what this device is currently showing so the dashboard can preview it.
     if (keyRecord.lastImage !== filename) {
@@ -2346,6 +2503,7 @@ app.use(express.static(FRONTEND_DIR));
 app.use('/uploads', (req, res, next) => {
     const filename = path.basename(decodeURIComponent(req.path));
     if (!userCanSeeImage(req.currentUser, filename)) return res.status(403).end();
+    res.set(UPLOAD_HEADERS);
     next();
 }, express.static(UPLOADS_DIR));
 
@@ -2436,6 +2594,9 @@ app.post('/api/upload', requireUpload, (req, res) => {
 // the cloud-import flows. Caller batches saveData(). Returns the stored name.
 async function ingestImageBuffer(buffer, originalName, meta = {}) {
     const rawExt = (path.extname(originalName || '') || '.jpg').toLowerCase();
+    // Same rule as uploads: never store a remote file under an extension a
+    // browser would render as a page (callers count a throw as a failed item).
+    if (!UPLOAD_EXTS.has(rawExt)) throw new Error(`unsupported file type ${rawExt}`);
     const base   = (path.basename(originalName || 'photo', rawExt).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64)) || 'photo';
     const stamp  = () => `${Date.now()}-${Math.round(Math.random() * 1e6)}`;
     let outName, outBuf = buffer;
@@ -2584,8 +2745,11 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
     // ── SSO login: match the Microsoft identity to a linked account ──
     if (st.purpose === 'login') {
         // Personal-account /me.id can be app-specific, so also match on the
-        // Microsoft email — against the stored one and the user's PhotoDock email.
-        const emails = [me.mail, me.userPrincipalName].filter(Boolean).map(s => String(s).toLowerCase());
+        // Microsoft sign-in name — against the stored one and the user's PhotoDock
+        // email. Only userPrincipalName, never `mail`: with the multi-tenant app,
+        // any Entra tenant admin can set a user's `mail` to someone else's address
+        // ("nOAuth"), while a UPN must be on a domain that tenant has verified.
+        const emails = [me.userPrincipalName].filter(Boolean).map(s => String(s).toLowerCase());
         const u = appData.users.find(x => x.onedrive?.msId === me.id)
                || appData.users.find(x => x.onedrive && emails.includes((x.onedrive.msEmail || '').toLowerCase()))
                || appData.users.find(x => x.onedrive?.refreshToken && emails.includes((x.email || '').toLowerCase()));
@@ -2594,6 +2758,8 @@ app.get('/api/sources/onedrive/callback', async (req, res) => {
             return res.redirect('/login?error=sso_nolink');
         }
         if (u.blocked) { addLog('login_fail', { user: u.username, ip: req.ip, detail: 'sso, blocked' }); return res.redirect('/login?error=blocked'); }
+        // SSO proves the Microsoft identity, not the PhotoDock second factor.
+        if (u.twoFactorEnabled) return redirectTo2FA(u, res);
         u.lastLogin = new Date().toISOString();
         saveData(appData);
         addLog('login_success', { user: u.username, ip: req.ip, detail: 'microsoft sso' });
@@ -2813,12 +2979,16 @@ app.get('/api/sources/google/callback', async (req, res) => {
 
     // ── Sign in with Google: match to a linked account ──
     if (st.purpose === 'login') {
-        const lc = (email || '').toLowerCase();
+        // Match on the stable Google id first; fall back to the email only when
+        // Google says the address is verified.
+        const lc = info?.email_verified === true ? (email || '').toLowerCase() : '';
         const u = (sub && appData.users.find(x => x.google?.googleId === sub))
                || (lc && appData.users.find(x => (x.google?.email || '').toLowerCase() === lc))
                || (lc && appData.users.find(x => x.google?.refreshToken && (x.email || '').toLowerCase() === lc));
         if (!u) { console.warn('SSO(Google): no linked account for sub=%s email=%s', sub, email); return res.redirect('/login?error=sso_nolink'); }
         if (u.blocked) { addLog('login_fail', { user: u.username, ip: req.ip, detail: 'google sso, blocked' }); return res.redirect('/login?error=blocked'); }
+        // SSO proves the Google identity, not the PhotoDock second factor.
+        if (u.twoFactorEnabled) return redirectTo2FA(u, res);
         u.lastLogin = new Date().toISOString(); saveData(appData);
         addLog('login_success', { user: u.username, ip: req.ip, detail: 'google sso' });
         const { token, expiresAt } = createToken(u.id); setCookie(res, token, expiresAt, req);
@@ -4102,6 +4272,16 @@ function pruneOldLogs() {
 // Prune once per hour
 setInterval(pruneOldLogs, 60 * 60 * 1000);
 setTimeout(pruneOldLogs, 35 * 1000);
+
+// ── Error handler ──────────────────────────────────────────────────────────
+// Registered after every route. Logs the error and answers with a generic 500
+// (Express's default handler would echo the stack trace to the client).
+app.use((err, req, res, _next) => {
+    console.error(`Unhandled error on ${req.method} ${req.path}:`, err);
+    if (res.headersSent) return res.end();
+    res.status(err.status && err.status < 500 ? err.status : 500)
+       .json({ error: err.status && err.status < 500 ? (err.message || 'Bad request') : 'Internal server error' });
+});
 
 // ── Start ──────────────────────────────────────────────────────────────────
 function startServer(port) {

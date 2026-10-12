@@ -347,10 +347,12 @@ async function init() {
         ['Hardware ID', pairInfo.hwId || 'Unknown'],
         ['Requested',   new Date(pairInfo.requestedAt).toLocaleString()],
     ];
+    // model / hwId come from an unauthenticated device request — escape them.
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     info.innerHTML = rows.map(([l,v]) => `
         <div class="device-info-row">
             <span class="device-info-label">${l}</span>
-            <span class="device-info-value">${v}</span>
+            <span class="device-info-value">${esc(v)}</span>
         </div>`).join('');
 
     // Load screens (requires auth — redirect to login if not logged in)

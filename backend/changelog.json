@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.7.1",
+    "date": "2026-10-12",
+    "changes": [
+      "Security: a malformed sign-in request (for example one with no password) can no longer crash the server; unexpected errors now return a clean error instead of stopping PhotoDock",
+      "Reliability: the database file is now written safely (temp file + atomic rename), and if it is ever damaged PhotoDock restores the last good copy from startup instead of failing to boot",
+      "Security: the settings API no longer exposes the SMTP password or Microsoft Graph secret to non-admin users",
+      "Fixed: saving Display settings no longer wipes the email, OneDrive/Google sign-in and public URL configuration, and no longer switches off account lockout",
+      "Security: uploads and avatars are limited to real image types (no HTML or SVG), and uploaded files are served so a browser can never run them as a page",
+      "Security: device names and hardware IDs from a pairing request are sanitised and escaped, and names containing quotes (e.g. O'Brien) no longer break the admin buttons",
+      "Security: Microsoft and Google sign-in now match accounts on verified identities only, and users with 2FA must still enter their code after SSO",
+      "Security: password-reset emails only link to a configured public URL or an address an admin uses, so a forged request can't send someone a link to another site",
+      "Fixed: \"Play next\" now actually shows the queued photo on the frame (previously it was taken off the queue but the normal rotation photo was displayed)"
+    ]
+  },
+  {
     "version": "2.7.0",
     "date": "2026-06-21",
     "changes": [
