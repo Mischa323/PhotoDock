@@ -1058,6 +1058,21 @@
         .cl-changes li::before { color: rgba(255,255,255,0.3) !important; }
         .cl-version { color: #22d3ee !important; }
 
+        /* ── Check for updates ─────────────────────────────────── */
+        .upd-box { padding: 4px 24px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+        .upd-row { display: flex; gap: 12px; padding: 12px 0; align-items: flex-start; }
+        .upd-row + .upd-row { border-top: 1px solid rgba(255,255,255,0.06); }
+        .upd-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: #34d399; }
+        .upd-dot.new  { background: #22d3ee; box-shadow: 0 0 10px rgba(34,211,238,0.6); }
+        .upd-dot.warn { background: #fbbf24; }
+        .upd-title { font-size: 13.5px; font-weight: 600; color: rgba(255,255,255,0.9); }
+        .upd-sub { font-size: 12.5px; color: rgba(255,255,255,0.55); margin-top: 3px; line-height: 1.55; }
+        .upd-sub code { background: rgba(255,255,255,0.08); padding: 1px 6px; border-radius: 5px; font-size: 12px; color: #e2e8f0 !important; user-select: all; }
+        .upd-rel { margin-top: 8px; font-size: 12.5px; color: rgba(255,255,255,0.75); }
+        .upd-rel summary { cursor: pointer; }
+        .upd-rel ul { margin: 6px 0 2px 18px; color: rgba(255,255,255,0.6); display: flex; flex-direction: column; gap: 3px; }
+        .upd-meta { font-size: 11.5px; color: rgba(255,255,255,0.35); padding-top: 2px; }
+
         .log-filter {
           background: rgba(255,255,255,0.07) !important;
           border: 1px solid rgba(255,255,255,0.14) !important;
@@ -1946,9 +1961,13 @@
     <section id="sec-version">
         <div class="section-header">
             <h2>Version</h2>
-            <span id="versionBadge" style="font-size:13px;font-weight:700;background:#eaf3ff;color:#2a6db5;padding:3px 12px;border-radius:20px"></span>
+            <div style="display:flex;align-items:center;gap:10px;margin-left:auto;margin-right:10px">
+                <span id="versionBadge" style="font-size:13px;font-weight:700;background:#eaf3ff;color:#2a6db5;padding:3px 12px;border-radius:20px"></span>
+                <button class="btn-add" id="updBtn" style="font-size:12.5px;padding:5px 14px" onclick="checkForUpdates()">&#10227; Check for updates</button>
+            </div>
         </div>
         <div class="section-body"><div class="section-body-inner">
+        <div id="updResult" class="upd-box" style="display:none"></div>
         <div id="changelogContainer" style="padding:8px 0"></div>
         <div id="changelogPager" style="display:none;padding:12px 24px;align-items:center;justify-content:space-between;border-top:1px solid #eef1ee">
             <span id="changelogInfo" style="font-size:12px;color:#888"></span>
@@ -3195,6 +3214,65 @@
         prevBtn.style.opacity = clPage <= 1    ? '0.4' : '1';
         nextBtn.style.opacity = clPage >= pages ? '0.4' : '1';
     }
+
+    // ── Check for updates ──────────────────────────────────────────────────
+    // Asks the server to compare the app and the frame firmware with GitHub.
+    // Read-only: installing stays a deliberate step (docker pull / Pull & rebuild).
+    async function checkForUpdates() {
+        const btn = document.getElementById('updBtn'), box = document.getElementById('updResult');
+        btn.disabled = true; btn.textContent = 'Checking…';
+        box.style.display = 'block';
+        try {
+            const res = await fetch('/api/admin/updates');
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(d.error || 'Check failed');
+            box.innerHTML = updAppHtml(d.app) + updFirmwareHtml(d.firmware)
+                + `<div class="upd-meta">Checked at ${new Date(d.checkedAt).toLocaleTimeString()} · compared with GitHub — nothing is installed automatically</div>`;
+        } catch (e) {
+            box.innerHTML = updRow('warn', 'Could not check for updates', escHtml(e.message));
+        } finally {
+            btn.disabled = false; btn.innerHTML = '&#10227; Check for updates';
+        }
+    }
+    window.checkForUpdates = checkForUpdates;
+    function updRow(dot, title, sub, extra = '') {
+        return `<div class="upd-row"><span class="upd-dot ${dot}"></span><div style="flex:1;min-width:0">
+            <div class="upd-title">${title}</div>${sub ? `<div class="upd-sub">${sub}</div>` : ''}${extra}</div></div>`;
+    }
+    function updAppHtml(a) {
+        const cur = 'v' + escHtml(a.current) + (a.build ? ` <span style="opacity:0.6">(build ${escHtml(a.build)})</span>` : '');
+        if (a.status === 'error')   return updRow('warn', 'PhotoDock — could not check', escHtml(a.error));
+        if (a.status === 'current') return updRow('', `PhotoDock is up to date`, `You're running ${cur}, the latest version.`);
+        if (a.status === 'ahead')   return updRow('', `PhotoDock ${cur}`, `Newer than the latest on GitHub (v${escHtml(a.latest)}) — a development build.`);
+        const whatsNew = (a.changes || []).map(e => `<details class="upd-rel"><summary><strong>v${escHtml(e.version)}</strong> · ${escHtml(e.date || '')}</summary>
+            <ul>${(e.changes || []).map(c => `<li>${escHtml(c)}</li>`).join('')}</ul></details>`).join('');
+        return updRow('new', `PhotoDock v${escHtml(a.latest)} is available`,
+            `You're running ${cur}. To update, run <code>docker compose pull &amp;&amp; docker compose up -d</code> in the folder with your <code>docker-compose.yml</code> — photos and settings in <code>./data</code> are kept.`,
+            whatsNew);
+    }
+    function updFirmwareHtml(f) {
+        const served = f.served?.version ? 'firmware ' + escHtml(f.served.version)
+            : f.served?.date ? 'firmware built on ' + escHtml(f.served.date) : 'firmware of an unknown version';
+        const rebuild = `<button class="btn-add" style="font-size:12.5px;padding:6px 14px;margin-top:10px" onclick="updRebuild()">&#10227; Pull latest &amp; rebuild</button>`;
+        if (f.status === 'error' || f.status === 'unsupported') return updRow('warn', 'Frame firmware — could not check', escHtml(f.error));
+        if (f.status === 'not-built') return updRow('new', 'No frame firmware built on this server yet',
+            `The latest in <code>${escHtml(f.repo)}</code> (${escHtml(f.ref)}) is ${escHtml(f.latest || '—')}. Build it so your frames can update over the air.`, rebuild);
+        if (f.status === 'current') return updRow('', 'Frame firmware is up to date', `This server serves ${served} — the latest in <code>${escHtml(f.repo)}</code> (${escHtml(f.ref)}).`);
+        const rels = (f.releases || []).map(r => `<details class="upd-rel"><summary><strong>${escHtml(r.version)}</strong> · ${escHtml(r.title)}${r.models?.length ? ` <span style="opacity:0.55">(${escHtml(r.models.join(', '))})</span>` : ''}</summary>
+            <ul>${(r.changes || []).map(c => `<li>${escHtml(c)}</li>`).join('')}</ul></details>`).join('');
+        return updRow('new', `New frame firmware ${escHtml(f.latest)} is available`,
+            `This server serves ${served}. Pull &amp; rebuild to publish it — frames then install it over the air at their next check-in (with auto-update on, or via <strong>Update now</strong> on the Screens page).`,
+            rels + rebuild);
+    }
+    // Rebuild via the Firmware source section (it streams the build log there), then re-check.
+    async function updRebuild() {
+        document.getElementById('sec-firmware-source')?.classList.remove('collapsed');
+        const build = window.pullRebuild();   // un-hides the log straight away
+        document.getElementById('fsLog')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        await build;
+        checkForUpdates();
+    }
+    window.updRebuild = updRebuild;
 
     // ── Activity Log ───────────────────────────────────────────────────────
     const LOG_LABELS = {

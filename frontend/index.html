@@ -578,11 +578,46 @@
 
     /* ── Lightbox (full-photo viewer) ─────────────────── */
     .lb-overlay { position: fixed; inset: 0; z-index: 500; background: rgba(0,0,0,0.93);
-      display: flex; align-items: center; justify-content: center; }
+      display: flex; align-items: center; justify-content: center;
+      --lb-top: 64px; --lb-bottom: 128px; }   /* room kept free for the top/bottom bars */
     .lb-stage { position: relative; width: 100%; height: 100%; display: flex;
       align-items: center; justify-content: center; }
-    .lb-img { max-width: 92vw; max-height: 80vh; object-fit: contain; border-radius: 8px;
-      box-shadow: 0 16px 60px rgba(0,0,0,0.6); }
+    .lb-main { position: absolute; top: var(--lb-top); bottom: var(--lb-bottom); left: 0; right: 0;
+      display: flex; align-items: center; justify-content: center; }
+    .lb-frame { position: relative; overflow: hidden; border-radius: 8px;
+      box-shadow: 0 16px 60px rgba(0,0,0,0.6); user-select: none; -webkit-user-select: none; }
+    .lb-img { display: block; max-width: 92vw; object-fit: contain;
+      max-height: calc(100vh - var(--lb-top) - var(--lb-bottom));
+      max-height: calc(100dvh - var(--lb-top) - var(--lb-bottom)); }
+
+    /* Frame crop overlay: the window is what the panel shows, the rest is dimmed */
+    .crop-win { position: absolute; cursor: move; touch-action: none;
+      box-shadow: inset 0 0 0 2px #22d3ee, 0 0 0 9999px rgba(0,0,0,0.62); }
+    .crop-win.dragging { background:
+      linear-gradient(to right, transparent calc(33.33% - 0.5px), rgba(255,255,255,0.35) 0 calc(33.33% + 0.5px),
+        transparent 0 calc(66.67% - 0.5px), rgba(255,255,255,0.35) 0 calc(66.67% + 0.5px), transparent 0),
+      linear-gradient(to bottom, transparent calc(33.33% - 0.5px), rgba(255,255,255,0.35) 0 calc(33.33% + 0.5px),
+        transparent 0 calc(66.67% - 0.5px), rgba(255,255,255,0.35) 0 calc(66.67% + 0.5px), transparent 0); }
+    .crop-h { position: absolute; width: 22px; height: 22px; border: 0 solid #fff; touch-action: none; }
+    .crop-h[data-h="nw"] { left: 0; top: 0;    border-width: 4px 0 0 4px; cursor: nwse-resize; }
+    .crop-h[data-h="ne"] { right: 0; top: 0;   border-width: 4px 4px 0 0; cursor: nesw-resize; }
+    .crop-h[data-h="sw"] { left: 0; bottom: 0; border-width: 0 0 4px 4px; cursor: nesw-resize; }
+    .crop-h[data-h="se"] { right: 0; bottom: 0; border-width: 0 4px 4px 0; cursor: nwse-resize; }
+    .crop-label { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); white-space: nowrap;
+      font-size: 11px; font-weight: 600; color: #fff; background: rgba(0,0,0,0.55);
+      padding: 3px 9px; border-radius: 10px; pointer-events: none; }
+    .crop-label.warn { background: rgba(217,119,6,0.92); }
+    .lb-tools { position: absolute; bottom: 76px; left: 50%; transform: translateX(-50%);
+      display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 12px;
+      width: max-content; max-width: calc(100vw - 32px); }
+    .lb-seg { display: inline-flex; padding: 3px; border-radius: 11px;
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); }
+    .lb-seg button { background: transparent; border: 0; color: rgba(255,255,255,0.7); cursor: pointer;
+      font: 600 12.5px 'Inter', sans-serif; padding: 6px 12px; border-radius: 8px; }
+    .lb-seg button.on { background: rgba(6,182,212,0.85); color: #fff; }
+    .lb-zoom { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: rgba(255,255,255,0.7); }
+    .lb-zoom input { width: 110px; accent-color: #06b6d4; }
+    .lb-note { font-size: 12px; color: rgba(255,255,255,0.55); }
     .lb-arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 48px; height: 48px;
       border-radius: 50%; font-size: 26px; padding: 0; display: flex; align-items: center; justify-content: center; }
     .lb-top { position: absolute; top: 16px; left: 0; right: 0; display: flex; align-items: center;
@@ -725,6 +760,9 @@
       .screen-card-name { font-size: 15px; }
       .screen-card-meta { font-size: 11px; }
       .health-strip { font-size: 9.5px; gap: 5px; }
+
+      .lb-overlay { --lb-bottom: 168px; }   /* crop tools wrap to two rows */
+      .lb-note { width: 100%; text-align: center; }
     }
 
     /* Narrow phones: keep screen/album cards two-up instead of one giant card */
@@ -815,14 +853,32 @@
 </div>
 
 <!-- Lightbox (full-photo viewer) -->
-<div id="lbOverlay" class="lb-overlay" style="display:none" onclick="if(event.target===this||event.target.classList.contains('lb-stage'))closeLightbox()">
+<div id="lbOverlay" class="lb-overlay" style="display:none" onclick="lbBackdropClick(event)">
   <div class="lb-stage">
-    <img id="lbImg" class="lb-img" src="" alt="">
+    <div class="lb-main">
+      <div class="lb-frame" id="lbFrame">
+        <img id="lbImg" class="lb-img" src="" alt="" draggable="false" onload="lbLayoutCrop()">
+        <!-- What the frame shows in Fill mode: drag to move, corners to zoom -->
+        <div class="crop-win" id="cropWin" style="display:none">
+          <span class="crop-h" data-h="nw"></span><span class="crop-h" data-h="ne"></span>
+          <span class="crop-h" data-h="sw"></span><span class="crop-h" data-h="se"></span>
+          <span class="crop-label" id="cropLabel"></span>
+        </div>
+      </div>
+    </div>
     <button class="glass-btn lb-arrow" style="left:20px" onclick="lbPrev()">‹</button>
     <button class="glass-btn lb-arrow" style="right:20px" onclick="lbNext()">›</button>
     <div class="lb-top">
       <div class="lb-counter" id="lbCounter"></div>
       <button class="glass-btn hbtn" onclick="closeLightbox()">✕ Close</button>
+    </div>
+    <div class="lb-tools">
+      <div class="lb-seg" id="lbFitSeg"></div>
+      <label class="lb-zoom" id="lbZoomWrap">Zoom
+        <input type="range" id="lbZoom" min="1" max="4" step="0.01" oninput="lbZoomTo(+this.value)" onchange="lbCropSave()">
+      </label>
+      <button class="glass-btn hbtn" id="lbCropReset" style="padding:6px 12px;border-radius:9px;font-size:12.5px" title="Back to the centred default" onclick="lbCropReset()">↺ Reset</button>
+      <span class="lb-note" id="lbNote"></span>
     </div>
     <div class="lb-meta" id="lbMeta"></div>
     <div class="lb-actions">
@@ -1334,16 +1390,20 @@ async function deletePhoto(filename) {
 // ── Per-photo fit override ────────────────────────────────
 // Cycle: auto (follow screen) → cover (fill) → contain (fit) → auto
 async function cycleFit(filename, current) {
-  const next = current === 'auto' ? 'cover' : current === 'cover' ? 'contain' : 'default';
+  await setFit(filename, current === 'auto' ? 'cover' : current === 'cover' ? 'contain' : 'default');
+}
+// next: 'cover' | 'contain' | 'default' (follow the screen). Returns true on success.
+async function setFit(filename, next) {
   const res = await fetch('/api/images/' + encodeURIComponent(filename) + '/fit', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ imageFit: next }),
   });
-  if (!res.ok) { alert('Could not update fit'); return; }
+  if (!res.ok) { alert('Could not update fit'); return false; }
   // Reflect locally without a full reload.
   const p = photos.find(x => x.filename === filename);
   if (p) p.imageFit = (next === 'default') ? null : next;
   renderPhotosView();
+  return true;
 }
 
 // ── New Screen modal ──────────────────────────────────────
@@ -1522,6 +1582,7 @@ function closeSlideshow() {
 document.addEventListener('keydown', e => {
   const lb = document.getElementById('lbOverlay');
   if (lb.style.display !== 'none') {
+    if (e.target.tagName === 'INPUT' && e.key !== 'Escape') return;   // arrows nudge the zoom slider
     if (e.key === 'ArrowRight') lbNext();
     else if (e.key === 'ArrowLeft') lbPrev();
     else if (e.key === 'Escape') closeLightbox();
@@ -1551,14 +1612,198 @@ function openLightbox(i) {
 function lbRender() {
   const p = photos[lbIdx];
   if (!p) return;
-  document.getElementById('lbImg').src = p.url;
+  lbFlushSave();   // a pending crop save belongs to the photo we're leaving
+  lbCrop = p.crop ? { ...p.crop } : { x: 0.5, y: 0.5, zoom: 1 };
+  document.getElementById('cropWin').style.display = 'none';   // until the new photo has loaded
+  const img = document.getElementById('lbImg');
+  img.src = p.url;
   document.getElementById('lbCounter').textContent = `${lbIdx + 1} / ${photos.length}`;
   document.getElementById('lbMeta').textContent = p.uploadedBy ? '👤 ' + p.uploadedBy : '';
+  lbRenderTools();
+  if (img.complete) lbLayoutCrop();   // cached photo: onload won't fire again
 }
 function lbNext() { if (photos.length) { lbIdx = (lbIdx + 1) % photos.length; lbRender(); } }
 function lbPrev() { if (photos.length) { lbIdx = (lbIdx - 1 + photos.length) % photos.length; lbRender(); } }
 function closeLightbox() { document.getElementById('lbOverlay').style.display = 'none'; }
 function lbQueue(mode) { const p = photos[lbIdx]; if (p) queueAdd(p.filename, mode); }
+// Close on a click on the dark backdrop — but not on the click that ends a crop drag.
+function lbBackdropClick(e) {
+  if (lbDrag || Date.now() - lbDragEnd < 300) return;
+  const t = e.target;
+  if (t === e.currentTarget || t.classList.contains('lb-stage') || t.classList.contains('lb-main')) closeLightbox();
+}
+
+// ── Frame crop overlay (lightbox) ─────────────────────────
+// Shows which part of the photo the frame really displays in Fill mode, and lets
+// you move or zoom that window. Same model as the server: { x, y, zoom } = the
+// window's centre (fraction of the photo) and zoom (1 = largest window that fits).
+const CROP_MAX_ZOOM = 4;
+let lbCrop = { x: 0.5, y: 0.5, zoom: 1 };   // crop being edited for photos[lbIdx]
+let lbWin  = null;                          // its window in display px, null when hidden
+let lbDrag = null, lbDragEnd = 0;           // active pointer gesture / when the last one ended
+let lbSaveTimer = null, lbSavePending = null, lbNoteTimer = null;
+
+function lbFit(p) { return p.imageFit || (curScreen?.imageFit === 'cover' ? 'cover' : 'contain'); }
+// The panel's shape as it sits over the upright photo (a 90/270° screen is portrait).
+function lbPanel() {
+  const w = curScreen?.panelWidth || 800, h = curScreen?.panelHeight || 480;
+  return [90, 270].includes(Number(curScreen?.rotation)) ? { w: h, h: w } : { w, h };
+}
+// Mirror of cropWindow() in backend/server.js — unrounded, in display pixels.
+function cropWindow(srcW, srcH, aspect, crop) {
+  let w = srcW, h = srcW / aspect;
+  if (h > srcH) { h = srcH; w = srcH * aspect; }
+  w /= crop.zoom; h /= crop.zoom;
+  const left = Math.min(srcW - w, Math.max(0, crop.x * srcW - w / 2));
+  const top  = Math.min(srcH - h, Math.max(0, crop.y * srcH - h / 2));
+  return { left, top, width: w, height: h };
+}
+
+function lbRenderTools() {
+  const p = photos[lbIdx];
+  if (!p) return;
+  const own = p.imageFit === 'cover' || p.imageFit === 'contain' ? p.imageFit : 'auto';
+  const opts = [
+    ['auto',    `Auto (${curScreen?.imageFit === 'cover' ? 'Fill' : 'Fit'})`, "Follow this screen's setting"],
+    ['cover',   'Fill', 'Fill the frame — whatever is outside the window is cropped off'],
+    ['contain', 'Fit',  'Show the whole photo, with black bars'],
+  ];
+  document.getElementById('lbFitSeg').innerHTML = opts.map(([v, label, title]) =>
+    `<button class="${v === own ? 'on' : ''}" title="${esc(title)}" onclick="lbSetFit('${v}')">${esc(label)}</button>`).join('');
+  const cover = lbFit(p) === 'cover';
+  document.getElementById('lbZoomWrap').style.display  = cover ? '' : 'none';
+  document.getElementById('lbCropReset').style.display = cover ? '' : 'none';
+  document.getElementById('lbZoom').value = lbCrop.zoom;
+  lbNote();
+}
+// The hint under the photo; `flash` shows a message for a moment instead.
+function lbNote(flash) {
+  clearTimeout(lbNoteTimer);
+  const p = photos[lbIdx], el = document.getElementById('lbNote');
+  if (flash) { el.textContent = flash; lbNoteTimer = setTimeout(() => lbNote(), 2500); return; }
+  el.textContent = p && lbFit(p) === 'cover'
+    ? 'Drag to move · drag a corner' + (matchMedia('(pointer: fine)').matches ? ' or scroll' : '') + ' to zoom'
+    : 'The whole photo is shown, with black bars';
+}
+async function lbSetFit(v) {
+  const p = photos[lbIdx];
+  if (p && await setFit(p.filename, v === 'auto' ? 'default' : v)) { lbRenderTools(); lbLayoutCrop(); }
+}
+
+// Place the window over the displayed photo (on load, resize and every edit).
+function lbLayoutCrop() {
+  const p = photos[lbIdx], img = document.getElementById('lbImg'), win = document.getElementById('cropWin');
+  const cw = img.clientWidth, ch = img.clientHeight;
+  if (!p || lbFit(p) !== 'cover' || !img.naturalWidth || !cw || !ch) { win.style.display = 'none'; lbWin = null; return; }
+  const panel = lbPanel();
+  const r = cropWindow(cw, ch, panel.w / panel.h, lbCrop);
+  lbCrop.x = (r.left + r.width / 2) / cw;   // keep the centre where the clamped window really is
+  lbCrop.y = (r.top + r.height / 2) / ch;
+  lbWin = r;
+  Object.assign(win.style, { display: '', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px' });
+  // Real photo pixels inside the window vs. what the panel needs (an area ratio,
+  // so it holds whether or not naturalWidth is EXIF-rotated).
+  const scale  = Math.sqrt(img.naturalWidth * img.naturalHeight / (cw * ch));
+  const lowRes = r.width * scale < panel.w * 0.98;
+  const label  = document.getElementById('cropLabel');
+  label.textContent = lowRes ? '⚠ Low resolution — zoom out a little'
+    : `On the frame · ${curScreen?.panelWidth || 800}×${curScreen?.panelHeight || 480}`;
+  label.classList.toggle('warn', lowRes);
+}
+function lbZoomTo(z) {
+  lbCrop.zoom = Math.min(CROP_MAX_ZOOM, Math.max(1, z));
+  lbLayoutCrop();
+  document.getElementById('lbZoom').value = lbCrop.zoom;
+}
+function lbCropReset() { lbCrop = { x: 0.5, y: 0.5, zoom: 1 }; lbZoomTo(1); lbCropSave(); }
+
+// Drag the window to move it; drag a corner to resize (aspect locked, the
+// opposite corner stays put).
+function lbCropDown(e) {
+  if (!lbWin || e.button !== 0) return;
+  e.preventDefault();
+  const img = document.getElementById('lbImg'), win = document.getElementById('cropWin');
+  win.setPointerCapture(e.pointerId);
+  win.classList.add('dragging');
+  lbDrag = { id: e.pointerId, handle: e.target.dataset.h || null, x0: e.clientX, y0: e.clientY,
+             r: { ...lbWin }, cw: img.clientWidth, ch: img.clientHeight, moved: false };
+}
+function lbCropMove(e) {
+  const d = lbDrag;
+  if (!d || e.pointerId !== d.id) return;
+  const dx = e.clientX - d.x0, dy = e.clientY - d.y0, { r, cw, ch } = d;
+  if (Math.abs(dx) + Math.abs(dy) > 2) d.moved = true;
+  let left = r.left + dx, top = r.top + dy, w = r.width, h = r.height;
+  if (d.handle) {
+    const east = d.handle.includes('e'), south = d.handle.includes('s');
+    const ax = east ? r.left : r.left + r.width, ay = south ? r.top : r.top + r.height;   // pinned corner
+    const panel = lbPanel(), aspect = panel.w / panel.h;
+    const full = cropWindow(cw, ch, aspect, { x: 0.5, y: 0.5, zoom: 1 }).width;
+    const room = Math.min(east ? cw - ax : ax, (south ? ch - ay : ay) * aspect);
+    const want = Math.max(r.width + (east ? dx : -dx), (r.height + (south ? dy : -dy)) * aspect);
+    w = Math.max(full / CROP_MAX_ZOOM, Math.min(room, full, want));
+    h = w / aspect;
+    left = east ? ax : ax - w;
+    top  = south ? ay : ay - h;
+    lbCrop.zoom = full / w;
+  }
+  lbCrop.x = (left + w / 2) / cw;
+  lbCrop.y = (top + h / 2) / ch;
+  lbZoomTo(lbCrop.zoom);   // re-lays out (clamping the window into the photo)
+}
+function lbCropUp(e) {
+  const d = lbDrag;
+  if (!d || e.pointerId !== d.id) return;
+  lbDrag = null;
+  lbDragEnd = Date.now();
+  document.getElementById('cropWin').classList.remove('dragging');
+  if (d.moved) lbCropSave();
+}
+function lbCropWheel(e) {
+  if (!lbWin) return;
+  e.preventDefault();
+  const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;   // Firefox scrolls in lines
+  lbZoomTo(lbCrop.zoom * Math.exp(-dy * 0.0015));
+  lbCropSaveSoon();
+}
+document.getElementById('cropWin').addEventListener('pointerdown', lbCropDown);
+document.getElementById('cropWin').addEventListener('pointermove', lbCropMove);
+document.getElementById('cropWin').addEventListener('pointerup', lbCropUp);
+document.getElementById('cropWin').addEventListener('pointercancel', lbCropUp);
+document.getElementById('lbFrame').addEventListener('wheel', lbCropWheel, { passive: false });
+window.addEventListener('resize', () => {
+  if (document.getElementById('lbOverlay').style.display !== 'none') lbLayoutCrop();
+});
+
+// Saving: the photo and crop are bound when the save is scheduled, so flipping
+// to the next photo before a debounced save fires can't misfile it.
+function lbCropSave() { lbCropSaveSoon(); lbFlushSave(); }
+function lbCropSaveSoon() {
+  const p = photos[lbIdx], crop = lbCrop;
+  if (!p) return;
+  clearTimeout(lbSaveTimer);
+  lbSavePending = () => saveCrop(p, { ...crop });
+  lbSaveTimer = setTimeout(lbFlushSave, 500);
+}
+function lbFlushSave() {
+  clearTimeout(lbSaveTimer);
+  const save = lbSavePending;
+  lbSavePending = null;
+  if (save) save();
+}
+async function saveCrop(p, crop) {
+  const centred = Math.abs(crop.x - 0.5) < 0.001 && Math.abs(crop.y - 0.5) < 0.001 && crop.zoom < 1.001;
+  try {
+    const res = await fetch('/api/images/' + encodeURIComponent(p.filename) + '/crop', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ crop: centred ? null : crop }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { toast(j.error || 'Could not save the crop'); return; }
+    p.crop = j.crop;
+    if (photos[lbIdx] === p) lbNote('✓ Saved — the frame uses it from its next refresh');
+  } catch { toast('Could not save the crop'); }
+}
 
 // ── Play next / add to queue (drives the physical frame) ──
 function quickQueue(filename) { queueAdd(filename, 'next'); }
