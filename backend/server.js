@@ -1261,11 +1261,24 @@ app.post('/api/admin/firmware/pull-rebuild', requireAdmin, async (_req, res) => 
         if (code !== 0) return finish(false, 'PlatformIO build failed');
 
         // Publish each built-in board's binary into firmware_build/.
+        const published = [];
         for (const [type, bld] of Object.entries(DEVICE_BUILDS)) {
             const outDir = path.join(espDir, '.pio', 'build', bld.env);
             if (!fs.existsSync(path.join(outDir, 'firmware.bin'))) { send('log', `⚠ ${type}: no firmware.bin\n`); continue; }
             writeFirmwareOutput(outDir, bld.dir, bld.urlPrefix, 'PhotoDock', send);
+            published.push(bld.model);
             send('log', `✓ Published ${type}\n`);
+        }
+        // Remember which firmware release each published binary is, so "Check for
+        // updates" can tell whether the repo has newer firmware — also after a revert.
+        const builtVersion = newestFirmwareRelease(readFirmwareChangelog(path.join(espDir, 'firmware-changelog.json')))?.version;
+        if (builtVersion) {
+            const known = s.builtVersions || {};
+            for (const model of published) {
+                const hash = currentFirmwareInfo(model)?.version;
+                if (hash) { delete known[hash]; known[hash] = builtVersion; }   // re-insert = newest last
+            }
+            s.builtVersions = Object.fromEntries(Object.entries(known).slice(-30));
         }
         finish(true, 'Pulled & rebuilt — devices will pull the update on their next check-in (or click Update now)');
     } catch (e) {
@@ -1318,6 +1331,108 @@ app.post('/api/admin/firmware/revert', requireAdmin, express.json(), (req, res) 
     const name = (appData.customDevices || []).find(d => d.modelId === model)?.name || 'PhotoDock';
     writeFirmwareManifest(fw.dir, fw.urlPrefix, name);
     res.json({ ok: true, version: currentFirmwareInfo(model)?.version || null });
+});
+
+// ── Check for updates (admin) ────────────────────────────────────────────────
+// Compares against GitHub (read-only, nothing is installed):
+//  • the app — package.json + changelog on the canonical repo's main, which is
+//    what the Docker `latest` image is built from;
+//  • the frame firmware — esp32/firmware-changelog.json on the configured
+//    firmware source, vs. the release the last Pull & rebuild built.
+function parseGitHubRepo(url) {
+    const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\.git)?\/?$/i.exec(String(url || '').trim());
+    return m ? { owner: m[1], repo: m[2] } : null;
+}
+const UPDATE_REPO = { ...parseGitHubRepo(DEFAULT_FIRMWARE_REPO), ref: DEFAULT_FIRMWARE_REF };
+async function fetchGitHubJson({ owner, repo }, ref, file) {
+    let res;
+    try {
+        res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${file}`, { signal: AbortSignal.timeout(8000) });
+    } catch (e) {
+        throw new Error(e.name === 'TimeoutError' ? 'GitHub did not answer in time' : 'Could not reach GitHub — is the server online?');
+    }
+    if (res.status === 404) throw new Error(`${file} not found in ${owner}/${repo} (${ref}) — check the repo and branch`);
+    if (!res.ok) throw new Error(`GitHub returned ${res.status}`);
+    return res.json();
+}
+// Compare dotted numeric versions ('2.8.0', '2026.10.12'); a suffix such as
+// '-e874157' is ignored. Returns -1 / 0 / 1.
+function cmpVersion(a, b) {
+    const parts = v => (String(v ?? '').match(/^\d+(?:\.\d+)*/) || ['0'])[0].split('.').map(Number);
+    const pa = parts(a), pb = parts(b);
+    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d) return Math.sign(d);
+    }
+    return 0;
+}
+// Every model's releases from a firmware changelog, flattened.
+function firmwareReleases(models) {
+    return Object.values(models || {}).flatMap(m => (m.releases || []).map(r => ({
+        version: r.version || null, date: r.date || null, title: r.title || 'Update',
+        changes: Array.isArray(r.changes) ? r.changes : [], model: m.name || '',
+    }))).filter(r => r.version);
+}
+function newestFirmwareRelease(models) {
+    return firmwareReleases(models).sort((a, b) => cmpVersion(b.version, a.version))[0] || null;
+}
+// Which firmware release this server serves now. Exact when the binaries came
+// from a Pull & rebuild that recorded it; otherwise the build date, or (for a
+// local build) the release notes shipped with this server's own source.
+function servedFirmwareRelease() {
+    const s = firmwareSource();
+    const hashes = Object.values(DEVICE_BUILDS).map(b => currentFirmwareInfo(b.model)?.version).filter(Boolean);
+    if (!hashes.length) return null;
+    const known = hashes.map(h => s.builtVersions?.[h]).filter(Boolean).sort(cmpVersion);
+    if (known.length) return { version: known[0] };   // the oldest board decides
+    if (s.lastBuiltAt) return { date: s.lastBuiltAt.slice(0, 10) };
+    return { version: newestFirmwareRelease(readFirmwareChangelog())?.version || null };
+}
+
+async function checkAppUpdate() {
+    const out = { current: pkgVersion, build: appVersion !== pkgVersion ? appVersion : null, repo: `${UPDATE_REPO.owner}/${UPDATE_REPO.repo}` };
+    try {
+        const [pkg, log] = await Promise.all([
+            fetchGitHubJson(UPDATE_REPO, UPDATE_REPO.ref, 'package.json'),
+            fetchGitHubJson(UPDATE_REPO, UPDATE_REPO.ref, 'backend/changelog.json').catch(() => []),
+        ]);
+        if (typeof pkg?.version !== 'string') throw new Error('GitHub has no version number for PhotoDock');
+        const c = cmpVersion(pkg.version, pkgVersion);
+        return {
+            ...out, latest: pkg.version, status: c > 0 ? 'update' : c < 0 ? 'ahead' : 'current',
+            changes: Array.isArray(log) ? log.filter(e => cmpVersion(e.version, pkgVersion) > 0).slice(0, 10) : [],
+        };
+    } catch (e) { return { ...out, status: 'error', error: e.message }; }
+}
+
+async function checkFirmwareUpdate() {
+    const s = firmwareSource();
+    const ref = s.ref || DEFAULT_FIRMWARE_REF;
+    const gh = parseGitHubRepo(s.repoUrl || DEFAULT_FIRMWARE_REPO);
+    const served = servedFirmwareRelease();
+    const out = { repo: gh ? `${gh.owner}/${gh.repo}` : (s.repoUrl || ''), ref, served };
+    if (!gh || !RE_GIT_REF.test(ref)) return { ...out, status: 'unsupported', error: 'Automatic checking only works for a GitHub repository' };
+    try {
+        const doc = await fetchGitHubJson(gh, ref, 'esp32/firmware-changelog.json');
+        const all = firmwareReleases(doc?.models);
+        const latest = all.sort((a, b) => cmpVersion(b.version, a.version))[0]?.version || null;
+        if (!served) return { ...out, latest, status: 'not-built', releases: [] };
+        const newer = all.filter(r => served.version ? cmpVersion(r.version, served.version) > 0 : (r.date || '') > served.date);
+        // Boards usually share a release; list each version once with the boards it covers.
+        const byVersion = new Map();
+        for (const r of newer) {
+            const e = byVersion.get(r.version);
+            if (e) { if (r.model && !e.models.includes(r.model)) e.models.push(r.model); }
+            else byVersion.set(r.version, { ...r, models: r.model ? [r.model] : [] });
+        }
+        const releases = [...byVersion.values()].map(({ model, ...r }) => r);
+        return { ...out, latest, status: releases.length ? 'update' : 'current', releases };
+    } catch (e) { return { ...out, status: 'error', error: e.message }; }
+}
+
+app.get('/api/admin/updates', requireAdmin, async (_req, res) => {
+    const [appUpdate, firmware] = await Promise.all([checkAppUpdate(), checkFirmwareUpdate()]);
+    res.json({ checkedAt: new Date().toISOString(), app: appUpdate, firmware });
 });
 
 
@@ -2415,6 +2530,32 @@ function buildDateOverlaySvg(w, h, settings) {
     return Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${svg}</svg>`);
 }
 
+// Per-photo crop for 'cover' (Fill): { x, y, zoom } — the window's centre as a
+// fraction of the upright photo, and how far it's zoomed in (1 = largest window
+// that fits). Centre+zoom rather than pixels, so a crop survives a rotation or
+// panel change: the window is re-fitted to the new shape around the same spot.
+const CROP_MAX_ZOOM = 4;
+function normCrop(c) {
+    if (!c || typeof c !== 'object') return null;
+    const x = Number(c.x), y = Number(c.y), zoom = Number(c.zoom);
+    if (![x, y, zoom].every(Number.isFinite)) return null;
+    const clamp = (v, lo, hi) => Math.round(Math.min(hi, Math.max(lo, v)) * 10000) / 10000;
+    return { x: clamp(x, 0, 1), y: clamp(y, 0, 1), zoom: clamp(zoom, 1, CROP_MAX_ZOOM) };
+}
+// The pixel window of a srcW×srcH photo that fills a panel of the given aspect
+// (width/height). No crop = the largest centred window, as fit:'cover' did.
+// Mirrored by cropWindow() in frontend/index.html — keep the two in sync.
+function cropWindow(srcW, srcH, aspect, crop) {
+    const c = normCrop(crop) || { x: 0.5, y: 0.5, zoom: 1 };
+    let w = srcW, h = srcW / aspect;
+    if (h > srcH) { h = srcH; w = srcH * aspect; }
+    w = Math.max(1, Math.min(srcW, Math.round(w / c.zoom)));
+    h = Math.max(1, Math.min(srcH, Math.round(h / c.zoom)));
+    const left = Math.min(srcW - w, Math.max(0, Math.round(c.x * srcW - w / 2)));
+    const top  = Math.min(srcH - h, Math.max(0, Math.round(c.y * srcH - h / 2)));
+    return { left, top, width: w, height: h };
+}
+
 app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (req, res) => {
     const keyRecord  = appData.apiKeys.find(k => k.key === (req.headers['x-api-key'] || req.query.key));
     const intervalMs = (keyRecord?.intervalMinutes || 5) * 60 * 1000;
@@ -2459,10 +2600,33 @@ app.get('/api/slideshow/image', requireApiKey, requireEndpoint('image'), async (
              || validFit(keyRecord?.imageFit)    // per-key (set on this screen)
              || validFit(screenFit)              // screen default (key paired later)
              || 'contain';
+    // Remember the size we render at, so the web UI's crop overlay has the panel's shape.
+    if (keyRecord.panelWidth !== imgW || keyRecord.panelHeight !== imgH) {
+        keyRecord.panelWidth  = imgW;
+        keyRecord.panelHeight = imgH;
+        saveData(appData);
+    }
     try {
-        const pipeline = sharp(filepath)
-            .rotate(rotation, { background: { r: 0, g: 0, b: 0 } })   // user-chosen orientation
-            .resize(imgW, imgH, { fit, position: 'centre', background: { r: 0, g: 0, b: 0 } });
+        // Work on the photo upright (EXIF applied, as browsers show it) so the
+        // crop chosen in the web UI lands on the same pixels. Fit to the panel as
+        // it sits *before* the screen rotation, then rotate: a 90/270° screen is
+        // a portrait window onto the photo.
+        const quarter = rotation === 90 || rotation === 270;
+        const preW = quarter ? imgH : imgW;
+        const preH = quarter ? imgW : imgH;
+        let base = sharp(filepath).autoOrient();
+        if (fit === 'cover') {
+            const { autoOrient: upright } = await sharp(filepath).metadata();
+            base = base.extract(cropWindow(upright.width, upright.height, preW / preH, imgMeta.crop))
+                       .resize(preW, preH, { fit: 'fill' });
+        } else {
+            base = base.resize(preW, preH, { fit: 'contain', background: { r: 0, g: 0, b: 0 } });
+        }
+        // Two passes: sharp can't extract in EXIF orientation and then rotate in
+        // one pipeline. The intermediate is panel-sized raw pixels, so it's cheap.
+        const { data, info } = await base.raw().toBuffer({ resolveWithObject: true });
+        const pipeline = sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } })
+            .rotate(rotation);   // user-chosen orientation
 
         if (brightness !== 1 || saturation !== 1) pipeline.modulate({ brightness, saturation });
 
@@ -2521,6 +2685,7 @@ app.get('/api/images', (req, res) => {
             screenId:   meta[filename]?.screenId   || null,
             albumId:    meta[filename]?.albumId    || null,
             imageFit:   meta[filename]?.imageFit   || null,   // null = follow screen default
+            crop:       meta[filename]?.crop       || null,   // null = centred
         }));
     if (screenId !== undefined) {
         const filterVal = screenId === '' ? null : screenId;
@@ -3504,9 +3669,9 @@ app.delete('/api/admin/device-logs/:deviceId', requireAdmin, (req, res) => {
 // firmware build. It lists the releases per supported screen model; the newest
 // release of a model is the build the server currently serves over OTA.
 const FW_CHANGELOG_FILE = path.join(ESP32_DIR, 'firmware-changelog.json');
-function readFirmwareChangelog() {
+function readFirmwareChangelog(file = FW_CHANGELOG_FILE) {
     try {
-        const doc = JSON.parse(fs.readFileSync(FW_CHANGELOG_FILE, 'utf8'));
+        const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
         return doc && typeof doc.models === 'object' ? doc.models : {};
     } catch { return {}; }
 }
@@ -3755,10 +3920,15 @@ app.get('/api/screens', (req, res) => {
                 if (fs.existsSync(path.join(UPLOADS_DIR, fname))) currentImage = `/uploads/${fname}`;
             }
         }
+        // The size the device last rendered at (it reports its panel size), so the
+        // crop overlay has the panel's shape. Fallback: the PhotoPainter's 800×480.
+        const panelKey = [imgKey, ...linkedKeys].find(k => k?.panelWidth && k?.panelHeight);
         return {
             ...s,
             currentImage,
             currentImageAt: imgKey?.lastImageAt || null,
+            panelWidth:  panelKey?.panelWidth  || linkedKey?.imageWidth  || 800,
+            panelHeight: panelKey?.panelHeight || linkedKey?.imageHeight || 480,
             imageCount:  Object.values(meta).filter(m => m.screenId === s.id).length,
             albumCount:  (appData.albums || []).filter(a => a.screenId === s.id).length,
             intervalMinutes: linkedKey?.intervalMinutes || 5,
@@ -4094,6 +4264,23 @@ app.put('/api/images/:filename/fit', (req, res) => {
         delete appData.imageMetadata[filename].imageFit;   // back to screen default
     saveData(appData);
     res.json({ ok: true, imageFit: appData.imageMetadata[filename].imageFit || null });
+});
+
+// Per-image crop for Fill mode: { crop: { x, y, zoom } } (see cropWindow), or
+// { crop: null } to go back to the centred default.
+app.put('/api/images/:filename/crop', (req, res) => {
+    const filename = path.basename(req.params.filename);
+    if (!userCanSeeImage(req.currentUser, filename))
+        return res.status(403).json({ error: 'Permission denied' });
+    if (!fs.existsSync(path.join(UPLOADS_DIR, filename)))
+        return res.status(404).json({ error: 'Image not found' });
+    if (!appData.imageMetadata) appData.imageMetadata = {};
+    if (!appData.imageMetadata[filename]) appData.imageMetadata[filename] = {};
+    const crop = normCrop(req.body?.crop);
+    if (crop) appData.imageMetadata[filename].crop = crop;
+    else      delete appData.imageMetadata[filename].crop;
+    saveData(appData);
+    res.json({ ok: true, crop });
 });
 
 // ── Inactivity notifications ───────────────────────────────────────────────
