@@ -5,6 +5,19 @@
       "name": "Seeed reTerminal E1001 (7.5\" monochrome)",
       "releases": [
         {
+          "version": "2026.10.18",
+          "date": "2026-10-18",
+          "title": "Fewer needless refreshes and lower power per wake",
+          "changes": [
+            "Battery: over HTTPS (port 443) all requests of a wake share one connection, instead of doing 4-5 separate TLS handshakes",
+            "Battery: the \"No photos yet\" and \"Cannot reach server\" screens are drawn once instead of on every wake, and the very same photo is not redrawn",
+            "Battery: when the server can't be reached, the device no longer waits out a timeout for every request",
+            "Photos: the decoder keeps white at full white, so light areas dither slightly cleaner",
+            "A very detailed photo larger than 512 KB is now shown instead of being re-downloaded and rejected on every wake",
+            "Device logs show dashes and arrows correctly again (they appeared as garbled characters)"
+          ]
+        },
+        {
           "version": "2026.10.12",
           "date": "2026-10-12",
           "title": "Download timeouts, OTA rollback & retry back-off, re-pairing, safer setup portal",
@@ -64,6 +77,23 @@
     "PhotoPainter-E6": {
       "name": "Waveshare 7.3\" PhotoPainter (E6 Spectra 6)",
       "releases": [
+        {
+          "version": "2026.10.18",
+          "date": "2026-10-18",
+          "title": "Cleaner whites, no needless refreshes, much lower power per wake",
+          "changes": [
+            "Photos: white and light areas no longer get a sprinkle of green/yellow dots. The decoder turned pure white into slightly grey (248/252/248), which the dithering then made up for with ~4% coloured dots",
+            "Dithering rounds its colour corrections instead of cutting them off, for slightly smoother gradients",
+            "Battery: while the panel refreshes (~20 s per photo) the processor now sleeps until the panel is done, instead of staying fully awake",
+            "Battery: over HTTPS (port 443) all requests of a wake share one connection, instead of doing 4-5 separate TLS handshakes",
+            "Battery: the \"No photos yet\" and \"Cannot reach server\" screens are drawn once instead of on every wake, and the very same photo (one photo, no date overlay) is not redrawn",
+            "Battery: when the server can't be reached, the device no longer waits out a timeout for every request; the radio also turns off before drawing the sleeping/no-photos/error screens",
+            "Battery: no extra 0.3 s awake on every timer wake (that pause is only for a serial monitor after power-on)",
+            "KEY1: a 5-second hold to toggle sleep is now timed from the press itself; before, you had to hold noticeably longer than 5 s",
+            "A very detailed photo larger than 512 KB is now shown instead of being re-downloaded and rejected on every wake",
+            "Device logs show dashes and arrows correctly again (they appeared as garbled characters)"
+          ]
+        },
         {
           "version": "2026.10.12",
           "date": "2026-10-12",

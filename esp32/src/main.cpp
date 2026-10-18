@@ -12,6 +12,8 @@
 #include <esp_system.h>
 #include <esp_mac.h>
 #include "esp_ota_ops.h"
+#include "esp_crc.h"
+#include "driver/gpio.h"
 #include "driver/rtc_io.h"
 #include "JPEGDEC.h"
 #include "config.h"
@@ -38,9 +40,13 @@ RTC_DATA_ATTR static int     g_lastBattMv = 0;
 // reads are valid. Not kept across sleep.
 static bool g_pmicReady = false;
 
-// Whether the "Sleeping" screen is already on the panel, so we render it once
-// when entering the scheduled sleep window and not on every check during it.
-RTC_DATA_ATTR static bool g_sleepShown = false;
+// What the panel shows right now, kept across deep sleep. A full e-ink refresh
+// costs ~20 s of power, so a screen that's already up (the "Sleeping" screen
+// during the sleep window, "no photos", "cannot reach server", the setup portal,
+// or the very same photo) isn't redrawn on every wake.
+enum : uint8_t { SHOWS_UNKNOWN, SHOWS_PHOTO, SHOWS_SETUP, SHOWS_SLEEPING, SHOWS_EMPTY, SHOWS_ERROR, SHOWS_OTHER };
+RTC_DATA_ATTR static uint8_t  g_shows    = SHOWS_UNKNOWN;
+RTC_DATA_ATTR static uint32_t g_photoCrc = 0;    // CRC32 of the photo's JPEG while g_shows == SHOWS_PHOTO
 
 // KEY1 button state, kept across deep sleep. g_manualOffset advances the photo
 // on each short press; g_manualSleep is toggled by a long press.
@@ -51,14 +57,11 @@ RTC_DATA_ATTR static bool g_manualSleep  = false;
 RTC_DATA_ATTR static uint8_t g_wifiFails   = 0;   // consecutive wakes WiFi didn't connect
 RTC_DATA_ATTR static uint8_t g_pairFails   = 0;   // consecutive pairing windows that expired
 RTC_DATA_ATTR static uint8_t g_keyRejected = 0;   // consecutive wakes the server rejected our key
-// The setup-portal screen is already on the panel, so a portal reopened after a
-// sleep doesn't redraw it (a full e-ink refresh costs ~20 s of power).
-RTC_DATA_ATTR static bool    g_setupShown  = false;
 // Running firmware version, cached across wakes (hashing the image takes time).
 RTC_DATA_ATTR static char     g_fwVer[17]  = {0};
 RTC_DATA_ATTR static uint32_t g_fwVerAddr  = 0;
 
-// â”€â”€ Framebuffer size (depends on bits-per-pixel of the panel) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Framebuffer size (depends on bits-per-pixel of the panel) ──────────────
 #if PANEL_E6
   #define EPD_BUF_SIZE (EPD_W * EPD_H / 2)   // 4-bit colour code per pixel
 #elif defined(PANEL_GRAY4)
@@ -68,7 +71,7 @@ RTC_DATA_ATTR static uint32_t g_fwVerAddr  = 0;
 #endif
 
 #if PANEL_E6
-// â”€â”€ Spectra 6 (E6) color palette â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Spectra 6 (E6) color palette ──────────────────────────────────────────
 // The E6 panel accepts these 4-bit color codes (index 4 is unused). Order and
 // codes match Waveshare's official E6 driver.
 #define C_BLACK   0
@@ -116,9 +119,27 @@ static const int PALETTE_N = sizeof(PALETTE) / sizeof(PALETTE[0]);
 static uint8_t *epd_buf  = nullptr;
 static uint8_t *jpeg_buf = nullptr;
 static uint8_t *rgb_buf  = nullptr;   // full decoded RGB888 image, for dithering
+static size_t   g_jpegCap = JPEG_BUF_SIZE;
 static JPEGDEC  jpeg;
 
-// â”€â”€ Logging: mirror to Serial AND a RAM buffer that is uploaded to the server
+// Make room for a `need`-byte JPEG. The default buffer fits a normal photo; a
+// very detailed one can be bigger, and would otherwise be re-downloaded and
+// rejected on every wake. PSRAM has plenty of room.
+static bool ensureJpegBuf(int need) {
+    if (need <= (int)g_jpegCap) return true;
+    if (need > 4 * 1024 * 1024) return false;
+    uint8_t *p = (uint8_t *)ps_realloc(jpeg_buf, need);
+    if (!p) return false;
+    jpeg_buf  = p;
+    g_jpegCap = need;
+    return true;
+}
+
+// Debug mode (toggled from the dashboard): keep the radio on through the
+// refresh so the decode/display logs reach the server.
+static bool g_debugLogging = false;
+
+// ── Logging: mirror to Serial AND a RAM buffer that is uploaded to the server
 // each wake (the device deep-sleeps, so USB serial isn't readable in normal use)
 static String g_logbuf;
 static void logSink(const char *s) {
@@ -210,7 +231,7 @@ static void otaRecordSuccess() {
     p.end();
 }
 
-// â”€â”€ Runtime config â€” stored in NVS, set via setup portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Runtime config — stored in NVS, set via setup portal ─────────────────
 struct Config {
     String wifiSsid;
     String wifiPassword;
@@ -271,7 +292,7 @@ static void setEverConnected(bool ok) {
 
 static void deep_sleep(uint32_t seconds);   // defined below
 
-// â”€â”€ Captive portal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Captive portal ────────────────────────────────────────────────────────
 static WebServer apServer(80);
 static DNSServer dnsServer;
 
@@ -428,7 +449,7 @@ static void startCaptivePortal() {
 }
 
 #if PANEL_E6
-// â”€â”€ Nearest-color quantization â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Nearest-color quantization ────────────────────────────────────────────
 // Find nearest palette entry. Returns its array index; weighted for perceived
 // luma so greys don't drift toward colored cells.
 static inline int quantizeIdx(int r, int g, int b) {
@@ -444,21 +465,25 @@ static inline int quantizeIdx(int r, int g, int b) {
 }
 #endif // PANEL_E6
 
-// â”€â”€ JPEGDEC draw callback â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── JPEGDEC draw callback ─────────────────────────────────────────────────
 // Store the decoded RGB888 into the full-image buffer (unrotated). Quantizing
-// and 180Â° rotation happen later in dither_and_pack().
+// and 180° rotation happen later in dither_and_pack().
 static int jpegDraw(JPEGDRAW *pDraw) {
+    const int w = min(pDraw->iWidth, EPD_W - pDraw->x);
     for (int row = 0; row < pDraw->iHeight; row++) {
-        int py = pDraw->y + row;
+        const int py = pDraw->y + row;
         if (py >= EPD_H) break;
-        for (int col = 0; col < pDraw->iWidth; col++) {
-            int px = pDraw->x + col;
-            if (px >= EPD_W) continue;
-            uint16_t c = pDraw->pPixels[row * pDraw->iWidth + col];
-            int idx = (py * EPD_W + px) * 3;
-            rgb_buf[idx + 0] = ( c >> 11)         << 3;   // R
-            rgb_buf[idx + 1] = ((c >>  5) & 0x3F) << 2;   // G
-            rgb_buf[idx + 2] = ( c        & 0x1F) << 3;   // B
+        const uint16_t *src = pDraw->pPixels + row * pDraw->iWidth;
+        uint8_t *dst = rgb_buf + (py * EPD_W + pDraw->x) * 3;
+        for (int col = 0; col < w; col++) {
+            const uint16_t c = src[col];
+            const uint8_t r = c >> 11, g = (c >> 5) & 0x3F, b = c & 0x1F;
+            // Widen the 5/6-bit channels by repeating their top bits, so white
+            // stays 255. A plain shift made it 248/252/248, and the dither then
+            // made up the difference with ~4% green/yellow dots in every white area.
+            *dst++ = (r << 3) | (r >> 2);
+            *dst++ = (g << 2) | (g >> 4);
+            *dst++ = (b << 3) | (b >> 2);
         }
     }
     return 1;
@@ -466,7 +491,7 @@ static int jpegDraw(JPEGDRAW *pDraw) {
 
 #if PANEL_E6
 static inline void epd_set_code(int x, int y, uint8_t code) {
-    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180Â° rotate
+    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180° rotate
     if (pos & 1) epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | code;
     else         epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0x0F) | (code << 4);
 }
@@ -491,9 +516,11 @@ static void dither_and_pack() {
         memset(errNext, 0, W * 3 * sizeof(int));
         for (int x = 0; x < W; x++) {
             int i = (y * W + x) * 3;
-            int r = rgb_buf[i + 0] + errCur[x*3 + 0] / 16;
-            int g = rgb_buf[i + 1] + errCur[x*3 + 1] / 16;
-            int b = rgb_buf[i + 2] + errCur[x*3 + 2] / 16;
+            // (e + 8) >> 4 rounds e/16 to nearest; '/' truncated toward zero,
+            // which nudged every pixel's correction toward none.
+            int r = rgb_buf[i + 0] + ((errCur[x*3 + 0] + 8) >> 4);
+            int g = rgb_buf[i + 1] + ((errCur[x*3 + 1] + 8) >> 4);
+            int b = rgb_buf[i + 2] + ((errCur[x*3 + 2] + 8) >> 4);
             if (r < 0) r = 0; if (r > 255) r = 255;
             if (g < 0) g = 0; if (g > 255) g = 255;
             if (b < 0) b = 0; if (b > 255) b = 255;
@@ -565,7 +592,7 @@ static void dither_and_pack() {
 }
 #endif // PANEL_E6 / PANEL_UC8179
 
-// â”€â”€ EPD SPI helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── EPD SPI helpers ───────────────────────────────────────────────────────
 static void epd_cmd(uint8_t cmd) {
     digitalWrite(EPD_DC, LOW);  digitalWrite(EPD_CS, LOW);
     SPI.transfer(cmd);
@@ -577,16 +604,33 @@ static void epd_dat(uint8_t dat) {
     digitalWrite(EPD_CS, HIGH);
 }
 // Wait until the panel reports idle (BUSY high), with a timeout so a wiring or
-// polarity problem can't hang the firmware forever.
-static void epd_busy_wait(uint32_t timeout_ms = 35000) {
-    uint32_t start = millis();
+// polarity problem can't hang the firmware forever. A refresh takes ~20 s and
+// needs nothing from the CPU, so with the radio off we light-sleep until BUSY
+// rises (~1 mA instead of ~25 mA awake polling). With WiFi on (pairing, debug
+// logging) we poll, as light sleep would drop the connection.
+static bool epd_busy_wait(uint32_t timeout_ms = 35000) {
+    const uint32_t start = millis();
+    const bool canSleep = WiFi.getMode() == WIFI_OFF;
     while (!digitalRead(EPD_BUSY)) {
-        if (millis() - start > timeout_ms) {
+        const uint32_t waited = millis() - start;
+        if (waited > timeout_ms) {
             logf("epd_busy_wait: TIMEOUT after %u ms (BUSY never went high)\n", timeout_ms);
-            return;
+            return false;
         }
-        delay(5);
+        if (canSleep && timeout_ms - waited > 20) {
+            Serial.flush();
+            gpio_wakeup_enable((gpio_num_t)EPD_BUSY, GPIO_INTR_HIGH_LEVEL);
+            esp_sleep_enable_gpio_wakeup();
+            esp_sleep_enable_timer_wakeup((uint64_t)(timeout_ms - waited) * 1000ULL);   // backstop
+            esp_light_sleep_start();
+            gpio_wakeup_disable((gpio_num_t)EPD_BUSY);
+            esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);
+            esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
+        } else {
+            delay(5);
+        }
     }
+    return true;
 }
 static void epd_reset() {
     digitalWrite(EPD_RST, HIGH); delay(50);
@@ -621,7 +665,7 @@ static void epd_init() {
     // (extra ~1-3s and an extra panel settle) on every photo. Matches the
     // official Waveshare 7.3" E6 driver, which powers on only in the show step.
 }
-static void epd_display(uint8_t *buf) {
+static bool epd_display(uint8_t *buf) {
     epd_cmd(0x10);
     const size_t CHUNK = 4096;
     for (size_t i = 0; i < EPD_BUF_SIZE; i += CHUNK) {
@@ -636,10 +680,11 @@ static void epd_display(uint8_t *buf) {
     epd_cmd(0x06); epd_dat(0x6F); epd_dat(0x1F); epd_dat(0x17); epd_dat(0x49);
     logln("epd_display: refresh (0x12)");
     epd_cmd(0x12); epd_dat(0x00);   // display refresh — the genuinely slow step
-    epd_busy_wait(35000);
+    const bool ok = epd_busy_wait(35000);
     epd_cmd(0x02); epd_dat(0x00);   // power off
     epd_busy_wait(8000);
     logln("epd_display: done");
+    return ok;
 }
 static void epd_sleep_mode() {
     epd_cmd(0x07); epd_dat(0xA5);   // deep sleep
@@ -656,18 +701,19 @@ static void epd_send_const(uint8_t val, size_t n) {
 // command, so poke 0x71 before each read (BUSY low = busy). This matches the
 // Waveshare/Inkycal reference and makes "refresh finished" detection reliable,
 // so we never power off mid-refresh (which leaves a ghosted/partial image).
-static void epd_busy_71(uint32_t timeout_ms = 35000) {
+static bool epd_busy_71(uint32_t timeout_ms = 35000) {
     uint32_t start = millis();
     epd_cmd(0x71);
     while (!digitalRead(EPD_BUSY)) {
         if (millis() - start > timeout_ms) {
             logf("epd_busy_71: TIMEOUT after %u ms (BUSY never went high)\n", timeout_ms);
-            return;
+            return false;
         }
         epd_cmd(0x71);
         delay(5);
     }
     delay(20);   // small settle after the panel reports idle (Waveshare ref)
+    return true;
 }
 // UC8179 (GDEW075T7) 7.5" monochrome init — LUT from the panel's OTP.
 static void epd_init() {
@@ -684,7 +730,7 @@ static void epd_init() {
     epd_cmd(0x50); epd_dat(0x10); epd_dat(0x07);                                 // VCOM + data interval
     epd_cmd(0x60); epd_dat(0x22);                                                // TCON setting
 }
-static void epd_display(uint8_t *buf) {
+static bool epd_display(uint8_t *buf) {
     epd_cmd(0x10); epd_send_const(0x00, EPD_BUF_SIZE);   // OLD plane (from white)
     epd_cmd(0x13);                                       // NEW plane = image
     // Our framebuffer is packed 1=white / 0=black, but this panel's NEW-data
@@ -701,8 +747,9 @@ static void epd_display(uint8_t *buf) {
     }
     logln("epd_display: refresh (0x12)");
     epd_cmd(0x12); delay(100);                           // display refresh
-    epd_busy_71(35000);
+    const bool ok = epd_busy_71(35000);
     logln("epd_display: done");
+    return ok;
 }
 static void epd_sleep_mode() {
     epd_cmd(0x02); epd_busy_71(8000);     // power off
@@ -710,7 +757,7 @@ static void epd_sleep_mode() {
 }
 #endif // PANEL_E6 / PANEL_UC8179
 
-// â”€â”€ 8Ã—8 bitmap font (IBM PC, printable ASCII 0x20â€“0x7E) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── 8×8 bitmap font (IBM PC, printable ASCII 0x20–0x7E) ──────────────────
 // Each char: 8 bytes = 8 rows, MSB of each byte = leftmost pixel
 static const uint8_t FONT8[95][8] PROGMEM = {
     {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00}, // 0x20 space
@@ -810,7 +857,7 @@ static const uint8_t FONT8[95][8] PROGMEM = {
     {0x3B,0x6E,0x00,0x00,0x00,0x00,0x00,0x00}, // 0x7E ~
 };
 
-// â”€â”€ Display drawing helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Display drawing helpers ────────────────────────────────────────────────
 #if PANEL_E6
 static void epd_fill(uint8_t color) {
     uint8_t b = (uint8_t)((color << 4) | color);
@@ -818,7 +865,7 @@ static void epd_fill(uint8_t color) {
 }
 static void epd_pix(int x, int y, uint8_t color) {
     if (x < 0 || x >= EPD_W || y < 0 || y >= EPD_H) return;
-    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180Â° rotate
+    int pos = (EPD_H - 1 - y) * EPD_W + (EPD_W - 1 - x);  // 180° rotate
 
     if (pos & 1) epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0xF0) | color;
     else         epd_buf[pos >> 1] = (epd_buf[pos >> 1] & 0x0F) | (color << 4);
@@ -859,6 +906,15 @@ static void epd_text(int x, int y, const char *s, uint8_t fg, uint8_t bg, int sc
     while (*s) { epd_glyph(x, y, *s++, fg, bg, scale); x += 9 * scale; }
 }
 
+// Push epd_buf to the panel (a full refresh) and remember what's on it. A
+// refresh that timed out leaves the panel's content unknown.
+static void panel_show(uint8_t what) {
+    epd_init();
+    const bool ok = epd_display(epd_buf);
+    epd_sleep_mode();
+    g_shows = ok ? what : SHOWS_UNKNOWN;
+}
+
 // Returns AP SSID based on MAC
 static String apNameFromMac() {
     uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
@@ -887,16 +943,13 @@ static void epd_show_setup(const char *apName) {
     epd_text(24, 330, "No setup network? It turns off after", C_BLACK, C_WHITE, 2);
     epd_text(24, 352, "15 min - restart the frame to retry.", C_BLACK, C_WHITE, 2);
 
-    epd_init();
-    epd_display(epd_buf);
-    epd_sleep_mode();
-    g_setupShown = true;
+    panel_show(SHOWS_SETUP);
 }
 
 // Open the setup portal, drawing the setup screen only if it isn't already on
 // the panel (a portal reopened after sleeping doesn't need a fresh refresh).
 static void openSetupPortal() {
-    if (!g_setupShown) { String ap = apNameFromMac(); epd_show_setup(ap.c_str()); }
+    if (g_shows != SHOWS_SETUP) { String ap = apNameFromMac(); epd_show_setup(ap.c_str()); }
     startCaptivePortal();   // never returns
 }
 
@@ -917,9 +970,7 @@ static void epd_show_error(const char *host, int port) {
     epd_text(24, 230, "Press BOOT after a reboot to", C_BLACK, C_WHITE, 2);
     epd_text(24, 252, "reconfigure this device.", C_BLACK, C_WHITE, 2);
 
-    epd_init();
-    epd_display(epd_buf);
-    epd_sleep_mode();
+    panel_show(SHOWS_ERROR);
 }
 
 // Show a "no photos yet" screen — the device is paired & online, but its screen
@@ -936,9 +987,7 @@ static void epd_show_no_photos() {
     epd_text(24, 232, "The display will show them", C_BLACK, C_WHITE, 2);
     epd_text(24, 254, "automatically on the next refresh.", C_BLACK, C_WHITE, 2);
 
-    epd_init();
-    epd_display(epd_buf);
-    epd_sleep_mode();
+    panel_show(SHOWS_EMPTY);
 }
 
 // Draw a QR code into the buffer at (ox,oy) with the given module pixel size.
@@ -980,9 +1029,7 @@ static void epd_show_pairing(const char *code, const char *pairUrl) {
     epd_text(24, 360, "The display updates", C_BLACK, C_WHITE, 2);
     epd_text(24, 384, "automatically once paired.", C_BLACK, C_WHITE, 2);
 
-    epd_init();
-    epd_display(epd_buf);
-    epd_sleep_mode();
+    panel_show(SHOWS_OTHER);
 }
 
 // Extract a JSON string value: "key":"value"  (no nesting/escapes expected).
@@ -996,9 +1043,11 @@ static String jsonStr(const String &body, const char *key) {
 }
 
 #if HAS_AXP2101
-// â”€â”€ Battery voltage reading (via AXP2101 PMIC) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Battery voltage reading (via AXP2101 PMIC) ────────────────────────────
 static int read_battery_mv() {
-    int mv = PMU.getBattVoltage();          // 0 if PMIC not init this wake / no batt
+    // Without a PMIC init this wake the I2C reads only time out and return junk.
+    if (!g_pmicReady) return g_lastBattMv > 0 ? g_lastBattMv : -1;
+    int mv = PMU.getBattVoltage();          // 0 if no battery
     // Only trust a plausible single-cell LiPo voltage. The AXP2101 sometimes
     // reports garbage (e.g. 41mV) right after a charge state change or when no
     // battery is actually present — don't let that show as a real 0%.
@@ -1030,7 +1079,7 @@ static void i2c_bus_recover() {
     pinMode(PMIC_SDA, INPUT_PULLUP);
 }
 
-// â”€â”€ Power up the AXP2101 PMIC and the e-paper power rails â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Power up the AXP2101 PMIC and the e-paper power rails ─────────────────
 static bool pmic_init() {
     // The AXP2101 only re-inits over I2C after a true power-on reset, never on a
     // deep-sleep timer wake. On a cold boot we try hard (and on success enable
@@ -1048,7 +1097,8 @@ static bool pmic_init() {
         Wire.setClock(100000);          // be gentle; the bus can be flaky on wake
         if (i == 0) delay(60);          // let the bus settle
         if (PMU.begin(Wire, AXP2101_SLAVE_ADDRESS, PMIC_SDA, PMIC_SCL)) { ok = true; break; }
-        if (attempts > 1) logf("PMIC: AXP2101 init attempt %d failed, retrying...\n", i + 1);
+        if (i + 1 == attempts) break;   // no point waiting after the last try
+        logf("PMIC: AXP2101 init attempt %d failed, retrying...\n", i + 1);
         delay(60 + i * 60);             // escalating back-off
     }
     if (!ok) {
@@ -1105,10 +1155,10 @@ static int battery_mv_median() {
     return s[2];
 }
 
-// â”€â”€ Detailed battery / power diagnostics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Detailed battery / power diagnostics ───────────────────────────────────
 // On battery-only the device can't report (no power if the cell is flat), so we
 // dump the full power picture here on every boot. It lands in the device logs
-// (Settings â†’ Logs) so battery issues are diagnosable without a serial cable.
+// (Settings → Logs) so battery issues are diagnosable without a serial cable.
 static void pmic_report() {
     logln("---- battery / power report ----");
     if (!g_pmicReady) {
@@ -1186,11 +1236,19 @@ static void pmic_report() {
 }
 #endif // HAS_AXP2101
 
-// â”€â”€ Server connection (HTTP, or HTTPS when the server is on port 443) â”€â”€â”€â”€â”€â”€â”€
+// ── Server connection (HTTP, or HTTPS when the server is on port 443) ───────
 // Behind a TLS-terminating reverse proxy the device must speak HTTPS on 443. We
 // treat port 443 as HTTPS and skip certificate validation (traffic is still
 // encrypted) so it works with Let's Encrypt, self-signed and proxy certificates.
+//
+// One client for the whole wake, kept alive between requests: a normal wake
+// makes 4-5 requests, and over HTTPS each new connection is a full TLS handshake
+// (~0.5-1 s of radio time).
 static WiFiClientSecure g_secure;
+static WiFiClient       g_plain;
+static HTTPClient       g_http;
+static bool g_bodyDone   = false;   // current response fully read: the connection can be reused
+static bool g_serverDown = false;   // a connection to the server failed this wake: skip the rest
 static bool serverHttps() { return cfg.serverPort == 443; }
 // Build a full server URL for `path` (which begins with '/'). The standard port
 // (443/80) is omitted so it works cleanly with reverse proxies / virtual hosts.
@@ -1202,13 +1260,54 @@ static String serverUrl(const String &path) {
     u += path;
     return u;
 }
-// Begin an HTTPClient request, using a TLS client for https:// URLs.
-static bool beginServer(HTTPClient &http, const String &url) {
-    if (url.startsWith("https://")) {
-        g_secure.setInsecure();   // encrypt, but don't validate the certificate
-        return http.begin(g_secure, url);
+// Close the connection outright (after an error or a half-read body).
+static void serverDrop() {
+    g_http.end();
+    g_secure.stop();
+    g_plain.stop();
+}
+// Send a request (a POST when `json` is given) and return the HTTP status, or
+// a negative HTTPC_ERROR_*. A kept-alive connection the server has just closed
+// fails on first use, so that case gets one retry on a fresh connection. If the
+// server can't be reached at all, later requests this wake fail straight away
+// instead of each waiting out the connect timeout.
+static int serverRequest(const String &url, const String &json = String()) {
+    if (g_serverDown) return HTTPC_ERROR_CONNECTION_REFUSED;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        const bool reused = g_http.connected();
+        g_bodyDone = false;
+        if (url.startsWith("https://")) {
+            g_secure.setInsecure();              // encrypt, but don't validate the certificate
+            g_secure.setHandshakeTimeout(15);    // seconds; the default would wait 2 minutes
+            g_http.begin(g_secure, url);
+        } else {
+            g_http.begin(g_plain, url);
+        }
+        g_http.setReuse(true);
+        int code;
+        if (json.length()) { g_http.addHeader("Content-Type", "application/json"); code = g_http.POST(json); }
+        else               { code = g_http.GET(); }
+        if (code > 0) return code;
+        serverDrop();
+        if (!reused) {
+            if (code == HTTPC_ERROR_CONNECTION_REFUSED) g_serverDown = true;
+            return code;
+        }
+        logln("HTTP: kept-alive connection was closed - retrying");
     }
-    return http.begin(url);
+    return HTTPC_ERROR_CONNECTION_LOST;
+}
+// The response body as a string (marks it read, so the connection is reusable).
+static String serverBody() {
+    String s = g_http.getString();
+    g_bodyDone = true;
+    return s;
+}
+// Finish a request, keeping the connection open for the next one. An unread
+// body is drained first, or it would be taken for the next response.
+static void serverEnd() {
+    if (!g_bodyDone && g_http.connected()) g_http.getString();
+    g_http.end();
 }
 // Path+query from a full URL (everything from the first '/' after the host).
 static String urlPath(const String &url) {
@@ -1217,7 +1316,7 @@ static String urlPath(const String &url) {
     return s >= 0 ? url.substring(s) : String("/");
 }
 
-// â”€â”€ Post device status to server â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Post device status to server ──────────────────────────────────────────
 static void post_status(uint32_t sleep_s) {
     int bat_mv = read_battery_mv();
     int rssi   = WiFi.RSSI();
@@ -1227,9 +1326,6 @@ static void post_status(uint32_t sleep_s) {
     snprintf(device_id, sizeof(device_id), "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 
-    HTTPClient http;
-    beginServer(http, serverUrl("/api/device/status?key=" + cfg.apiKey));
-    http.addHeader("Content-Type", "application/json");
     const String fwver = runningFwVersion();
     // Charging/USB diagnostics are only available on the AXP2101 boards.
     String chargePart = "";
@@ -1255,31 +1351,39 @@ static void post_status(uint32_t sleep_s) {
                 + chargePart
                 + (fwver.length() ? ",\"firmware_version\":\"" + fwver + "\"" : "")
                 + "}";
-    int code = http.POST(body);
+    int code = serverRequest(serverUrl("/api/device/status?key=" + cfg.apiKey), body);
     logf("Status POST %d\n", code);
-    http.end();
+    serverEnd();
     if (code >= 200 && code < 300) markAppValid();   // reached the server
 }
 
 // Upload the captured log buffer to the server (best effort).
 static void flushLogs() {
     if (g_logbuf.length() == 0) return;
-    if (WiFi.status() != WL_CONNECTED || cfg.apiKey.length() == 0) return;
+    if (WiFi.status() != WL_CONNECTED || cfg.apiKey.length() == 0 || g_serverDown) return;
     uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char device_id[18];
     snprintf(device_id, sizeof(device_id), "%02x:%02x:%02x:%02x:%02x:%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    HTTPClient http;
-    beginServer(http, serverUrl("/api/device/log?key=" + cfg.apiKey));
-    http.addHeader("Content-Type", "application/json");
     String body = String("{\"device_id\":\"") + device_id + "\",\"log\":\""
                 + jsonEscape(g_logbuf) + "\"}";
-    http.POST(body);
-    http.end();
+    serverRequest(serverUrl("/api/device/log?key=" + cfg.apiKey), body);
+    serverEnd();
     g_logbuf = "";
 }
 
-// â”€â”€ Deep sleep â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Power the radio down before a slow e-ink refresh that needs no network (the
+// panel then also refreshes in light sleep). Debug mode keeps it on so the
+// refresh logs still reach the server.
+static void radioOffForRefresh() {
+    if (g_debugLogging || WiFi.getMode() == WIFI_OFF) return;
+    flushLogs();
+    serverDrop();
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+}
+
+// ── Deep sleep ────────────────────────────────────────────────────────────
 static void deep_sleep(uint32_t seconds) {
     markAppValid();   // got through a whole wake cycle without crashing
     logf("Deep sleep for %u s\n", seconds);
@@ -1305,7 +1409,7 @@ static void deep_sleep(uint32_t seconds) {
     esp_deep_sleep_start();
 }
 
-// â”€â”€ KEY1 button finder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── KEY1 button finder ──────────────────────────────────────────────────
 // One-time helper: watch the free RTC-capable GPIOs and report which one drops
 // LOW when KEY1 is pressed, so we learn the pin from the actual board. Only
 // reads pins (never drives them), so it can't disturb the panel/PMIC.
@@ -1358,7 +1462,7 @@ static void find_key1() {
         logln("KEY1 finder: no clean button seen — re-run: hands OFF in stage 1, hold in stage 2");
 }
 
-// â”€â”€ Clear NVS config â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Clear NVS config ──────────────────────────────────────────────────────
 static void clearConfig() {
     Preferences p;
     p.begin("photodisplay", false);
@@ -1366,21 +1470,21 @@ static void clearConfig() {
     p.end();
 }
 
-// â”€â”€ Fetch a JPEG URL and render it to the panel ──────────────────────────
+// ── Fetch a JPEG URL and render it to the panel ──────────────────────────
 // Read an HTTP response body into buf. Gives up when no data arrives for 10 s
 // or the whole body takes over 60 s: if WiFi drops mid-download the connection
 // can still look open, and without a limit the device would spin here, never
 // sleeping, until the battery is flat. Returns true only for a complete body
 // (all Content-Length bytes, or everything up to a clean close if none was
 // sent); *outLen gets the bytes read either way.
-static bool readBody(HTTPClient &http, uint8_t *buf, size_t cap, size_t *outLen) {
-    WiFiClient *stream = http.getStreamPtr();
-    const int total = http.getSize();          // -1 if the server sent no length
+static bool readBody(uint8_t *buf, size_t cap, size_t *outLen) {
+    WiFiClient *stream = g_http.getStreamPtr();
+    const int total = g_http.getSize();        // -1 if the server sent no length
     size_t len = 0;
     const uint32_t start = millis();
     uint32_t lastData = start;
     bool timedOut = false;
-    while (http.connected() && (total < 0 || len < (size_t)total)) {
+    while (g_http.connected() && (total < 0 || len < (size_t)total)) {
         int avail = stream->available();
         if (avail > 0) {
             size_t room = cap - len;
@@ -1396,35 +1500,55 @@ static bool readBody(HTTPClient &http, uint8_t *buf, size_t cap, size_t *outLen)
     }
     *outLen = len;
     if (timedOut) logf("Download stalled after %u bytes - giving up\n", (unsigned)len);
-    return len > 0 && !timedOut && (total < 0 ? true : len == (size_t)total);
+    const bool complete = len > 0 && !timedOut && (total < 0 ? true : len == (size_t)total);
+    g_bodyDone = complete;
+    return complete;
 }
 
-static bool fetchAndShow(const String &url) {
-    HTTPClient http;
-    beginServer(http, url);
-    if (http.GET() != 200) { http.end(); return false; }
-    size_t len = 0;
-    bool complete = readBody(http, jpeg_buf, JPEG_BUF_SIZE, &len);
-    http.end();
-    // Only touch the panel with a complete, decodable image; otherwise the
-    // caller falls back to its built-in screen.
-    if (!complete) return false;
-    memset(rgb_buf, 0, EPD_W * EPD_H * 3);
-    if (!jpeg.openRAM(jpeg_buf, (int)len, jpegDraw)) return false;
+// Read the JPEG body of the request just made into jpeg_buf (growing it to fit)
+// and finish the request. True only for a complete download.
+static bool readJpegBody(size_t *outLen) {
+    *outLen = 0;
+    const int total = g_http.getSize();
+    if (total > 0 && !ensureJpegBuf(total)) {
+        logf("Image too large (%d bytes)\n", total);
+        serverDrop();
+        return false;
+    }
+    const bool complete = readBody(jpeg_buf, g_jpegCap, outLen);
+    if (complete) serverEnd();
+    else          serverDrop();   // a half-read body can't be reused
+    return complete;
+}
+
+// Decode the JPEG in jpeg_buf and dither it into epd_buf.
+static bool decodeJpeg(size_t len) {
+    memset(rgb_buf, 0, EPD_W * EPD_H * 3);   // black where the image doesn't cover
+    if (!jpeg.openRAM(jpeg_buf, (int)len, jpegDraw)) { logln("JPEG open failed"); return false; }
     jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
     const bool decoded = jpeg.decode(0, 0, 0);
     jpeg.close();
-    if (!decoded) return false;
+    if (!decoded) { logln("JPEG decode error"); return false; }
     dither_and_pack();
-    epd_init();
-    epd_display(epd_buf);
-    epd_sleep_mode();
+    return true;
+}
+
+// Fetch a server-rendered JPEG and put it on the panel as `what`. Only a
+// complete, decodable image touches the panel; otherwise the caller falls back
+// to its built-in screen. `radioOff`: nothing else needs the network this wake.
+static bool fetchAndShow(const String &url, uint8_t what, bool radioOff) {
+    const int code = serverRequest(url);
+    if (code != 200) { logf("Screen fetch HTTP %d\n", code); serverEnd(); return false; }
+    size_t len = 0;
+    if (!readJpegBody(&len) || !decodeJpeg(len)) return false;
+    if (radioOff) radioOffForRefresh();
+    panel_show(what);
     return true;
 }
 
 // Show a server-rendered status screen (paired/empty/sleeping/etc). Returns
 // false if it can't be fetched, so the caller can fall back to a local screen.
-static bool showServerScreen(const char *state) {
+static bool showServerScreen(const char *state, uint8_t what = SHOWS_OTHER, bool radioOff = false) {
     if (cfg.apiKey.length() == 0) return false;
     uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_STA);
     char id[18];
@@ -1437,10 +1561,10 @@ static bool showServerScreen(const char *state) {
                + "&id=" + id + "&rssi=" + WiFi.RSSI());
     if (pct >= 0)       url += "&batt=" + String(pct);
     if (fw.length())    url += "&fw=" + fw;
-    return fetchAndShow(url);
+    return fetchAndShow(url, what, radioOff);
 }
 
-// â”€â”€ OTA firmware update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── OTA firmware update ────────────────────────────────────────────────
 // Ask the server which firmware version it has; if it differs from the one
 // we're running and an update is enabled, download and flash it (the device
 // reboots on success). Versions are compared by image hash, so a device flashed
@@ -1458,11 +1582,10 @@ static void otaCheck() {
     p.end();
     const String running = runningFwVersion();
 
-    HTTPClient http;
-    beginServer(http, serverUrl("/api/device/firmware?key=" + cfg.apiKey + "&current=" + running
-               + "&model=" BOARD_MODEL));
-    if (http.GET() != 200) { http.end(); return; }
-    String resp = http.getString(); http.end();
+    const int code = serverRequest(serverUrl("/api/device/firmware?key=" + cfg.apiKey + "&current=" + running
+                                             + "&model=" BOARD_MODEL));
+    if (code != 200) { serverEnd(); return; }
+    String resp = serverBody(); serverEnd();
     markAppValid();                               // reached the server: we can still get a fix
     String version = jsonStr(resp, "version");
     String url     = jsonStr(resp, "url");
@@ -1483,6 +1606,7 @@ static void otaCheck() {
     p.putString("target", version);
     p.end();
     flushLogs();                                  // get the pre-update log out first
+    serverDrop();                                 // the updater opens its own connection
 
     httpUpdate.rebootOnUpdate(true);
     // Rebuild the download URL with our own scheme/host/port so OTA works over a
@@ -1507,7 +1631,7 @@ static void otaCheck() {
     // HTTP_UPDATE_OK reboots automatically into the new firmware.
 }
 
-// â”€â”€ QR device pairing â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── QR device pairing ─────────────────────────────────────────────────────
 // Request a pairing token, show a QR + code on the panel, then poll until the
 // user links this device to a screen. On success the API key is saved to NVS.
 static bool pairDevice() {
@@ -1517,12 +1641,10 @@ static bool pairDevice() {
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     const String base = serverUrl("");
 
-    HTTPClient http;
-    beginServer(http, base + "/api/devices/pair/request");
-    http.addHeader("Content-Type", "application/json");
-    int code = http.POST(String("{\"hwId\":\"") + hwId + "\",\"model\":\"" BOARD_MODEL "\"}");
-    if (code != 200) { logf("pair/request HTTP %d\n", code); http.end(); return false; }
-    String resp = http.getString(); http.end();
+    int code = serverRequest(base + "/api/devices/pair/request",
+                             String("{\"hwId\":\"") + hwId + "\",\"model\":\"" BOARD_MODEL "\"}");
+    if (code != 200) { logf("pair/request HTTP %d\n", code); serverEnd(); return false; }
+    String resp = serverBody(); serverEnd();
 
     String token   = jsonStr(resp, "token");
     String pcode   = jsonStr(resp, "code");
@@ -1534,17 +1656,16 @@ static bool pairDevice() {
     const int MAX_POLLS = 150;            // ~10 min at 4s each
     for (int i = 0; i < MAX_POLLS; i++) {
         delay(4000);
-        HTTPClient h2;
-        beginServer(h2, base + "/api/devices/pair/" + token);
-        if (h2.GET() == 200) {
-            String r2 = h2.getString(); h2.end();
+        g_serverDown = false;             // a blip mid-pairing shouldn't end the whole attempt
+        if (serverRequest(base + "/api/devices/pair/" + token) == 200) {
+            String r2 = serverBody(); serverEnd();
             String st = jsonStr(r2, "status");
             if (st == "complete") {
                 String key = jsonStr(r2, "apiKey");
                 if (key.length() > 0) {
                     cfg.apiKey = key;
                     saveConfig(cfg);
-                    logln("Paired â€” API key saved");
+                    logln("Paired — API key saved");
                     return true;
                 }
             } else if (st == "expired") {
@@ -1552,17 +1673,19 @@ static bool pairDevice() {
                 return false;
             }
         } else {
-            h2.end();
+            serverEnd();
         }
     }
     logln("Pairing timed out");
     return false;
 }
 
-// â”€â”€ setup â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── setup ─────────────────────────────────────────────────────────────────
 void setup() {
     Serial.begin(115200);
-    delay(300);
+    // Give a USB serial monitor a moment to attach after a power-on. On a timer
+    // wake nobody is watching (the logs go to the server), so don't stay awake.
+    if (esp_reset_reason() != ESP_RST_DEEPSLEEP) delay(300);
     logln("\n=== PhotoDock ===");
 
     // Allocate display buffers and init hardware first so we can show screens anywhere
@@ -1572,11 +1695,11 @@ void setup() {
     if (!epd_buf || !jpeg_buf || !rgb_buf) { logln("PSRAM alloc failed"); deep_sleep(60); }
     memset(epd_buf, 0x11, EPD_BUF_SIZE);
 
-    // Bring up the PMIC first â€” it powers the e-paper panel. The retrying
+    // Bring up the PMIC first — it powers the e-paper panel. The retrying
     // bus-reset init below handles the latched-I2C-after-wake problem. If it
     // still can't bring the PMIC up we just carry on: the device stays online
     // (it still reports status), the panel simply isn't refreshed this cycle,
-    // and the next timer wake tries again. We deliberately do NOT reboot here â€”
+    // and the next timer wake tries again. We deliberately do NOT reboot here —
     // a reboot mid-cycle risks dropping into the setup portal and never coming
     // back until a manual power cycle.
     if (!pmic_init()) {
@@ -1584,7 +1707,7 @@ void setup() {
     }
     pmic_report();   // detailed battery/power diagnostics into the device logs
 
-    // â”€â”€ KEY1 button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── KEY1 button ──────────────────────────────────────────────────────
     // If KEY1 isn't mapped yet, discover its GPIO on a cold boot. Once mapped,
     // a short press advances to the next photo and a 5s hold toggles sleep.
     if (KEY1_GPIO < 0) {
@@ -1599,11 +1722,11 @@ void setup() {
         // drive it to the wake level. We therefore do NOT require the button to
         // still be held — a quick tap is usually already released by the time we
         // boot this far (battery sampling etc. takes a few hundred ms). We only
-        // sample how long it is *still* held to tell a short tap (next photo)
-        // from a long hold (toggle sleep).
-        uint32_t t0 = millis();
-        while (digitalRead(KEY1_GPIO) == KEY1_ACTIVE_LEVEL && millis() - t0 < KEY1_LONG_PRESS_MS + 500) delay(10);
-        uint32_t held = millis() - t0;
+        // check whether it is still held to tell a short tap (next photo) from a
+        // long hold (toggle sleep). millis() counts from the wake, i.e. from the
+        // press, so the hold time includes those boot milliseconds.
+        while (digitalRead(KEY1_GPIO) == KEY1_ACTIVE_LEVEL && millis() < KEY1_LONG_PRESS_MS + 500) delay(10);
+        const uint32_t held = millis();
         if (held >= KEY1_LONG_PRESS_MS) {
             g_manualSleep = !g_manualSleep;
             logf("KEY1: long press (%ums) -> manual sleep %s\n", held, g_manualSleep ? "ON" : "OFF");
@@ -1623,7 +1746,7 @@ void setup() {
 
     // Reconfigure trigger: press & hold BOOT (GPIO 0) within the first few
     // seconds *after* a normal boot. (GPIO0 cannot be read at power-on on the
-    // ESP32-S3 â€” holding it low at reset enters ROM download mode and the app
+    // ESP32-S3 — holding it low at reset enters ROM download mode and the app
     // never runs. So we watch it briefly once the app is already executing.)
     // Only do this on a real power-on: on an unattended deep-sleep timer wake
     // nobody is here to hold BOOT, and spending 3s of full-power CPU watching it
@@ -1639,14 +1762,14 @@ void setup() {
             if (digitalRead(0) == LOW) {
                 if (pressStart == 0) pressStart = millis();
                 if (millis() - pressStart >= HOLD_MS) {
-                    logln("BOOT held â€” clearing config, starting portal");
+                    logln("BOOT held — clearing config, starting portal");
                     clearConfig();
                     String ap = apNameFromMac();
                     epd_show_setup(ap.c_str());
                     startCaptivePortal(); // never returns
                 }
             } else {
-                pressStart = 0; // released â€” reset the hold timer
+                pressStart = 0; // released — reset the hold timer
             }
             delay(10);
         }
@@ -1657,7 +1780,7 @@ void setup() {
     bool firstBoot = false;
     if (!configComplete(cfg)) {
         // Auto mode: WiFi/server baked in at compile time. The API key is
-        // optional â€” if it's empty the device falls through to QR pairing.
+        // optional — if it's empty the device falls through to QR pairing.
         if (strlen(DEFAULT_WIFI_SSID) > 0 && strlen(DEFAULT_SERVER_HOST) > 0) {
             cfg.wifiSsid     = String(DEFAULT_WIFI_SSID);
             cfg.wifiPassword = String(DEFAULT_WIFI_PASS);
@@ -1668,7 +1791,7 @@ void setup() {
             firstBoot = true;
             logln("Loaded compile-time config");
         } else {
-            logln("No config â€” starting setup portal");
+            logln("No config — starting setup portal");
             openSetupPortal();
         }
     }
@@ -1697,7 +1820,7 @@ void setup() {
         // A device that's still being set up should open the portal so the user
         // can enter credentials. But an already-configured device that just
         // can't reach WiFi this wake (router reboot, transient outage) must NOT
-        // get stuck in the AP portal forever â€” it should sleep and retry so it
+        // get stuck in the AP portal forever — it should sleep and retry so it
         // recovers on its own without a manual reboot.
         if (firstBoot) {
             logln("\nWiFi failed on first boot - starting setup portal");
@@ -1720,7 +1843,6 @@ void setup() {
     }
     logf("\nIP: %s\n", WiFi.localIP().toString().c_str());
     g_wifiFails  = 0;
-    g_setupShown = false;          // the next screen drawn replaces the setup one
     setEverConnected(true);
 
     // Remember which AP we connected to so the next wake can skip the scan.
@@ -1729,9 +1851,9 @@ void setup() {
         if (b) { memcpy(g_wifiBssid, b, 6); g_wifiChan = WiFi.channel(); g_wifiHint = true; }
     }
 
-    // No API key yet â†’ run the QR pairing flow to obtain one.
+    // No API key yet → run the QR pairing flow to obtain one.
     if (cfg.apiKey.length() == 0) {
-        logln("No API key â€” starting QR pairing");
+        logln("No API key — starting QR pairing");
         if (!pairDevice()) {
             // Each attempt keeps the radio on for ~10 min. Retry soon at first
             // (someone may be pairing right now), then back off to 15 min and 1 h
@@ -1764,7 +1886,7 @@ void setup() {
             otaRecordSuccess();
         }
         if (didUpdate) {
-            logln("OTA: update complete â€” showing confirmation");
+            logln("OTA: update complete — showing confirmation");
             showServerScreen("updated");
             delay(10000);
         }
@@ -1779,19 +1901,16 @@ void setup() {
 
     uint32_t sleep_s = DEFAULT_SLEEP_S;
     bool nowSleeping = false;
-    bool debugLogging = false;   // when set by the server, keep WiFi on through the refresh
     {
-        HTTPClient http;
-        String url = serverUrl("/api/slideshow/current?key=" + cfg.apiKey
-                   + "&offset=" + g_manualOffset);   // KEY1 short-press advances this
-        beginServer(http, url);
-        const int code = http.GET();
-        if (code == 401 && http.getString().indexOf("API key") >= 0) {
+        const int code = serverRequest(serverUrl("/api/slideshow/current?key=" + cfg.apiKey
+                                       + "&offset=" + g_manualOffset));   // KEY1 short-press advances this
+        const String body = code > 0 ? serverBody() : String();
+        serverEnd();
+        if (code == 401 && body.indexOf("API key") >= 0) {
             // The server no longer knows our key: the screen or key was deleted
             // in the dashboard. On the second wake in a row, forget it and pair
             // again, instead of showing "Cannot reach server" for ever. (Checking
             // the message stops a proxy's own 401 page from unpairing the frame.)
-            http.end();
             if (++g_keyRejected >= 2) {
                 logln("Server no longer accepts this device's key - pairing again");
                 g_keyRejected = 0;
@@ -1804,13 +1923,10 @@ void setup() {
         }
         if (code == 200) {
             g_keyRejected = 0;
-            String body = http.getString();
             // Scheduled sleep window: server tells us to show the sleeping screen
             // and sleep until the wake time (carried in next_in_ms).
             nowSleeping = body.indexOf("\"sleeping\":true") >= 0;
-            // Debug mode (toggled from the dashboard): keep the radio on through
-            // the refresh so the decode/display logs reach the server.
-            debugLogging = body.indexOf("\"debug\":true") >= 0;
+            g_debugLogging = body.indexOf("\"debug\":true") >= 0;
             // Base the sleep on the screen's configured refresh interval, so a
             // missing/too-small next_in_ms falls back to the user's setting
             // (e.g. 1 min) instead of the hardcoded 5-minute default.
@@ -1827,41 +1943,45 @@ void setup() {
                 if (ms > 5000) sleep_s = (uint32_t)(ms / 1000);
             }
         }
-        http.end();
     }
     // Reference point for aligning the next wake to the exact minute/hour: the
     // server's next_in_ms is the time to the next slot boundary measured now, so
     // we subtract however long the image fetch + refresh takes before sleeping.
-    uint32_t tRefMs = millis();
+    const uint32_t tRefMs = millis();
+    auto untilNextSlot = [&]() -> uint32_t {
+        const uint32_t elapsed_s = (millis() - tRefMs) / 1000;
+        return sleep_s > elapsed_s + 2 ? sleep_s - elapsed_s : 5;
+    };
 
     // Sleeping: either the server's scheduled window, or a manual KEY1 long-press
     // toggle. Show the "Sleeping" screen once, then sleep — wakeable by KEY1.
     if (nowSleeping || g_manualSleep) {
-        if (!g_sleepShown) { showServerScreen("sleeping"); g_sleepShown = true; }
+        if (g_shows != SHOWS_SLEEPING) showServerScreen("sleeping", SHOWS_SLEEPING, true);
         // Manual sleep waits mostly for the button; cap at 1h so it still checks
         // in. Scheduled sleep runs until the wake time (capped at 6h).
         uint32_t chunk = g_manualSleep ? 3600 : (sleep_s > 21600 ? 21600 : sleep_s);
         logf("Sleeping (%s) for %u s\n", g_manualSleep ? "manual KEY1" : "schedule", chunk);
         deep_sleep(chunk);                                    // never returns
     }
-    g_sleepShown = false;   // not sleeping any more â€” allow a re-render next time
-
     size_t jpeg_len = 0;
     {
-        HTTPClient http;
-        String url = serverUrl("/api/slideshow/image?key=" + cfg.apiKey
-                   + "&width=" + EPD_W + "&height=" + EPD_H
-                   + "&offset=" + g_manualOffset);   // KEY1 short-press advances this
-        beginServer(http, url);
-        int code = http.GET();
+        // The photo always gets a real attempt: one failed connection earlier this
+        // wake (a blip) shouldn't swap the photo for the "cannot reach" screen.
+        g_serverDown = false;
+        const int code = serverRequest(serverUrl("/api/slideshow/image?key=" + cfg.apiKey
+                                       + "&width=" + EPD_W + "&height=" + EPD_H
+                                       + "&offset=" + g_manualOffset));   // KEY1 short-press advances this
         if (code != 200) {
             logf("HTTP %d\n", code);
-            http.end();
+            serverEnd();
             if (code == 404) {
                 // Reached the server fine — the screen just has no photos yet.
                 logln("No photos assigned to this screen");
-                if (!showServerScreen("empty")) epd_show_no_photos();
-                deep_sleep(sleep_s);
+                if (g_shows != SHOWS_EMPTY && !showServerScreen("empty", SHOWS_EMPTY, true)) {
+                    radioOffForRefresh();
+                    epd_show_no_photos();
+                }
+                deep_sleep(untilNextSlot());
             }
             // Genuine connection/server problem. WiFi is up — only the server is
             // unreachable — so show a clear "cannot reach server" screen and
@@ -1869,14 +1989,15 @@ void setup() {
             // setup portal: a transient outage (server reboot, proxy/DNS/cert blip)
             // would otherwise erase a working device. The error screen tells the
             // user to hold BOOT at power-on to reconfigure a genuinely wrong address.
-            logln("Server unreachable â€” showing error, retrying next wake");
-            epd_show_error(cfg.serverHost.c_str(), cfg.serverPort);
-            deep_sleep(sleep_s);
+            logln("Server unreachable — showing error, retrying next wake");
+            if (g_shows != SHOWS_ERROR) {
+                radioOffForRefresh();
+                epd_show_error(cfg.serverHost.c_str(), cfg.serverPort);
+            }
+            deep_sleep(untilNextSlot());
         }
-        logf("JPEG: %d bytes\n", http.getSize());
-        const bool complete = readBody(http, jpeg_buf, JPEG_BUF_SIZE, &jpeg_len);
-        http.end();
-        if (!complete) {
+        logf("JPEG: %d bytes\n", g_http.getSize());
+        if (!readJpegBody(&jpeg_len)) {
             // A cut-off download would paint a partial photo for a whole
             // interval. Keep what's on the panel and try again in a few minutes.
             logf("Incomplete image (%u bytes) - keeping the current one\n", (unsigned)jpeg_len);
@@ -1884,33 +2005,24 @@ void setup() {
         }
     }
 
+    // The very photo that's already on the panel (one photo on this screen, no
+    // date overlay): a refresh would only flash the same picture for ~20 s.
+    const uint32_t crc = esp_crc32_le(0, jpeg_buf, jpeg_len);
+    if (g_shows == SHOWS_PHOTO && crc == g_photoCrc) {
+        logln("Same photo as on the panel - not refreshing");
+        deep_sleep(untilNextSlot());
+    }
+
     // The e-ink refresh below takes ~15-25s and doesn't need the network. Power
     // the radio down so it isn't drawing current through the whole refresh — one
     // of the biggest per-wake battery savings. In debug mode we keep it on so the
     // decode/display logs are flushed to the server (deep_sleep flushes them).
-    if (!debugLogging) {
-        flushLogs();
-        WiFi.disconnect(true);
-        WiFi.mode(WIFI_OFF);
-    }
+    radioOffForRefresh();
 
-    memset(rgb_buf, 0, EPD_W * EPD_H * 3);   // black where the image doesn't cover
-    bool decoded = false;
-    if (jpeg.openRAM(jpeg_buf, (int)jpeg_len, jpegDraw)) {
-        jpeg.setPixelType(RGB565_LITTLE_ENDIAN);
-        decoded = jpeg.decode(0, 0, 0);
-        logln(decoded ? "JPEG decoded" : "JPEG decode error");
-        jpeg.close();
-    } else {
-        logln("JPEG open failed");
-    }
-
-    if (decoded) {
-        dither_and_pack();           // quantize + dither into epd_buf
-        logln("Dithered to 6 colors");
-        epd_init();
-        epd_display(epd_buf);
-        epd_sleep_mode();
+    if (decodeJpeg(jpeg_len)) {
+        logln("JPEG decoded & dithered");
+        panel_show(SHOWS_PHOTO);
+        g_photoCrc = crc;
     } else {
         // Refreshing now would show a half-decoded or blank frame (black stripes
         // on the mono panel). Keep the current photo until the next slot.
@@ -1919,9 +2031,7 @@ void setup() {
 
     // Subtract the time spent fetching + refreshing so we wake on the slot
     // boundary (exact minute/hour) rather than drifting later each cycle.
-    uint32_t elapsed_s = (millis() - tRefMs) / 1000;
-    uint32_t final_s   = (sleep_s > elapsed_s + 2) ? (sleep_s - elapsed_s) : 5;
-    deep_sleep(final_s);
+    deep_sleep(untilNextSlot());
 }
 
 void loop() {}
