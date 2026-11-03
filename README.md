@@ -228,6 +228,27 @@ Environment variables (see [`.env.example`](.env.example)):
 
 ---
 
+## 🩺 Remote troubleshooting
+
+To investigate a problem on a running server without shell access, create a
+**read-only debug token** in **Settings → Server → Debug access** (valid 1, 7 or
+30 days, revocable). Save the two lines it shows as `.photodock-debug.env` in the
+project folder (git-ignored), then:
+
+```bash
+node tools/photodock-debug.mjs overview                 # version, uptime, counts, served firmware
+node tools/photodock-debug.mjs logs --level=warn --since=1h
+node tools/photodock-debug.mjs device-logs --entries=3
+node tools/photodock-debug.mjs devices | screens | settings | activity | updates
+```
+
+The token reads the server log (console output and every 5xx), device logs,
+device status, screens and settings through `GET /api/debug/*`. It can't change
+anything, never sees photos, and passwords, keys and other secrets are blanked.
+Only a hash of the token is stored, and its use shows up in the activity log.
+
+---
+
 ## 🗂️ Project layout
 
 ```

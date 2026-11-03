@@ -10,3 +10,6 @@ esp32/.pio/
 firmware_build/
 custom_firmware/
 .claude/worktrees/
+
+# Debug token for tools/photodock-debug.mjs (never commit)
+.photodock-debug.env

@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.9.0",
+    "date": "2026-11-03",
+    "changes": [
+      "New Debug access (Settings → Server): create a read-only token so a troubleshooting tool can read the server log, device logs, device status, screens and settings — without shell access to the server",
+      "Debug tokens never see photos; passwords, keys and other secrets are blanked. They expire after 1, 7 or 30 days, can be revoked at any time, only a hash is stored, and their use shows in the activity log",
+      "The server now keeps its recent console output (and a line for every server error) in memory, so problems can be traced after the fact",
+      "tools/photodock-debug.mjs: a small command-line client for the debug API (overview, logs, device logs, devices, screens, settings, activity, updates)",
+      "Admin page: sections added in an update now appear at the end of a saved custom layout, at their normal width, instead of at the top"
+    ]
+  },
+  {
     "version": "2.8.0",
     "date": "2026-10-18",
     "changes": [
