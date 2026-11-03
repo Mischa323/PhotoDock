@@ -4,6 +4,7 @@ const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 const os      = require('os');
+const util    = require('util');
 const crypto  = require('crypto');
 const { spawn, execSync, exec } = require('child_process');
 const QRCode      = require('qrcode');
@@ -13,6 +14,23 @@ const heicConvert = require('heic-convert');
 const { version: pkgVersion } = require('../package.json');
 const changelog    = require('./changelog.json');
 const appVersion   = process.env.APP_VERSION || pkgVersion;
+
+// ── Server log buffer ─────────────────────────────────────────────────────
+// Keep the most recent console output in memory so it can be read through the
+// debug API (Settings → Debug access) without shell access to the container.
+// Still printed as usual. Credentials in a query string never reach the buffer.
+const SERVER_LOG_MAX = 2000;
+const serverLog = [];
+const serverStartedAt = new Date().toISOString();
+const scrubLogLine = s => s.replace(/([?&](?:key|token|code|state|access_token|refresh_token|password)=)[^&\s"']+/gi, '$1[redacted]');
+for (const method of ['log', 'info', 'warn', 'error']) {
+    const orig = console[method].bind(console);
+    console[method] = (...args) => {
+        orig(...args);
+        serverLog.push({ t: new Date().toISOString(), level: method === 'log' ? 'info' : method, msg: scrubLogLine(util.format(...args)).slice(0, 4000) });
+        if (serverLog.length > SERVER_LOG_MAX) serverLog.splice(0, serverLog.length - SERVER_LOG_MAX);
+    };
+}
 
 const ROOT_DIR    = path.join(__dirname, '..');
 const FRONTEND_DIR = path.join(ROOT_DIR, 'frontend');
@@ -45,6 +63,15 @@ process.on('unhandledRejection', err => console.error('Unhandled rejection:', er
 // Uploaded files are served from this origin; never let a browser second-guess
 // their declared Content-Type (e.g. sniff an "image" into HTML).
 app.use((_req, res, next) => { res.set('X-Content-Type-Options', 'nosniff'); next(); });
+
+// Note every server error in the log buffer (path only: query strings carry keys).
+app.use((req, res, next) => {
+    const t0 = Date.now();
+    res.on('finish', () => {
+        if (res.statusCode >= 500) console.warn(`HTTP ${res.statusCode} ${req.method} ${req.path} (${Date.now() - t0} ms)`);
+    });
+    next();
+});
 
 const PORT        = process.env.PORT        || 8080;
 const HTTPS_PORT  = process.env.HTTPS_PORT  !== undefined ? process.env.HTTPS_PORT : '8081';
@@ -641,6 +668,8 @@ function requireAuth(req, res, next) {
     // Device-facing endpoints authenticate with an API key (requireApiKey), not
     // a user session — let them through the session wall.
     if (req.path.startsWith('/api/device/')) return next();
+    // Debug API: authenticates with a debug token (or an admin session) itself.
+    if (req.path.startsWith('/api/debug/')) return next();
     // OTA firmware download (no session — the ESP32 fetches this directly).
     if (req.path.startsWith('/firmware/')) return next();
     if (req.path === '/pair') return next();
@@ -3661,6 +3690,196 @@ app.delete('/api/admin/device-logs/:deviceId', requireAdmin, (req, res) => {
     if (appData.deviceLogs) delete appData.deviceLogs[req.params.deviceId];
     saveData(appData);
     res.json({ ok: true });
+});
+
+// ── Debug access (read-only, for remote troubleshooting) ─────────────────────
+// An admin creates a debug token in Settings → Debug access and gives it to a
+// troubleshooting tool (tools/photodock-debug.mjs). With it, GET /api/debug/*
+// reads the server log, device logs, device status and configuration — never
+// photos, passwords, keys or other secrets. Tokens are read-only, expire on
+// their own, can be revoked, and only their SHA-256 is stored.
+const DEBUG_TOKEN_DAYS = [1, 7, 30];
+const DEBUG_TOKEN_MAX  = 10;
+const hashDebugToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
+function debugTokens() {
+    const now = Date.now();
+    appData.debugTokens = (appData.debugTokens || []).filter(t => Date.parse(t.expiresAt) > now);
+    return appData.debugTokens;
+}
+const publicDebugToken = t => ({
+    id: t.id, name: t.name, prefix: t.prefix, createdAt: t.createdAt, createdBy: t.createdBy,
+    expiresAt: t.expiresAt, lastUsedAt: t.lastUsedAt || null, lastUsedIp: t.lastUsedIp || null,
+});
+
+app.get('/api/admin/debug-tokens', requireAdmin, (_req, res) => res.json(debugTokens().map(publicDebugToken)));
+
+app.post('/api/admin/debug-tokens', requireAdmin, (req, res) => {
+    const name = String(req.body?.name || '').trim().slice(0, 60) || 'Debug token';
+    const days = DEBUG_TOKEN_DAYS.includes(Number(req.body?.days)) ? Number(req.body.days) : 7;
+    const list = debugTokens();
+    if (list.length >= DEBUG_TOKEN_MAX) return res.status(400).json({ error: `At most ${DEBUG_TOKEN_MAX} debug tokens — revoke one first` });
+    const token = 'pdd_' + crypto.randomBytes(24).toString('base64url');
+    const rec = {
+        id: crypto.randomUUID(), name, prefix: token.slice(0, 10), hash: hashDebugToken(token),
+        createdAt: new Date().toISOString(), createdBy: req.currentUser?.username || null,
+        expiresAt: new Date(Date.now() + days * 86400000).toISOString(),
+    };
+    list.push(rec);
+    addLog('debug_token_created', { user: req.currentUser?.username, ip: req.ip, detail: `${name} (${days} day${days === 1 ? '' : 's'})` });   // saves
+    res.json({ ...publicDebugToken(rec), token });   // the only time the token itself is shown
+});
+
+app.delete('/api/admin/debug-tokens/:id', requireAdmin, (req, res) => {
+    const list = debugTokens();
+    const i = list.findIndex(t => t.id === req.params.id);
+    if (i < 0) return res.status(404).json({ error: 'Token not found' });
+    const [t] = list.splice(i, 1);
+    addLog('debug_token_revoked', { user: req.currentUser?.username, ip: req.ip, detail: t.name });   // saves
+    res.json({ ok: true });
+});
+
+// Everything under /api/debug needs a debug token (Authorization: Bearer …) or
+// an admin session, and is read-only.
+app.use('/api/debug', (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    if (req.method !== 'GET') return res.status(405).json({ error: 'The debug API is read-only' });
+    const m = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization || '');
+    if (m) {
+        const t = debugTokens().find(x => x.hash === hashDebugToken(m[1]));
+        if (!t) return res.status(401).json({ error: 'Invalid or expired debug token' });
+        const now = Date.now(), last = t.lastUsedAt ? Date.parse(t.lastUsedAt) : 0;
+        if (now - last > 60000) {
+            // Show the access in the activity log when it starts (after an hour idle), without flooding it.
+            if (now - last > 3600000) addLog('debug_access', { ip: req.ip, detail: t.name });
+            t.lastUsedAt = new Date(now).toISOString();
+            t.lastUsedIp = req.ip;
+            saveData(appData);
+        }
+        return next();
+    }
+    if (isAdmin(req.currentUser)) return next();
+    res.status(401).json({ error: 'Debug token required (Authorization: Bearer <token>)' });
+});
+
+// Belt and braces on top of the hand-picked fields below: blank anything whose
+// field name looks like a credential.
+const SECRET_FIELD_RE = /pass(word|wd)?$|secret|token|^key$|^apikey$|^sid$|^did$|^code$|cookie|^otp/i;
+function redactSecrets(v, depth = 0) {
+    if (v == null || typeof v !== 'object' || depth > 8) return v;
+    if (Array.isArray(v)) return v.map(x => redactSecrets(x, depth + 1));
+    const out = {};
+    for (const [k, x] of Object.entries(v))
+        out[k] = SECRET_FIELD_RE.test(k) && x != null && x !== '' && typeof x !== 'object' ? '[redacted]' : redactSecrets(x, depth + 1);
+    return out;
+}
+const debugLimit = (v, def, max) => Math.min(max, Math.max(1, parseInt(v, 10) || def));
+
+app.get('/api/debug/overview', (_req, res) => {
+    const mem = process.memoryUsage(), mb = n => Math.round(n / 1048576);
+    const s = firmwareSource();
+    res.json({
+        server: {
+            version: pkgVersion, build: appVersion !== pkgVersion ? appVersion : null, node: process.version,
+            platform: `${os.platform()} ${os.arch()}`, startedAt: serverStartedAt, uptimeS: Math.round(process.uptime()),
+            memoryMb: { rss: mb(mem.rss), heapUsed: mb(mem.heapUsed) }, now: new Date().toISOString(),
+            timezone: appData.settings?.timezone || DEFAULT_SETTINGS.timezone,
+        },
+        counts: {
+            users: (appData.users || []).length, screens: (appData.screens || []).length, albums: (appData.albums || []).length,
+            images: Object.keys(appData.imageMetadata || {}).length, apiKeys: (appData.apiKeys || []).length,
+            devices: Object.keys(appData.deviceStatus || {}).length,
+        },
+        firmware: {
+            repoUrl: s.repoUrl || null, ref: s.ref || null, lastBuiltAt: s.lastBuiltAt || null,
+            served: Object.fromEntries(Object.values(DEVICE_BUILDS).map(b => {
+                const hash = currentFirmwareInfo(b.model)?.version || null;
+                return [b.model, { hash, release: hash ? s.builtVersions?.[hash] || null : null }];
+            })),
+        },
+        serverLog: {
+            entries: serverLog.length,
+            warnings: serverLog.filter(e => e.level === 'warn').length,
+            errors: serverLog.filter(e => e.level === 'error').length,
+        },
+    });
+});
+
+// ?level=warn|error (that level and worse) ?since=<ISO time> ?grep=<text> ?limit=<newest n>
+app.get('/api/debug/server-logs', (req, res) => {
+    const rank = { info: 0, warn: 1, error: 2 };
+    const min = rank[req.query.level] ?? 0;
+    const since = req.query.since ? Date.parse(req.query.since) : NaN;
+    const grep = String(req.query.grep || '').toLowerCase();
+    const list = serverLog.filter(e => rank[e.level] >= min
+        && (isNaN(since) || Date.parse(e.t) > since)
+        && (!grep || e.msg.toLowerCase().includes(grep)));
+    res.json(list.slice(-debugLimit(req.query.limit, 200, SERVER_LOG_MAX)));
+});
+
+// The activity log (newest first). ?event=<name> ?limit=<n>
+app.get('/api/debug/activity', (req, res) => {
+    const ev = req.query.event;
+    res.json((appData.logs || []).filter(l => !ev || l.event === ev).slice(0, debugLimit(req.query.limit, 100, MAX_LOGS)));
+});
+
+// Last check-in of every device, with its key's settings (minus the key itself).
+app.get('/api/debug/devices', (_req, res) => {
+    const keys = appData.apiKeys || [], screens = appData.screens || [];
+    res.json(Object.values(appData.deviceStatus || {}).map(d => {
+        const key = keys.find(k => k.id === d.apiKeyId);
+        const sid = key?.screenId || d.screenId || null;
+        return { ...d, screenName: screens.find(s => s.id === sid)?.name || null, keySettings: key ? redactSecrets(key) : null };
+    }));
+});
+
+// Recent log uploads per device (newest first). ?device=<id> ?screen=<id> ?entries=<n per device>
+app.get('/api/debug/device-logs', (req, res) => {
+    const keys = appData.apiKeys || [];
+    const n = debugLimit(req.query.entries, 5, 20);
+    let list = Object.values(appData.deviceLogs || {}).map(l => {
+        const key = keys.find(k => k.id === l.apiKeyId);
+        return {
+            deviceId: l.deviceId, apiKeyId: l.apiKeyId, keyName: key?.name || null, screenId: key?.screenId || null,
+            entries: l.entries.slice(-n).reverse().map(e => ({ at: e.at, text: scrubLogLine(e.text) })),
+        };
+    });
+    if (req.query.device) list = list.filter(l => l.deviceId === req.query.device);
+    if (req.query.screen) list = list.filter(l => l.screenId === req.query.screen);
+    res.json(list);
+});
+
+// Screens with their albums, play-next queue and keys (minus the key itself).
+app.get('/api/debug/screens', (_req, res) => {
+    const meta = Object.values(appData.imageMetadata || {});
+    res.json((appData.screens || []).map(s => ({
+        ...s,
+        imageCount: meta.filter(m => m.screenId === s.id).length,
+        albums: (appData.albums || []).filter(a => a.screenId === s.id)
+            .map(a => ({ id: a.id, name: a.name, images: meta.filter(m => m.albumId === a.id).length })),
+        queue: screenQueue(s.id),
+        keys: (appData.apiKeys || []).filter(k => k.screenId === s.id).map(k => redactSecrets(k)),
+    })));
+});
+
+// Settings and accounts, without credentials, emails or 2FA secrets.
+app.get('/api/debug/settings', (_req, res) => {
+    res.json({
+        settings: redactSecrets(appData.settings || {}),
+        roles: appData.roles || {},
+        users: (appData.users || []).map(u => ({
+            username: u.username, role: u.role, blocked: !!u.blocked,
+            twoFactorEnabled: !!u.twoFactorEnabled, twoFactorMethod: u.twoFactorMethod || null,
+            failedLoginAttempts: u.failedLoginAttempts || 0, lastLogin: u.lastLogin || null,
+        })),
+        firmwareSource: redactSecrets(firmwareSource()),
+        customDevices: redactSecrets(appData.customDevices || []),
+    });
+});
+
+// Same comparison with GitHub as Settings → Version → Check for updates.
+app.get('/api/debug/updates', async (_req, res) => {
+    const [appUpdate, firmware] = await Promise.all([checkAppUpdate(), checkFirmwareUpdate()]);
+    res.json({ app: appUpdate, firmware });
 });
 
 // ── Firmware changelog (read-only) ────────────────────────────────────────

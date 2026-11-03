@@ -1979,6 +1979,24 @@
         </div></div>
     </section>
 
+    <!-- Debug access -->
+    <section id="sec-debug-access">
+        <div class="section-header">
+            <h2>Debug access <span class="help" data-tip="Lets a troubleshooting tool (such as Claude Code with tools/photodock-debug.mjs) read this server's logs, device logs, device status and settings over the internet, so problems can be investigated without shell access. Read-only: it can't change anything, and never sees photos, passwords or keys.">?</span></h2>
+        </div>
+        <div class="section-body"><div class="section-body-inner" style="padding:20px 24px">
+            <p style="font-size:13px;color:#888;margin:0 0 14px">Create a <strong>read-only</strong> token for troubleshooting. It can read the server log, device logs, device status and settings — never photos, passwords or keys. Tokens expire on their own and can be revoked here at any time.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+                <div style="flex:2;min-width:180px"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Name</label><input id="dtName" class="cd-in" placeholder="e.g. Claude Code" maxlength="60"></div>
+                <div style="flex:1;min-width:110px"><label style="font-size:11px;color:rgba(255,255,255,0.5);display:block;margin-bottom:4px">Valid for</label>
+                    <select id="dtDays" class="cd-in"><option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option></select></div>
+                <button class="btn-add" onclick="createDebugToken()">+ Create token</button>
+            </div>
+            <div id="dtNew" style="display:none;margin-top:14px;padding:14px;border-radius:10px;background:rgba(34,211,238,0.08);border:1px solid rgba(34,211,238,0.35)"></div>
+            <div id="dtList" style="margin-top:16px"></div>
+        </div></div>
+    </section>
+
 </main>
 
 <!-- Edit password modal -->
@@ -3291,6 +3309,9 @@
         import_synology:{ label: 'Synology import',color: '#0e7490', bg: '#e0f7fa', severity: 'info'    },
         synology_error: { label: 'Synology error', color: '#b71c1c', bg: '#fdecea', severity: 'warning' },
         queue:          { label: 'Play next',      color: '#6a1b9a', bg: '#f3e5f5', severity: 'info'    },
+        debug_token_created: { label: 'Debug token',    color: '#e65100', bg: '#fff3e0', severity: 'warning' },
+        debug_token_revoked: { label: 'Debug revoked',  color: '#2e7d32', bg: '#e6f4ea', severity: 'info'    },
+        debug_access:        { label: 'Debug access',   color: '#e65100', bg: '#fff3e0', severity: 'info'    },
     };
 
     // Unknown events default to 'info' severity
@@ -3455,6 +3476,7 @@
         'sec-firmware-source': 'full',
         'sec-custom-devices': 'full',
         'sec-version':   'half',
+        'sec-debug-access': 'half',
     };
 
     function saveGridLayout() {
@@ -3467,11 +3489,16 @@
     }
 
     function applyGridLayout() {
-        const saved = (() => { try { return JSON.parse(localStorage.getItem('adminGridLayout')); } catch { return null; } })();
+        let   saved = (() => { try { return JSON.parse(localStorage.getItem('adminGridLayout')); } catch { return null; } })();
         const main  = document.querySelector('main');
 
         if (saved && Array.isArray(saved)) {
-            // Restore order
+            // Restore order; sections added since the layout was saved go after
+            // the saved ones, at their default width.
+            const known = new Set(saved.map(s => s.id));
+            const added = Object.keys(GRID_DEFAULTS).filter(id => !known.has(id))
+                .map(id => ({ id, width: GRID_DEFAULTS[id] }));
+            saved = saved.concat(added);
             saved.forEach(({ id }) => {
                 const el = document.getElementById(id);
                 if (el) main.appendChild(el);
@@ -3555,6 +3582,7 @@
         'sec-firmware-source': 'server',
         'sec-custom-devices': 'server',
         'sec-version':     'server',
+        'sec-debug-access': 'server',
     };
     let _metricsTimer = null;
     function switchTab(group) {
@@ -3769,8 +3797,67 @@
         loadFirmwareVersions();
     }
     window.revertFirmware = revertFirmware;
+
+    // ── Debug access tokens ──────────────────────────────────────────────────
+    function untilText(iso) {
+        const h = Math.round((new Date(iso).getTime() - Date.now()) / 3600000);
+        return h >= 48 ? `in ${Math.round(h / 24)} days` : h >= 1 ? `in ${h}h` : 'within the hour';
+    }
+    async function loadDebugTokens() {
+        const el = document.getElementById('dtList');
+        if (!el) return;
+        let list = [];
+        try { const r = await fetch('/api/admin/debug-tokens'); if (r.ok) list = await r.json(); } catch {}
+        el.innerHTML = list.length ? list.map(t => `
+            <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid rgba(255,255,255,0.07)">
+                <div style="flex:1;min-width:0">
+                    <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,0.88)">${escHtml(t.name)} <code style="font-size:11px;opacity:0.55">${escHtml(t.prefix)}…</code></div>
+                    <div style="font-size:11.5px;color:rgba(255,255,255,0.45)">expires ${untilText(t.expiresAt)} · last used ${t.lastUsedAt ? relTimeAgo(t.lastUsedAt) + (t.lastUsedIp ? ' from ' + escHtml(t.lastUsedIp) : '') : 'never'}${t.createdBy ? ' · by ' + escHtml(t.createdBy) : ''}</div>
+                </div>
+                <button class="btn-cancel" style="font-size:12px;padding:5px 12px" onclick="revokeDebugToken('${escHtml(t.id)}')">Revoke</button>
+            </div>`).join('')
+            : '<div style="font-size:12px;color:rgba(255,255,255,0.4)">No active debug tokens.</div>';
+    }
+    window.loadDebugTokens = loadDebugTokens;
+    async function createDebugToken() {
+        const name = document.getElementById('dtName').value.trim();
+        const days = Number(document.getElementById('dtDays').value) || 7;
+        const r = await fetch('/api/admin/debug-tokens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, days }) });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { showToast(d.error || 'Could not create the token', 'error'); return; }
+        const env = `PHOTODOCK_URL=${location.origin}\nPHOTODOCK_DEBUG_TOKEN=${d.token}`;
+        const box = document.getElementById('dtNew');
+        box.style.display = 'block';
+        box.innerHTML = `
+            <div style="font-size:13px;font-weight:600;color:#fff;margin-bottom:4px">Copy this now — the token won't be shown again</div>
+            <div style="font-size:12px;color:rgba(255,255,255,0.6);margin-bottom:8px">Save these two lines as <code>.photodock-debug.env</code> in your PhotoDock project folder (it's git-ignored), or give them to whoever is troubleshooting:</div>
+            <pre id="dtEnv" style="margin:0;padding:10px 12px;border-radius:8px;background:#0f172a;color:#e2e8f0;font-size:12px;white-space:pre-wrap;word-break:break-all;user-select:all">${escHtml(env)}</pre>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="btn-add" style="font-size:12.5px;padding:6px 14px" onclick="copyDebugToken()">Copy</button>
+                <button class="btn-cancel" style="font-size:12.5px;padding:6px 14px" onclick="document.getElementById('dtNew').style.display='none'">Done</button>
+            </div>`;
+        document.getElementById('dtName').value = '';
+        loadDebugTokens();
+    }
+    window.createDebugToken = createDebugToken;
+    async function copyDebugToken() {
+        const text = document.getElementById('dtEnv')?.textContent || '';
+        try { await navigator.clipboard.writeText(text); showToast('Copied'); }
+        catch { showToast('Select the text and copy it by hand', 'error'); }
+    }
+    window.copyDebugToken = copyDebugToken;
+    async function revokeDebugToken(id) {
+        if (!confirm('Revoke this debug token? Anything using it loses access immediately.')) return;
+        const r = await fetch('/api/admin/debug-tokens/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (!r.ok) { showToast('Could not revoke the token', 'error'); return; }
+        showToast('Token revoked');
+        loadDebugTokens();
+    }
+    window.revokeDebugToken = revokeDebugToken;
+
     loadFirmwareSource();
     loadFirmwareVersions();
+    loadDebugTokens();
 
     // Restore last tab (default Usage).
     switchTab(localStorage.getItem('adminActiveTab') || 'usage');
